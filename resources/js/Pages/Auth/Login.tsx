@@ -4,9 +4,10 @@ import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
 import TextInput from '@/Components/TextInput';
 import GuestLayout from '@/Layouts/GuestLayout';
-import { LoaderCircle, ShieldCheck } from 'lucide-react';
+import { LoaderCircle, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { Head, Link, useForm } from '@inertiajs/react';
-import { FormEventHandler } from 'react';
+import { FormEventHandler, useState } from 'react';
+import alibatonLogo from '@/assets/AlibatonLogonobg.png';
 
 export default function Login({
     status,
@@ -20,6 +21,8 @@ export default function Login({
         password: '',
         remember: false as boolean,
     });
+
+    const [showPassword, setShowPassword] = useState(false);
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -41,14 +44,19 @@ export default function Login({
 
             <form onSubmit={submit}>
                 <div className="mb-6">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-indigo-600">
-                        Secure Access
-                    </p>
-                    <h1 className="mt-2 text-2xl font-semibold text-slate-900">
-                        Sign in to your portal
+                    <img
+                        src={alibatonLogo}
+                        alt="Alibaton Construction Incorporated"
+                        className="mb-8 h-35 w-auto"
+                    />
+                    <h1 className="mt-2 text-2xl font-bold text-slate-900">
+                        Human Resources
                     </h1>
-                    <p className="mt-2 text-sm text-slate-600">
-                        Authenticate with your role account to open the correct dashboard.
+                    <p className="text-lg font-semibold text-orange-600">
+                        Performance &amp; Development
+                    </p>
+                    <p className="mt-3 text-sm text-slate-600">
+                        Welcome back! Sign in to your workforce portal to start your day.
                     </p>
                 </div>
 
@@ -56,7 +64,7 @@ export default function Login({
                     <InputLabel
                         htmlFor="email"
                         value="Email"
-                        className="text-slate-700"
+                        className="font-medium text-slate-800"
                     />
 
                     <TextInput
@@ -64,7 +72,7 @@ export default function Login({
                         type="email"
                         name="email"
                         value={data.email}
-                        className="mt-1 block w-full rounded-xl border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm transition focus:border-indigo-500 focus:ring-indigo-500"
+                        className="mt-1 block w-full rounded-xl border-slate-300 bg-white px-4 py-3 shadow-sm transition focus:border-orange-500 focus:ring-orange-500"
                         autoComplete="username"
                         isFocused={true}
                         onChange={(e) => setData('email', e.target.value)}
@@ -77,18 +85,33 @@ export default function Login({
                     <InputLabel
                         htmlFor="password"
                         value="Password"
-                        className="text-slate-700"
+                        className="font-medium text-slate-800"
                     />
 
-                    <TextInput
-                        id="password"
-                        type="password"
-                        name="password"
-                        value={data.password}
-                        className="mt-1 block w-full rounded-xl border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm transition focus:border-indigo-500 focus:ring-indigo-500"
-                        autoComplete="current-password"
-                        onChange={(e) => setData('password', e.target.value)}
-                    />
+                    <div className="relative">
+                        <TextInput
+                            id="password"
+                            type={showPassword ? 'text' : 'password'}
+                            name="password"
+                            value={data.password}
+                            className="mt-1 block w-full rounded-xl border-slate-300 bg-white px-4 py-3 pr-11 shadow-sm transition focus:border-orange-500 focus:ring-orange-500"
+                            autoComplete="current-password"
+                            onChange={(e) => setData('password', e.target.value)}
+                        />
+
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword((prev) => !prev)}
+                            className="absolute right-3 top-1/2 mt-0.5 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
+                            tabIndex={-1}
+                        >
+                            {showPassword ? (
+                                <EyeOff className="h-5 w-5" />
+                            ) : (
+                                <Eye className="h-5 w-5" />
+                            )}
+                        </button>
+                    </div>
 
                     <InputError message={errors.password} className="mt-2" />
                 </div>
@@ -98,7 +121,7 @@ export default function Login({
                         <Checkbox
                             name="remember"
                             checked={data.remember}
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                             onChange={(e) =>
                                 setData(
                                     'remember',
@@ -116,14 +139,14 @@ export default function Login({
                     {canResetPassword && (
                         <Link
                             href={route('password.request')}
-                            className="rounded-md text-sm text-slate-600 underline decoration-slate-400 underline-offset-4 transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="rounded-md text-sm text-slate-600 underline decoration-slate-400 underline-offset-4 transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500"
                         >
                             Forgot your password?
                         </Link>
                     )}
 
                     <PrimaryButton
-                        className="ms-auto inline-flex min-w-36 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold normal-case tracking-normal text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 focus:bg-indigo-500 active:bg-indigo-700"
+                        className="ms-auto inline-flex min-w-36 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-semibold normal-case tracking-normal text-white shadow-lg shadow-orange-600/30 hover:bg-orange-500 focus:bg-orange-500 active:bg-orange-700"
                         disabled={processing}
                     >
                         {processing ? (
