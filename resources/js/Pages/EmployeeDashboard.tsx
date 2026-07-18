@@ -1,18 +1,18 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, usePage } from '@inertiajs/react';
 
-export default function AdminDashboard() {
+export default function EmployeeDashboard() {
     const { auth } = usePage().props as any;
 
     return (
         <AuthenticatedLayout
             header={
                 <h2 className="text-xl font-semibold leading-tight text-gray-800">
-                    Admin Dashboard
+                    Employee Dashboard
                 </h2>
             }
         >
-            <Head title="Admin Dashboard" />
+            <Head title="Employee Dashboard" />
 
             <div className="flex flex-col gap-4">
                 <div className="rounded-xl bg-white p-6 shadow-sm">
@@ -20,7 +20,7 @@ export default function AdminDashboard() {
                         Hello, {auth.user.name}
                     </h2>
                     <p className="mt-1 text-sm text-gray-500">
-                        Alfonso o Clvb, Inom o Research
+                        Employee Portal - Your Workforce Dashboard
                     </p>
                 </div>
 
