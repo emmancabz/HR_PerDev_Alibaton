@@ -4,25 +4,25 @@ namespace App\Enums;
 
 enum UserRole: string
 {
-    case Employee = 'employee';
-    case Manager = 'manager';
+    case User = 'user';
+    case HR = 'hr';
     case Admin = 'admin';
 
     public function dashboardRouteName(): string
     {
         return match ($this) {
             self::Admin => 'admin.dashboard',
-            self::Manager => 'manager.dashboard',
-            self::Employee => 'employee.dashboard',
+            self::HR => 'hr.dashboard',
+            self::User => 'user.dashboard',
         };
     }
 
     public function label(): string
     {
         return match ($this) {
-            self::Admin => 'Administrator',
-            self::Manager => 'Manager',
-            self::Employee => 'Employee',
+            self::Admin => 'Admin',
+            self::HR => 'HR',
+            self::User => 'User',
         };
     }
 }

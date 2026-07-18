@@ -12,9 +12,6 @@ class DatabaseSeeder extends Seeder
 {
     use WithoutModelEvents;
 
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
         $accounts = [
@@ -24,14 +21,14 @@ class DatabaseSeeder extends Seeder
                 'role' => UserRole::Admin,
             ],
             [
-                'name' => 'Manager User',
-                'email' => 'manager@alibaton.com',
-                'role' => UserRole::Manager,
+                'name' => 'HR User',
+                'email' => 'hr@alibaton.com',
+                'role' => UserRole::HR,
             ],
             [
-                'name' => 'Employee User',
-                'email' => 'employee@alibaton.com',
-                'role' => UserRole::Employee,
+                'name' => 'Driver User',
+                'email' => 'user@alibaton.com',
+                'role' => UserRole::User,
             ],
         ];
 

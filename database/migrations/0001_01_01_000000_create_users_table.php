@@ -19,7 +19,7 @@ return new class extends Migration
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->enum('role', array_column(UserRole::cases(), 'value'))
-                ->default(UserRole::Employee->value)
+                ->default(UserRole::User->value)
                 ->index();
             $table->rememberToken();
             $table->timestamps();

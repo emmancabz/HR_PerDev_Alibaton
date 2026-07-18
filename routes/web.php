@@ -12,15 +12,18 @@ Route::get('/', function () {
 
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
     Route::get('/admin/dashboard', [DashboardController::class, 'admin'])
         ->middleware('role:admin')
         ->name('admin.dashboard');
-    Route::get('/manager/dashboard', [DashboardController::class, 'manager'])
-        ->middleware('role:manager')
-        ->name('manager.dashboard');
-    Route::get('/employee/dashboard', [DashboardController::class, 'employee'])
-        ->middleware('role:employee')
-        ->name('employee.dashboard');
+
+    Route::get('/hr/dashboard', [DashboardController::class, 'hr'])
+        ->middleware('role:hr')
+        ->name('hr.dashboard');
+
+    Route::get('/user/dashboard', [DashboardController::class, 'user'])
+        ->middleware('role:user')
+        ->name('user.dashboard');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

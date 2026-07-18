@@ -22,16 +22,16 @@ class DashboardController extends Controller
         ]);
     }
 
-    public function manager(Request $request): Response
+    public function hr(Request $request): Response
     {
-        return Inertia::render('ManagerDashboard', [
+        return Inertia::render('HRDashboard', [
             'userName' => $request->user()->name,
         ]);
     }
 
-    public function employee(Request $request): Response
+    public function user(Request $request): Response
     {
-        return Inertia::render('EmployeeDashboard', [
+        return Inertia::render('UserDashboard', [
             'userName' => $request->user()->name,
         ]);
     }
