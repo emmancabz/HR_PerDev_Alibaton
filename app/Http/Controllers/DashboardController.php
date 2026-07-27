@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -38,6 +39,8 @@ class DashboardController extends Controller
 
     public function redirectToOwnedDashboard(User $user): RedirectResponse
     {
-        return redirect()->route($user->role->dashboardRouteName());
+        $role = $user->role instanceof UserRole ? $user->role : UserRole::User;
+
+        return redirect()->route($role->dashboardRouteName());
     }
 }

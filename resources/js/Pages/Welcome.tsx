@@ -1,6 +1,5 @@
 import { PageProps } from '@/types';
 import { Head, Link } from '@inertiajs/react';
-
 export default function Welcome({
     auth,
     laravelVersion,
@@ -16,7 +15,6 @@ export default function Welcome({
             ?.classList.add('!flex-row');
         document.getElementById('background')?.classList.add('!hidden');
     };
-
     return (
         <>
             <Head title="Welcome" />
@@ -68,7 +66,6 @@ export default function Welcome({
                                 )}
                             </nav>
                         </header>
-
                         <main className="mt-6">
                             <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
                                 <a
@@ -174,15 +171,8 @@ export default function Welcome({
                                         </h2>
 
                                         <p className="mt-4 text-sm/relaxed">
-                                            Laracasts offers thousands of video
-                                            tutorials on Laravel, PHP, and
-                                            JavaScript development. Check them
-                                            out, see for yourself, and massively
-                                            level up your development skills in
-                                            the process.
                                         </p>
                                     </div>
-
                                     <svg
                                         className="size-6 shrink-0 self-center stroke-[#FF2D20]"
                                         xmlns="http://www.w3.org/2000/svg"
@@ -197,7 +187,6 @@ export default function Welcome({
                                         />
                                     </svg>
                                 </a>
-
                                 <a
                                     href="https://laravel-news.com"
                                     className="flex items-start gap-4 rounded-lg bg-white p-6 shadow-[0px_14px_34px_0px_rgba(0,0,0,0.08)] ring-1 ring-white/[0.05] transition duration-300 hover:text-black/70 hover:ring-black/20 focus:outline-none focus-visible:ring-[#FF2D20] lg:pb-10 dark:bg-zinc-900 dark:ring-zinc-800 dark:hover:text-white/70 dark:hover:ring-zinc-700 dark:focus-visible:ring-[#FF2D20]"
@@ -216,19 +205,12 @@ export default function Welcome({
                                             </g>
                                         </svg>
                                     </div>
-
                                     <div className="pt-3 sm:pt-5">
                                         <h2 className="text-xl font-semibold text-black dark:text-white">
-                                            Laravel News
                                         </h2>
 
                                         <p className="mt-4 text-sm/relaxed">
-                                            Laravel News is a community driven
-                                            portal and newsletter aggregating
-                                            all of the latest and most important
-                                            news in the Laravel ecosystem,
-                                            including new package releases and
-                                            tutorials.
+                                    
                                         </p>
                                     </div>
 

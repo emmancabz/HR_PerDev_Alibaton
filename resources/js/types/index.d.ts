@@ -1,6 +1,6 @@
 import { Config } from 'ziggy-js';
 
-export type UserRole = 'admin' | 'manager' | 'employee';
+export type UserRole = 'admin' | 'hr' | 'user';
 
 export interface User {
     id: number;
