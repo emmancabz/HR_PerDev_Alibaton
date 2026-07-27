@@ -33,7 +33,6 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-
 const statCards = [
     { label: 'Total HR', value: 0, icon: Users },
     { label: 'Total Trainees', value: 0, icon: Users },
@@ -42,7 +41,6 @@ const statCards = [
     { label: 'Completed Trainings', value: 0, icon: Trophy },
     { label: 'Average Performance', value: 0, icon: Star },
 ];
-
 const performanceData = [
     { month: 'Jan', score: 42 },
     { month: 'Feb', score: 38 },
@@ -57,7 +55,6 @@ const performanceData = [
     { month: 'Nov', score: 68 },
     { month: 'Dec', score: 85 },
 ];
-
 const recentActivities = [
     {
         icon: UserPlus,
@@ -84,13 +81,11 @@ const recentActivities = [
         time: 'May 20',
     },
 ];
-
 const completionData = [
     { name: 'Completed', value: 78, percent: 78, count: 89, color: '#F4B400' },
     { name: 'In Progress', value: 16, percent: 16, count: 18, color: '#1a1a1a' },
     { name: 'Not Started', value: 6, percent: 6, count: 7, color: '#d4d4d4' },
 ];
-
 const topCompetencies = [
     { label: 'Communication', score: 4.35 },
     { label: 'Leadership', score: 4.2 },
@@ -98,7 +93,6 @@ const topCompetencies = [
     { label: 'Teamwork', score: 4.05 },
     { label: 'Problem Solving', score: 3.9 },
 ];
-
 type Trainee = {
     name: string;
     role: string;
@@ -113,7 +107,6 @@ type Trainee = {
     lastLogin: string;
     status: 'Active' | 'Inactive';
 };
-
 const topTrainees: Trainee[] = [
     {
         name: 'Princess Buban',
@@ -186,7 +179,6 @@ const topTrainees: Trainee[] = [
         status: 'Inactive',
     },
 ];
-
 const upcomingTrainings = [
     {
         month: 'May',
@@ -217,7 +209,6 @@ const upcomingTrainings = [
         participants: 20,
     },
 ];
-
 const quickActions = [
     { label: 'Manage Users', icon: Users, route: 'admin.users.index' },
     { label: 'Manage Courses', icon: BookOpen, route: 'admin.learning.index' },
@@ -233,7 +224,6 @@ const avgScore = Math.round(
 const latestScore = performanceData[performanceData.length - 1].score;
 const previousScore = performanceData[performanceData.length - 2].score;
 const scoreTrend = latestScore - previousScore;
-
 function PerformanceTooltip({
     active,
     payload,
