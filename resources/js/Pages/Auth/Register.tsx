@@ -5,7 +5,6 @@ import TextInput from '@/Components/TextInput';
 import GuestLayout from '@/Layouts/GuestLayout';
 import { Head, Link, useForm } from '@inertiajs/react';
 import { FormEventHandler } from 'react';
-
 export default function Register() {
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
@@ -13,7 +12,6 @@ export default function Register() {
         password: '',
         password_confirmation: '',
     });
-
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
 
@@ -21,7 +19,6 @@ export default function Register() {
             onFinish: () => reset('password', 'password_confirmation'),
         });
     };
-
     return (
         <GuestLayout>
             <Head title="Register" />
@@ -40,10 +37,8 @@ export default function Register() {
                         onChange={(e) => setData('name', e.target.value)}
                         required
                     />
-
                     <InputError message={errors.name} className="mt-2" />
                 </div>
-
                 <div className="mt-4">
                     <InputLabel htmlFor="email" value="Email" />
 
@@ -57,10 +52,8 @@ export default function Register() {
                         onChange={(e) => setData('email', e.target.value)}
                         required
                     />
-
                     <InputError message={errors.email} className="mt-2" />
                 </div>
-
                 <div className="mt-4">
                     <InputLabel htmlFor="password" value="Password" />
 
@@ -74,16 +67,13 @@ export default function Register() {
                         onChange={(e) => setData('password', e.target.value)}
                         required
                     />
-
                     <InputError message={errors.password} className="mt-2" />
                 </div>
-
                 <div className="mt-4">
                     <InputLabel
                         htmlFor="password_confirmation"
                         value="Confirm Password"
                     />
-
                     <TextInput
                         id="password_confirmation"
                         type="password"
@@ -96,13 +86,11 @@ export default function Register() {
                         }
                         required
                     />
-
                     <InputError
                         message={errors.password_confirmation}
                         className="mt-2"
                     />
                 </div>
-
                 <div className="mt-4 flex items-center justify-end">
                     <Link
                         href={route('login')}
@@ -110,9 +98,7 @@ export default function Register() {
                     >
                         Already registered?
                     </Link>
-
-                    <PrimaryButton className="ms-4" disabled={processing}>
-                        Register
+                    <PrimaryButton className="ms-4" disabled={processing}> Register
                     </PrimaryButton>
                 </div>
             </form>

@@ -1,9 +1,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, usePage } from '@inertiajs/react';
-
 export default function EmployeeDashboard() {
     const { auth } = usePage().props as any;
-
     return (
         <AuthenticatedLayout
             header={
@@ -13,7 +11,6 @@ export default function EmployeeDashboard() {
             }
         >
             <Head title="Employee Dashboard" />
-
             <div className="flex flex-col gap-4">
                 <div className="rounded-xl bg-white p-6 shadow-sm">
                     <h2 className="text-lg font-semibold text-gray-800">
@@ -23,7 +20,6 @@ export default function EmployeeDashboard() {
                         Employee Portal - Your Workforce Dashboard
                     </p>
                 </div>
-
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
                     {[1, 2, 3, 4, 5].map((i) => (
                         <div key={i} className="h-32 rounded-xl bg-gray-100" />

@@ -20,7 +20,6 @@ export default function UserDashboard() {
                         Driver / Trainee Portal — Performance &amp; Development
                     </p>
                 </div>
-
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     {[1, 2, 3, 4].map((i) => (
                         <div

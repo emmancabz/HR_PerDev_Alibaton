@@ -28,7 +28,7 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:hr')->prefix('hr')->name('hr.')->group(function () {
         Route::get('/learning', fn () => Inertia::render('ModulePage', ['title' => 'Learning Management']))->name('learning.index');
-        Route::get('/training', fn () => Inertia::render('ModulePage', ['title' => 'Training Management']))->name('training.index');
+        Route::get('/training', fn () => Inertia::render('TrainingManagement'))->name('training.index');
         Route::get('/competency', fn () => Inertia::render('ModulePage', ['title' => 'Competency Management']))->name('competency.index');
         Route::get('/performance', fn () => Inertia::render('ModulePage', ['title' => 'Performance Management']))->name('performance.index');
         Route::get('/succession', fn () => Inertia::render('ModulePage', ['title' => 'Succession Planning']))->name('succession.index');
@@ -54,9 +54,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/performance', fn () => Inertia::render('PerformanceManagement'))->name('performance.index');
         Route::get('/competency', fn () => Inertia::render('CompetencyManagement'))->name('competency.index');
         Route::get('/learning', fn () => Inertia::render('LearningManagement'))->name('learning.index');
-        Route::get('/training', fn () => Inertia::render('ModulePage', ['title' => 'Training Management']))->name('training.index');
-        Route::get('/succession', fn () => Inertia::render('ModulePage', ['title' => 'Succession Planning']))->name('succession.index');
-        Route::get('/recognition', fn () => Inertia::render('ModulePage', ['title' => 'Social Recognition']))->name('recognition.index');
+        Route::get('/training', fn () => Inertia::render('TrainingManagement'))->name('training.index');
+        Route::get('/succession', fn () => Inertia::render('SuccessionManagement'))->name('succession.index');
+        Route::get('/recognition', fn () => Inertia::render('SocialRecognition'))->name('recognition.index');
         Route::get('/reports', fn () => Inertia::render('ModulePage', ['title' => 'Reports']))->name('reports.index');
         Route::get('/integrations', fn () => Inertia::render('ModulePage', ['title' => 'Integration Settings']))->name('integrations.index');
         Route::get('/settings', fn () => Inertia::render('ModulePage', ['title' => 'Settings']))->name('settings.index');

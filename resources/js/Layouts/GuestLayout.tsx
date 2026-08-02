@@ -1,10 +1,24 @@
-import { PropsWithChildren } from 'react';
 import loginBg from '@/assets/loginbg.png';
-
-export default function Guest({ children }: PropsWithChildren) {
+import { PropsWithChildren, useEffect, useState } from 'react';
+interface GuestLayoutProps extends PropsWithChildren {
+    isMfaStep?: boolean;
+}
+export default function Guest({ children, isMfaStep = false }: GuestLayoutProps) {
+    const [isTransitioning, setIsTransitioning] = useState(false);
+    useEffect(() => {
+        setIsTransitioning(true);
+        const timer = setTimeout(() => {
+            setIsTransitioning(false);
+        }, 700); // Exaktong duration nung transition
+        return () => clearTimeout(timer);
+    }, [isMfaStep]);
     return (
-        <div className="flex min-h-screen">
-            <div className="relative hidden w-full overflow-hidden lg:block lg:w-3/5">
+        <div className="relative min-h-screen w-full overflow-hidden bg-slate-900">
+            <div 
+                className={`absolute bottom-0 left-0 top-0 z-10 hidden w-full lg:block lg:w-[60vw] transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                    isMfaStep ? 'lg:translate-x-[40vw]' : 'translate-x-0'
+                } ${isTransitioning ? 'blur-[3px] scale-[1.01]' : 'blur-0 scale-100'}`}
+            >
                 <img
                     src={loginBg}
                     alt="Alibaton Construction"
@@ -25,16 +39,17 @@ export default function Guest({ children }: PropsWithChildren) {
                     </p>
                 </div>
             </div>
-
-            <div className="relative flex w-full items-center justify-center bg-gradient-to-br from-slate-50 via-white to-amber-50/30 px-6 py-10 lg:w-2/5">
+            <div 
+                className={`absolute bottom-0 right-0 top-0 z-20 flex w-full lg:w-[40vw] items-center justify-center bg-gradient-to-br from-slate-50 via-white to-amber-50/30 px-6 py-10 transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                    isMfaStep ? 'lg:-translate-x-[60vw]' : 'translate-x-0'
+                }`}
+            >
                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
                     <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-[#F4B400]/5 blur-3xl" />
                     <div className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-orange-500/5 blur-3xl" />
                 </div>
                 <div className="relative w-full max-w-md">
-                    <div className="rounded-2xl border border-slate-100 bg-white/80 p-8 shadow-xl shadow-slate-200/50 backdrop-blur-sm">
-                        {children}
-                    </div>
+                    {children}
                 </div>
             </div>
         </div>

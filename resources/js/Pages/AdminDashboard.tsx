@@ -1,5 +1,5 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     Award,
     BookOpen,
@@ -34,12 +34,48 @@ import {
     YAxis,
 } from 'recharts';
 const statCards = [
-    { label: 'Total HR', value: 0, icon: Users },
-    { label: 'Total Trainees', value: 0, icon: Users },
-    { label: 'Total Course', value: 0, icon: BookOpen },
-    { label: 'Active Training', value: 0, icon: GraduationCap },
-    { label: 'Completed Trainings', value: 0, icon: Trophy },
-    { label: 'Average Performance', value: 0, icon: Star },
+    {
+        label: 'Total HR',
+        value: 0,
+        icon: Users,
+        route: 'admin.users.index',
+        params: { role: 'hr' },
+    },
+    {
+        label: 'Total Trainees',
+        value: 0,
+        icon: Users,
+        route: 'admin.users.index',
+        params: { role: 'trainee' },
+    },
+    {
+        label: 'Total Course',
+        value: 0,
+        icon: BookOpen,
+        route: 'admin.learning.index',
+        params: undefined,
+    },
+    {
+        label: 'Active Training',
+        value: 0,
+        icon: GraduationCap,
+        route: 'admin.training.index',
+        params: { status: 'active' },
+    },
+    {
+        label: 'Completed Trainings',
+        value: 0,
+        icon: Trophy,
+        route: 'admin.training.index',
+        params: { status: 'completed' },
+    },
+    {
+        label: 'Average Performance',
+        value: 0,
+        icon: Star,
+        route: 'admin.performance.index',
+        params: undefined,
+    },
 ];
 const performanceData = [
     { month: 'Jan', score: 42 },
@@ -61,37 +97,66 @@ const recentActivities = [
         title: 'New Trainee registered',
         subtitle: 'Emmanuel Cabanas',
         time: '10:30 AM',
+        route: 'admin.users.index',
+        params: { role: 'trainee', search: 'Emmanuel Cabanas' },
     },
     {
         icon: GraduationCap,
         title: 'Training Completed',
         subtitle: 'Leadership Fundamentals',
         time: 'Yesterday',
+        route: 'admin.training.index',
+        params: { status: 'completed', search: 'Leadership Fundamentals' },
     },
     {
         icon: Star,
         title: 'Performance evaluation',
         subtitle: '15 evaluation submitted',
         time: 'Yesterday',
+        route: 'admin.performance.index',
+        params: undefined,
     },
     {
         icon: Award,
         title: 'Recognition given',
         subtitle: 'Vicky Melgar',
         time: 'May 20',
+        route: 'admin.recognition.index',
+        params: { search: 'Vicky Melgar' },
     },
 ];
 const completionData = [
-    { name: 'Completed', value: 78, percent: 78, count: 89, color: '#F4B400' },
-    { name: 'In Progress', value: 16, percent: 16, count: 18, color: '#1a1a1a' },
-    { name: 'Not Started', value: 6, percent: 6, count: 7, color: '#d4d4d4' },
+    {
+        name: 'Completed',
+        value: 78,
+        percent: 78,
+        count: 89,
+        color: '#F4B400',
+        status: 'completed',
+    },
+    {
+        name: 'In Progress',
+        value: 16,
+        percent: 16,
+        count: 18,
+        color: '#1a1a1a',
+        status: 'in_progress',
+    },
+    {
+        name: 'Not Started',
+        value: 6,
+        percent: 6,
+        count: 7,
+        color: '#d4d4d4',
+        status: 'not_started',
+    },
 ];
 const topCompetencies = [
-    { label: 'Communication', score: 4.35 },
-    { label: 'Leadership', score: 4.2 },
-    { label: 'Technical Skills', score: 4.1 },
-    { label: 'Teamwork', score: 4.05 },
-    { label: 'Problem Solving', score: 3.9 },
+    { label: 'Communication', score: 4.35, slug: 'communication' },
+    { label: 'Leadership', score: 4.2, slug: 'leadership' },
+    { label: 'Technical Skills', score: 4.1, slug: 'technical-skills' },
+    { label: 'Teamwork', score: 4.05, slug: 'teamwork' },
+    { label: 'Problem Solving', score: 3.9, slug: 'problem-solving' },
 ];
 type Trainee = {
     name: string;
@@ -186,6 +251,7 @@ const upcomingTrainings = [
         title: 'Effective Communication',
         fullDate: 'May 25, 2026 • 9:00 AM - 1:00 PM',
         participants: 25,
+        trainingId: 'TRN-1025',
     },
     {
         month: 'May',
@@ -193,6 +259,7 @@ const upcomingTrainings = [
         title: 'Leadership Fundamentals',
         fullDate: 'May 28, 2026 • 1:00 PM - 4:00 PM',
         participants: 18,
+        trainingId: 'TRN-1028',
     },
     {
         month: 'Jun',
@@ -200,6 +267,7 @@ const upcomingTrainings = [
         title: 'Time Management',
         fullDate: 'Jun 2, 2026 • 9:00 AM - 12:00 PM',
         participants: 30,
+        trainingId: 'TRN-1102',
     },
     {
         month: 'Jun',
@@ -207,6 +275,7 @@ const upcomingTrainings = [
         title: 'Problem Solving & Decision Making',
         fullDate: 'Jun 5, 2026 • 1:00 PM - 5:00 PM',
         participants: 20,
+        trainingId: 'TRN-1105',
     },
 ];
 const quickActions = [
@@ -217,7 +286,6 @@ const quickActions = [
     { label: 'Competencies', icon: Award, route: 'admin.competency.index' },
     { label: 'Recognition', icon: Trophy, route: 'admin.recognition.index' },
 ];
-
 const avgScore = Math.round(
     performanceData.reduce((sum, d) => sum + d.score, 0) / performanceData.length,
 );
@@ -246,7 +314,13 @@ function PerformanceTooltip({
         </div>
     );
 }
-
+function buildHref(
+    routeName: string,
+    params?: Record<string, string | number | undefined>,
+): string {
+    if (!route().has(routeName)) return '#';
+    return params ? route(routeName, params) : route(routeName);
+}
 function DetailField({
     icon: Icon,
     label,
@@ -270,7 +344,6 @@ function DetailField({
         </div>
     );
 }
-
 function TraineeDetailsModal({
     trainee,
     onClose,
@@ -296,11 +369,9 @@ function TraineeDetailsModal({
                     >
                         <X className="h-5 w-5" />
                     </button>
-
                     <p className="text-xs font-semibold uppercase tracking-widest text-[#F4B400]">
                         User Details
                     </p>
-
                     <div className="mt-4 flex items-center gap-4">
                         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#F4B400] text-2xl font-bold text-black shadow-lg shadow-[#F4B400]/30">
                             {trainee.name.charAt(0)}
@@ -337,8 +408,6 @@ function TraineeDetailsModal({
                         </div>
                     </div>
                 </div>
-
-                {/* Body */}
                 <div className="flex-1 overflow-y-auto px-6 py-5">
                     <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
                         Contact Information
@@ -365,7 +434,6 @@ function TraineeDetailsModal({
                             value={trainee.address}
                         />
                     </div>
-
                     <p className="mb-3 mt-5 text-xs font-semibold uppercase tracking-wider text-slate-400">
                         Work Information
                     </p>
@@ -381,7 +449,6 @@ function TraineeDetailsModal({
                             value={trainee.department}
                         />
                     </div>
-
                     <p className="mb-3 mt-5 text-xs font-semibold uppercase tracking-wider text-slate-400">
                         Account Activity
                     </p>
@@ -398,8 +465,6 @@ function TraineeDetailsModal({
                         />
                     </div>
                 </div>
-
-                {/* Footer */}
                 <div className="flex justify-end border-t border-slate-200 bg-white px-6 py-4">
                     <button
                         onClick={onClose}
@@ -412,12 +477,10 @@ function TraineeDetailsModal({
         </div>
     );
 }
-
 export default function AdminDashboard() {
     const [selectedTrainee, setSelectedTrainee] = useState<Trainee | null>(
         null,
     );
-
     return (
         <AuthenticatedLayout
             header={
@@ -427,41 +490,36 @@ export default function AdminDashboard() {
             }
         >
             <Head title="Admin Dashboard" />
-
             {selectedTrainee && (
                 <TraineeDetailsModal
                     trainee={selectedTrainee}
                     onClose={() => setSelectedTrainee(null)}
                 />
             )}
-
             <div className="flex flex-col gap-5">
-                {/* Stat Cards */}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                     {statCards.map((card) => {
                         const Icon = card.icon;
                         return (
-                            <div
+                            <Link
                                 key={card.label}
-                                className="rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-100"
+                                href={buildHref(card.route, card.params)}
+                                className="group rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-amber-200"
                             >
-                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 transition group-hover:bg-amber-100">
                                     <Icon className="h-4 w-4" />
                                 </div>
                                 <p className="mt-2 text-xl font-bold tabular-nums text-slate-900">
                                     {card.value}
                                 </p>
-                                <p className="mt-0.5 text-xs font-medium text-slate-500">
+                                <p className="mt-0.5 text-xs font-medium text-slate-500 group-hover:text-amber-700">
                                     {card.label}
                                 </p>
-                            </div>
+                            </Link>
                         );
                     })}
                 </div>
-
-                {/* Performance Overview + Recent Activities + Completion Rate */}
                 <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3">
-                    {/* Left — Performance Overview */}
                     <div className="flex h-full flex-col rounded-xl bg-white shadow-sm ring-1 ring-slate-100 lg:col-span-2">
                         <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4">
                             <div>
@@ -498,10 +556,20 @@ export default function AdminDashboard() {
                                     <option>This Year</option>
                                     <option>Last Year</option>
                                 </select>
+                                <Link
+                                    href={buildHref('admin.performance.index')}
+                                    className="whitespace-nowrap rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
+                                >
+                                    View Details
+                                </Link>
                             </div>
                         </div>
-
-                        <div className="flex min-h-0 flex-1 flex-col px-2 pb-4 pt-2">
+        <div
+            className="flex min-h-0 flex-1 flex-col px-2 pb-4 pt-2 cursor-pointer"
+            role="button"
+            title="View full Performance Analytics"
+            onClick={() => router.visit(buildHref('admin.performance.index'))}
+        >
                             <div className="min-h-[240px] flex-1">
                                 <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart
@@ -597,8 +665,6 @@ export default function AdminDashboard() {
                             </div>
                         </div>
                     </div>
-
-                    {/* Right column */}
                     <div className="flex h-full flex-col justify-between gap-6">
                         <div className="flex flex-1 flex-col rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
                             <h2 className="text-sm font-bold text-slate-900">
@@ -608,9 +674,13 @@ export default function AdminDashboard() {
                                 {recentActivities.map((activity, i) => {
                                     const Icon = activity.icon;
                                     return (
-                                        <div
+                                        <Link
                                             key={i}
-                                            className="flex items-start gap-2.5"
+                                            href={buildHref(
+                                                activity.route,
+                                                activity.params,
+                                            )}
+                                            className="flex items-start gap-2.5 rounded-lg p-1 -m-1 transition hover:bg-slate-50"
                                         >
                                             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
                                                 <Icon className="h-3.5 w-3.5" />
@@ -626,7 +696,7 @@ export default function AdminDashboard() {
                                             <span className="shrink-0 text-[11px] text-slate-400">
                                                 {activity.time}
                                             </span>
-                                        </div>
+                                        </Link>
                                     );
                                 })}
                             </div>
@@ -643,7 +713,16 @@ export default function AdminDashboard() {
                                 Training Completion Rate
                             </h2>
                             <div className="mt-3 flex min-h-0 flex-1 flex-col gap-4 sm:flex-row sm:items-center">
-                                <div className="relative mx-auto h-28 w-28 shrink-0 sm:mx-0">
+                                <div
+                                    className="relative mx-auto h-28 w-28 shrink-0 cursor-pointer sm:mx-0"
+                                    role="button"
+                                    title="View full Training Analytics"
+                                    onClick={() =>
+                                        router.visit(
+                                            buildHref('admin.training.index'),
+                                        )
+                                    }
+                                >
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
                                             <Pie
@@ -672,10 +751,16 @@ export default function AdminDashboard() {
                                         </span>
                                     </div>
                                 </div>
-
                                 <div className="min-w-0 flex-1 space-y-4">
                                     {completionData.map((entry) => (
-                                        <div key={entry.name} className="space-y-1.5">
+                                        <Link
+                                            key={entry.name}
+                                            href={buildHref(
+                                                'admin.training.index',
+                                                { status: entry.status },
+                                            )}
+                                            className="block space-y-1.5 rounded-lg p-1 -m-1 transition hover:bg-slate-50"
+                                        >
                                             <div className="flex items-center justify-between gap-3">
                                                 <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-800">
                                                     <span
@@ -703,14 +788,13 @@ export default function AdminDashboard() {
                                                     }}
                                                 />
                                             </div>
-                                        </div>
+                                        </Link>
                                     ))}
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                {/* Top Competencies + Top Performing Trainees + Upcoming Trainings */}
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
                     <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
                         <h2 className="text-sm font-bold text-slate-900">
@@ -718,7 +802,13 @@ export default function AdminDashboard() {
                         </h2>
                         <div className="mt-3 space-y-3">
                             {topCompetencies.map((item) => (
-                                <div key={item.label}>
+                                <Link
+                                    key={item.label}
+                                    href={buildHref('admin.competency.index', {
+                                        competency: item.slug,
+                                    })}
+                                    className="block rounded-lg p-1 -m-1 transition hover:bg-slate-50"
+                                >
                                     <div className="flex items-center justify-between text-xs">
                                         <span className="font-medium text-slate-700">
                                             {item.label}
@@ -735,7 +825,7 @@ export default function AdminDashboard() {
                                             }}
                                         />
                                     </div>
-                                </div>
+                                </Link>
                             ))}
                         </div>
                     </div>
@@ -775,7 +865,13 @@ export default function AdminDashboard() {
                         </h2>
                         <div className="mt-3 space-y-3">
                             {upcomingTrainings.map((training, i) => (
-                                <div key={i} className="flex items-center gap-3">
+                                <Link
+                                    key={i}
+                                    href={buildHref('admin.training.index', {
+                                        training: training.trainingId,
+                                    })}
+                                    className="flex items-center gap-3 rounded-lg p-1 -m-1 transition hover:bg-slate-50"
+                                >
                                     <div className="flex w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-[#F4B400]/15 py-2 text-[#8a6400]">
                                         <span className="text-[10px] font-bold uppercase">
                                             {training.month}
@@ -797,13 +893,11 @@ export default function AdminDashboard() {
                                         <br />
                                         Participants
                                     </div>
-                                </div>
+                                </Link>
                             ))}
                         </div>
                     </div>
                 </div>
-
-                {/* Quick Management */}
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
                     <h2 className="text-sm font-bold text-slate-900">
                         Quick Management

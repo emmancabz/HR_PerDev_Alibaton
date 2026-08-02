@@ -5,7 +5,6 @@ import TextInput from '@/Components/TextInput';
 import GuestLayout from '@/Layouts/GuestLayout';
 import { Head, useForm } from '@inertiajs/react';
 import { FormEventHandler } from 'react';
-
 export default function ResetPassword({
     token,
     email,
@@ -19,7 +18,6 @@ export default function ResetPassword({
         password: '',
         password_confirmation: '',
     });
-
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
 
@@ -27,7 +25,6 @@ export default function ResetPassword({
             onFinish: () => reset('password', 'password_confirmation'),
         });
     };
-
     return (
         <GuestLayout>
             <Head title="Reset Password" />
@@ -35,7 +32,6 @@ export default function ResetPassword({
             <form onSubmit={submit}>
                 <div>
                     <InputLabel htmlFor="email" value="Email" />
-
                     <TextInput
                         id="email"
                         type="email"
@@ -45,13 +41,10 @@ export default function ResetPassword({
                         autoComplete="username"
                         onChange={(e) => setData('email', e.target.value)}
                     />
-
                     <InputError message={errors.email} className="mt-2" />
                 </div>
-
                 <div className="mt-4">
                     <InputLabel htmlFor="password" value="Password" />
-
                     <TextInput
                         id="password"
                         type="password"
@@ -62,16 +55,13 @@ export default function ResetPassword({
                         isFocused={true}
                         onChange={(e) => setData('password', e.target.value)}
                     />
-
                     <InputError message={errors.password} className="mt-2" />
                 </div>
-
                 <div className="mt-4">
                     <InputLabel
                         htmlFor="password_confirmation"
                         value="Confirm Password"
                     />
-
                     <TextInput
                         type="password"
                         name="password_confirmation"
@@ -82,13 +72,11 @@ export default function ResetPassword({
                             setData('password_confirmation', e.target.value)
                         }
                     />
-
                     <InputError
                         message={errors.password_confirmation}
                         className="mt-2"
                     />
                 </div>
-
                 <div className="mt-4 flex items-center justify-end">
                     <PrimaryButton className="ms-4" disabled={processing}>
                         Reset Password
