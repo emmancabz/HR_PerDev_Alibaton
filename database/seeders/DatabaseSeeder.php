@@ -43,5 +43,8 @@ class DatabaseSeeder extends Seeder
                 ],
             );
         }
+
+        $this->call(PerformanceSeeder::class);
+        $this->call(LearningSeeder::class);
     }
 }

@@ -116,7 +116,7 @@ export default function Authenticated({
         }
     };
     return (
-        <div className="flex min-h-screen bg-slate-50">
+        <div className="flex min-h-screen bg-[#ededed]">
             {mobileOpen && (
                 <div
                     className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[1px] lg:hidden"

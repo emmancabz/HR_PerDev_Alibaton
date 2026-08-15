@@ -7,6 +7,14 @@ export interface User {
     name: string;
     email: string;
     role: UserRole;
+    personnel_key: string | null;
+    core_person_id: string | null;
+    employee_or_trainee_id: string | null;
+    position: string | null;
+    department: string | null;
+    person_type: 'Employee' | 'Trainee' | null;
+    employment_status: 'Incoming' | 'Trainee' | 'Employee' | 'Inactive';
+    evaluator_capable: boolean;
     email_verified_at: string | null;
 }
 

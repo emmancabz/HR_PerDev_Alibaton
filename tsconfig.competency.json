@@ -1,0 +1,25 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "baseUrl": ".",
+        "types": ["vitest/globals", "@testing-library/jest-dom"]
+    },
+    "include": [
+        "resources/js/Pages/AdminCompetency.tsx",
+        "resources/js/Components/Competency/**/*.tsx",
+        "resources/js/Components/Modal.tsx",
+        "resources/js/Components/PageHeader.tsx",
+        "resources/js/Layouts/AuthenticatedLayout.tsx",
+        "resources/js/data/competency*.ts",
+        "resources/js/data/personnel.ts",
+        "resources/js/data/evaluatorAssignments.ts",
+        "resources/js/types/**/*.d.ts",
+        "vitest.competency.config.ts"
+    ],
+    "exclude": [
+        "resources/js/ssr.tsx",
+        "node_modules",
+        "vendor",
+        "public/build"
+    ]
+}

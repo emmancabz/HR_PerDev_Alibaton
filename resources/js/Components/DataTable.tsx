@@ -20,6 +20,7 @@ export default function DataTable<T>({
     filterTabs,
     activeFilter,
     onFilterChange,
+    onRowClick,
     footer,
     headerExtra,
 }: {
@@ -30,11 +31,12 @@ export default function DataTable<T>({
     filterTabs?: FilterTab[];
     activeFilter?: string;
     onFilterChange?: (value: string) => void;
+    onRowClick?: (row: T) => void;
     footer?: ReactNode;
     headerExtra?: ReactNode;
 }) {
     return (
-        <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-100">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
                 <h3 className="text-sm font-bold text-slate-900">{title}</h3>
                 <div className="flex items-center gap-2">
@@ -63,7 +65,7 @@ export default function DataTable<T>({
             <div className="overflow-x-auto">
                 <table className="w-full table-auto text-left">
                     <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50/80">
+                        <tr className="border-b border-slate-200 bg-slate-100/70">
                             {columns.map((col) => (
                                 <th
                                     key={col.key}
@@ -88,7 +90,8 @@ export default function DataTable<T>({
                             data.map((row) => (
                                 <tr
                                     key={rowKey(row)}
-                                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
+                                    onClick={() => onRowClick?.(row)}
+                                    className={`border-b border-slate-200 last:border-0 transition-colors hover:bg-slate-50 ${onRowClick ? 'cursor-pointer' : ''}`}
                                 >
                                     {columns.map((col) => (
                                         <td

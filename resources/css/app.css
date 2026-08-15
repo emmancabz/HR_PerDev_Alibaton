@@ -8,3 +8,164 @@
 @theme {
     --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
 }
+
+/*
+ * Shared table contrast
+ *
+ * Keep data grids readable across Admin, HR, and User modules. The lines are
+ * intentionally neutral rather than dark so the tables stay professional while
+ * row/column boundaries remain visible on white cards.
+ */
+main table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background-color: #ffffff;
+    color: #334155;
+}
+
+main table thead,
+main table thead tr,
+main table thead th {
+    background-color: #eef2f7;
+}
+
+main table thead th {
+    color: #475569;
+    border-bottom: 1px solid #cbd5e1;
+    border-right: 1px solid #d8e0ea;
+}
+
+main table thead th:last-child {
+    border-right: 0;
+}
+
+main table tbody tr {
+    background-color: #ffffff;
+}
+
+main table tbody tr:nth-child(even) {
+    background-color: #f8fafc;
+}
+
+main table tbody tr:hover {
+    background-color: #fffbeb;
+}
+
+main table tbody td {
+    border-bottom: 1px solid #d8e0ea;
+    border-right: 1px solid #e2e8f0;
+}
+
+main table tbody td:last-child {
+    border-right: 0;
+}
+
+main table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+main table .text-slate-400 {
+    color: #64748b;
+}
+
+/* Course Builder stage transitions stay subtle and preserve layout. */
+@keyframes learning-step-pop {
+    0% {
+        opacity: 0.65;
+        transform: scale(0.72);
+    }
+    58% {
+        transform: scale(1.13);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes learning-step-complete {
+    0% {
+        transform: scale(0.82) rotate(-10deg);
+    }
+    65% {
+        transform: scale(1.08) rotate(2deg);
+    }
+    100% {
+        transform: scale(1) rotate(0);
+    }
+}
+
+@keyframes learning-stage-forward {
+    from {
+        opacity: 0;
+        transform: translate3d(18px, 0, 0);
+    }
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+@keyframes learning-stage-backward {
+    from {
+        opacity: 0;
+        transform: translate3d(-18px, 0, 0);
+    }
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+@keyframes learning-status-enter {
+    from {
+        opacity: 0;
+        transform: translate3d(0, -8px, 0);
+    }
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+.learning-step-active {
+    animation: learning-step-pop 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.learning-step-complete {
+    animation: learning-step-complete 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.learning-stage-panel--forward {
+    animation: learning-stage-forward 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.learning-stage-panel--backward {
+    animation: learning-stage-backward 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.learning-status-enter {
+    animation: learning-status-enter 240ms ease-out;
+}
+
+.learning-stepper-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .learning-step-active,
+    .learning-step-complete,
+    .learning-stage-panel--forward,
+    .learning-stage-panel--backward,
+    .learning-status-enter {
+        animation: none !important;
+    }
+
+    .learning-stepper-scroll *,
+    #learning-builder-stage-panel * {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
+}

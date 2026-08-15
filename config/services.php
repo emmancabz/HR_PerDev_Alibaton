@@ -35,4 +35,14 @@ return [
         ],
     ],
 
+    'groq' => [
+        'key' => env('GROQ_API_KEY'),
+        'url' => env('GROQ_API_URL', 'https://api.groq.com/openai/v1'),
+        'model' => env('GROQ_PERFORMANCE_MODEL', 'llama-3.3-70b-versatile'),
+        'learning_model' => env('GROQ_LEARNING_MODEL', 'llama-3.3-70b-versatile'),
+        'timeout' => (int) env('GROQ_TIMEOUT_SECONDS', 20),
+        'performance_anonymous_feedback' => (bool) env('PERFORMANCE_ANONYMOUS_FEEDBACK_ENABLED', false),
+        'anonymous_feedback_minimum' => (int) env('PERFORMANCE_ANONYMOUS_FEEDBACK_MINIMUM', 3),
+    ],
+
 ];

@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["vitest/globals", "@testing-library/jest-dom"] },
+  "include": [
+    "resources/js/Pages/AdminLearning.tsx",
+    "resources/js/Pages/CourseBuilder.tsx",
+    "resources/js/Pages/LearnerLearning.tsx",
+    "resources/js/data/learning.ts",
+    "resources/js/data/learningClient.ts",
+    "resources/js/Components/Modal.tsx",
+    "resources/js/Components/Competency/CompetencyUI.tsx",
+    "resources/js/Layouts/AuthenticatedLayout.tsx",
+    "resources/js/types/**/*.d.ts",
+    "resources/js/**/__tests__/learning*.test.ts",
+    "resources/js/**/__tests__/learning*.test.tsx"
+  ]
+}

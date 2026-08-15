@@ -56,7 +56,6 @@ export default function Register() {
                 </div>
                 <div className="mt-4">
                     <InputLabel htmlFor="password" value="Password" />
-
                     <TextInput
                         id="password"
                         type="password"

@@ -362,6 +362,8 @@ function RecommendationsPanel() {
         </SectionCard>
     );
 }
+
+function AIAssistantContent() {
     const [tab, setTab] = useState<'draft' | 'recommend'>('draft');
     return (
         <div className="flex flex-col gap-4">
