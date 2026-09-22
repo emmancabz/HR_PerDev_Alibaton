@@ -1,0 +1,56 @@
+openapi: 3.1.0
+info:
+  title: Alibaton Succession Finalized Evidence Contract
+  version: 1.0.0
+  description: Contract for finalized Performance or Competency evidence. Draft evidence and automatic readiness decisions are prohibited.
+paths:
+  /succession/api/evidence:
+    post:
+      summary: Submit finalized evidence for an active canonical person
+      security:
+        - sessionMfa: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinalizedEvidence'
+      responses:
+        '201':
+          description: Idempotent evidence record accepted
+        '401':
+          description: Authentication or MFA required
+        '403':
+          description: Admin or HR authorization required
+        '422':
+          description: Invalid, non-finalized, or non-canonical evidence
+components:
+  securitySchemes:
+    sessionMfa:
+      type: apiKey
+      in: cookie
+      name: alibaton_session
+  schemas:
+    FinalizedEvidence:
+      type: object
+      additionalProperties: false
+      required: [sourceModule, sourceRecordId, personnelKey, sourceFinalizedAt, sourceSnapshot]
+      properties:
+        sourceModule:
+          type: string
+          enum: [Performance, Competency]
+        sourceRecordId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        personnelKey:
+          type: string
+          minLength: 1
+          maxLength: 255
+        sourceFinalizedAt:
+          type: string
+          format: date-time
+        sourceSnapshot:
+          type: object
+          description: Immutable, versioned source snapshot. It must not contain a promotion or automatic readiness decision.
+          additionalProperties: true

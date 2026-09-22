@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* Use the persisted application class instead of the OS-only dark preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @source '../js/**/*.tsx';
 @source '../js/**/*.ts';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
@@ -7,6 +10,241 @@
 
 @theme {
     --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+}
+
+:root {
+    --pd-canvas: #f4f4f3;
+    --pd-surface: #ffffff;
+    --pd-surface-muted: #f8fafc;
+    --pd-border: #d9e0e8;
+    --pd-border-strong: #cbd5e1;
+    --pd-text: #0f172a;
+    --pd-text-muted: #64748b;
+    --pd-brand: #f4b400;
+    --pd-brand-hover: #dda300;
+    --pd-radius: 0.75rem;
+    --pd-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.035);
+    --pd-shadow-raised: 0 10px 24px rgba(15, 23, 42, 0.09);
+}
+
+html,
+body,
+#app {
+    min-height: 100%;
+    background: var(--pd-canvas);
+}
+
+body {
+    color: var(--pd-text);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+    background: rgba(244, 180, 0, 0.28);
+    color: #0f172a;
+}
+
+/*
+ * Canonical application primitives
+ *
+ * These classes keep the five core workspaces on the same spacing, surface,
+ * control, and interaction rules without coupling their domain logic.
+ */
+.app-main {
+    background: var(--pd-canvas);
+}
+
+.app-page {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+}
+
+.app-card {
+    overflow: hidden;
+    border: 1px solid var(--pd-border);
+    border-radius: var(--pd-radius);
+    background: var(--pd-surface);
+    box-shadow: var(--pd-shadow);
+}
+
+.app-card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 3.5rem;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 0.875rem 1rem;
+}
+
+.app-table-page-button {
+    display: inline-flex;
+    min-width: 1.875rem;
+    height: 1.875rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    background: #ffffff;
+    padding: 0 0.5rem;
+    color: #64748b;
+    font-weight: 700;
+    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+.app-table-page-button:hover:not(:disabled) {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+}
+
+.app-table-page-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(244, 180, 0, 0.32);
+}
+
+.app-table-page-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+.app-kpi-card {
+    min-width: 0;
+    border: 1px solid var(--pd-border);
+    border-radius: var(--pd-radius);
+    background: var(--pd-surface);
+    box-shadow: var(--pd-shadow);
+    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.app-kpi-card-selected {
+    border-color: #94a3b8;
+    background: #f8fafc;
+    box-shadow: 0 0 0 1px rgba(244, 180, 0, 0.16), var(--pd-shadow);
+}
+
+button.app-kpi-card:hover,
+a.app-kpi-card:hover {
+    border-color: rgba(244, 180, 0, 0.58);
+    box-shadow: var(--pd-shadow-raised);
+    transform: translateY(-2px);
+}
+
+button.app-kpi-card,
+a.app-kpi-card {
+    cursor: pointer;
+}
+
+.app-control {
+    min-height: 2.5rem;
+    width: 100%;
+    border: 1px solid var(--pd-border-strong);
+    border-radius: 0.5rem;
+    background: var(--pd-surface);
+    padding: 0.5rem 0.75rem;
+    color: #0f172a;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    outline: none;
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.app-control::placeholder {
+    color: #94a3b8;
+}
+
+.app-control:focus {
+    border-color: var(--pd-brand);
+    box-shadow: 0 0 0 3px rgba(244, 180, 0, 0.2);
+}
+
+.app-button {
+    display: inline-flex;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: 1px solid var(--pd-border-strong);
+    border-radius: 0.5rem;
+    background: var(--pd-surface);
+    padding: 0.5rem 1rem;
+    color: #334155;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.app-button:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+}
+
+.app-button:focus-visible,
+.app-control:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(244, 180, 0, 0.25);
+}
+
+.app-button:disabled,
+.app-control:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.app-button-primary {
+    border-color: var(--pd-brand);
+    background: var(--pd-brand);
+    color: #111827;
+    box-shadow: 0 1px 2px rgba(120, 83, 0, 0.12);
+}
+
+.app-button-primary:hover {
+    border-color: var(--pd-brand-hover);
+    background: var(--pd-brand-hover);
+}
+
+.app-button-danger {
+    border-color: #e11d48;
+    background: #e11d48;
+    color: #ffffff;
+}
+
+.app-button-danger:hover {
+    border-color: #be123c;
+    background: #be123c;
+}
+
+.app-page :is(input, select, textarea):not([type='checkbox']):not([type='radio']) {
+    border-color: var(--pd-border-strong);
+}
+
+.app-page :is(input, select, textarea):not([type='checkbox']):not([type='radio']):focus {
+    border-color: var(--pd-brand);
+}
+
+/* Normalize legacy white surfaces while their screens migrate to primitives. */
+.app-page :is(.rounded-xl.bg-white.shadow-sm, .rounded-xl.bg-white.ring-1) {
+    border-color: var(--pd-border);
+    box-shadow: var(--pd-shadow);
+}
+
+@keyframes app-page-enter {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.app-page-enter {
+    animation: app-page-enter 220ms ease-out;
 }
 
 /*
@@ -22,6 +260,7 @@ main table {
     border-spacing: 0;
     background-color: #ffffff;
     color: #334155;
+    font-variant-numeric: tabular-nums;
 }
 
 main table thead,
@@ -55,6 +294,7 @@ main table tbody tr:hover {
 main table tbody td {
     border-bottom: 1px solid #d8e0ea;
     border-right: 1px solid #e2e8f0;
+    vertical-align: middle;
 }
 
 main table tbody td:last-child {
@@ -155,6 +395,7 @@ main table .text-slate-400 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .app-page-enter,
     .learning-step-active,
     .learning-step-complete,
     .learning-stage-panel--forward,
@@ -167,5 +408,844 @@ main table .text-slate-400 {
     #learning-builder-stage-panel * {
         scroll-behavior: auto !important;
         transition-duration: 0.01ms !important;
+    }
+}
+
+/* Canonical dropdown behavior: scroll remains available without a visible rail. */
+.system-dropdown-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.system-dropdown-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+/* Canonical dropdown long-label reveal: long one-line labels glide instead of truncating. */
+@keyframes system-select-marquee {
+    0%, 14% {
+        transform: translateX(0);
+    }
+    86%, 100% {
+        transform: translateX(var(--system-marquee-distance, 0px));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [style*="system-select-marquee"] {
+        animation: none !important;
+        transform: translateX(0) !important;
+    }
+}
+
+/* Performance Reviews: calm side-drawer motion inspired by the system's fast workspace transitions. */
+@keyframes performance-review-drawer-in {
+    from {
+        opacity: 0.92;
+        transform: translate3d(28px, 0, 0);
+    }
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+.performance-review-drawer {
+    animation: performance-review-drawer-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .performance-review-drawer {
+        animation: none !important;
+    }
+}
+
+
+/*
+ * Expanded Performance Analytics surfaces coexist with Aevyn.
+ *
+ * The fullscreen backdrop remains untouched. Only the white
+ * dialog surface is fitted into the usable desktop workspace.
+ */
+@media (min-width: 1024px) {
+    .performance-expanded-chart-dialog {
+        max-width:
+            calc(
+                100vw
+                - var(--aevyn-performance-reserve, 0px)
+                - 2rem
+            );
+
+        transform:
+            translateX(
+                var(--aevyn-performance-shift, 0px)
+            );
+
+        transition:
+            max-width 260ms cubic-bezier(.16, 1, .3, 1),
+            transform 260ms cubic-bezier(.16, 1, .3, 1);
+    }
+}
+
+
+/* ==========================================================================
+ * System-wide dark appearance
+ * ==========================================================================
+ * The application already had an appearance toggle in the authenticated
+ * header. This layer makes that preference real across legacy module pages,
+ * shared primitives, tables, overlays, dropdown portals, charts, and forms.
+ * Brand yellow remains an accent; dark mode uses neutral charcoal/slate
+ * surfaces instead of pure black so dense HR data remains readable.
+ */
+html.dark {
+    color-scheme: dark;
+    --pd-canvas: #0a0e14;
+    --pd-surface: #111821;
+    --pd-surface-muted: #151e29;
+    --pd-border: #273244;
+    --pd-border-strong: #344155;
+    --pd-text: #e7edf5;
+    --pd-text-muted: #94a3b8;
+    --pd-brand: #f4b400;
+    --pd-brand-hover: #e1a600;
+    --pd-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 1px 3px rgba(0, 0, 0, 0.22);
+    --pd-shadow-raised: 0 14px 30px rgba(0, 0, 0, 0.34);
+}
+
+html.dark,
+html.dark body,
+html.dark #app {
+    background: var(--pd-canvas);
+    color: var(--pd-text);
+}
+
+html.dark ::selection {
+    background: rgba(244, 180, 0, 0.35);
+    color: #fff7d6;
+}
+
+.dark .app-shell,
+.dark .app-main {
+    background: var(--pd-canvas);
+    color: var(--pd-text);
+}
+
+.dark .app-header {
+    border-color: #273244;
+    background: rgba(14, 20, 29, 0.92);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.dark .app-floating-panel,
+.dark [data-pd-filter-tray='true'],
+.dark .pd-theme-portal {
+    border-color: #2b3749 !important;
+    background: #111821 !important;
+    color: var(--pd-text);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.42) !important;
+}
+
+.dark .app-card,
+.dark .app-kpi-card {
+    border-color: var(--pd-border);
+    background: var(--pd-surface);
+    color: var(--pd-text);
+    box-shadow: var(--pd-shadow);
+}
+
+.dark .app-card-header {
+    border-bottom-color: var(--pd-border);
+}
+
+.dark .app-kpi-card-selected {
+    border-color: #526177;
+    background: #17212d;
+    box-shadow: 0 0 0 1px rgba(244, 180, 0, 0.18), var(--pd-shadow);
+}
+
+.dark .app-control,
+.dark .app-button,
+.dark .app-table-page-button {
+    border-color: var(--pd-border-strong);
+    background: var(--pd-surface);
+    color: #d6dee9;
+}
+
+.dark .app-control::placeholder {
+    color: #718096;
+}
+
+.dark .app-button:hover,
+.dark .app-table-page-button:hover:not(:disabled) {
+    border-color: #526177;
+    background: #182230;
+    color: #f8fafc;
+}
+
+.dark .app-button-primary {
+    border-color: var(--pd-brand);
+    background: var(--pd-brand);
+    color: #111827;
+}
+
+.dark .app-button-primary:hover {
+    border-color: var(--pd-brand-hover);
+    background: var(--pd-brand-hover);
+}
+
+.dark .app-page :is(input, select, textarea):not([type='checkbox']):not([type='radio']) {
+    border-color: var(--pd-border-strong);
+    background-color: #0f1620;
+    color: #e7edf5;
+}
+
+.dark .app-page :is(input, select, textarea):not([type='checkbox']):not([type='radio'])::placeholder {
+    color: #718096;
+}
+
+.dark .app-page :is(input, select, textarea):not([type='checkbox']):not([type='radio']):focus {
+    border-color: var(--pd-brand);
+    background-color: #111a25;
+    box-shadow: 0 0 0 3px rgba(244, 180, 0, 0.14);
+}
+
+.dark .app-page select option,
+.dark .pd-theme-portal select option,
+.dark [data-overlay-root] select option {
+    background: #111821;
+    color: #e7edf5;
+}
+
+/* Shared data-grid contrast in dark appearance. */
+.dark main table {
+    background-color: #101721;
+    color: #d8e0ea;
+}
+
+.dark main table thead,
+.dark main table thead tr,
+.dark main table thead th {
+    background-color: #182230;
+}
+
+.dark main table thead th {
+    color: #b8c4d3;
+    border-bottom-color: #344155;
+    border-right-color: #2a3648;
+}
+
+.dark main table tbody tr {
+    background-color: #111821;
+}
+
+.dark main table tbody tr:nth-child(even) {
+    background-color: #141d28;
+}
+
+.dark main table tbody tr:hover {
+    background-color: #221f13;
+}
+
+.dark main table tbody td {
+    border-bottom-color: #2a3648;
+    border-right-color: #253143;
+}
+
+.dark main table .text-slate-400 {
+    color: #8d9caf;
+}
+
+/*\n * Legacy utility bridge. Many finalized module screens predate the canonical\n * app-card/app-control primitives. Keep their existing markup intact and map\n * their light utilities to the same dark design tokens. Portal surfaces are\n * included because selects/modals are mounted under document.body.\n */
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) .bg-white,
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']).bg-white {
+    background-color: #111821 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is([class~='bg-white/98'], [class~='bg-white/97'], [class~='bg-white/95'], [class~='bg-white/92'], [class~='bg-white/90'], [class~='bg-white/88'], [class~='bg-white/86']) {
+    background-color: rgba(17, 24, 33, 0.94) !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-slate-50, [class~='bg-slate-50/90'], [class~='bg-slate-50/80'], [class~='bg-slate-50/70'], [class~='bg-slate-50/60'], [class~='bg-slate-50/50'], [class~='bg-slate-50/40'], .bg-gray-50) {
+    background-color: #151e29 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-slate-100, .bg-gray-100) {
+    background-color: #1b2634 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-slate-200, .bg-gray-200) {
+    background-color: #2b394b !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-slate-950, .text-slate-900, .text-gray-900) {
+    color: #f1f5f9 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-slate-800, .text-gray-800) {
+    color: #e2e8f0 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-slate-700, .text-gray-700) {
+    color: #c8d2df !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-slate-600, .text-gray-600) {
+    color: #aebccc !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-slate-500, .text-gray-500) {
+    color: #94a3b8 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-slate-400, .text-gray-400) {
+    color: #8190a4 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.border-slate-100, .border-slate-200, .border-gray-200, .border-gray-300) {
+    border-color: #2a3648 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.border-slate-300, .border-gray-400) {
+    border-color: #3a485b !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.ring-slate-100, .ring-slate-200) {
+    --tw-ring-color: #2b394b !important;
+}
+
+/* Preserve semantic status colors, but lower their surface luminance. */
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-amber-50, .bg-amber-100, [class~='bg-amber-50/70'], [class~='bg-amber-50/50'], [class~='bg-amber-50/40']) {
+    background-color: rgba(245, 158, 11, 0.13) !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-amber-950, .text-amber-900, .text-amber-800, .text-amber-700, .text-amber-600) {
+    color: #f7c95b !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.border-amber-100, .border-amber-200, .border-amber-300) {
+    border-color: rgba(244, 180, 0, 0.34) !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-rose-50, .bg-rose-100, [class~='bg-rose-50/95'], [class~='bg-rose-50/70'], [class~='bg-rose-50/60']) {
+    background-color: rgba(244, 63, 94, 0.12) !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-rose-900, .text-rose-800, .text-rose-700, .text-rose-600) {
+    color: #fda4af !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.border-rose-100, .border-rose-200, .border-rose-300) {
+    border-color: rgba(244, 63, 94, 0.30) !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-emerald-50, .bg-emerald-100, [class~='bg-emerald-50/95'], [class~='bg-emerald-50/60'], [class~='bg-emerald-50/55']) {
+    background-color: rgba(16, 185, 129, 0.12) !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-emerald-900, .text-emerald-800, .text-emerald-700, .text-emerald-600) {
+    color: #6ee7b7 !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.border-emerald-100, .border-emerald-200, .border-emerald-300) {
+    border-color: rgba(16, 185, 129, 0.30) !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-sky-50, .bg-sky-100, .bg-blue-50, .bg-blue-100, .bg-indigo-50, .bg-indigo-100, .bg-violet-50, .bg-violet-100, .bg-cyan-50) {
+    background-color: rgba(56, 189, 248, 0.11) !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-sky-800, .text-sky-700, .text-sky-600, .text-blue-800, .text-blue-700, .text-blue-600, .text-indigo-800, .text-indigo-700, .text-indigo-600, .text-violet-950, .text-violet-900, .text-violet-700, .text-violet-600, .text-cyan-700) {
+    color: #93c5fd !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.border-sky-100, .border-sky-200, .border-blue-200, .border-indigo-200, .border-violet-100, .border-violet-200, .border-cyan-200) {
+    border-color: rgba(96, 165, 250, 0.30) !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-orange-50, .bg-orange-100) {
+    background-color: rgba(249, 115, 22, 0.12) !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.text-orange-800, .text-orange-700, .text-orange-600) {
+    color: #fdba74 !important;
+}
+
+/* Common hover utilities need a dark hover target as well. */
+.dark .app-shell .hover\:bg-slate-50:hover,
+.dark .app-shell .hover\:bg-slate-100:hover,
+.dark .app-floating-panel .hover\:bg-slate-50:hover,
+.dark .pd-theme-portal .hover\:bg-slate-50:hover,
+.dark [data-overlay-root] .hover\:bg-slate-50:hover {
+    background-color: #1b2634 !important;
+}
+
+.dark .app-shell .hover\:text-slate-950:hover,
+.dark .app-shell .hover\:text-slate-900:hover,
+.dark .app-shell .hover\:text-slate-800:hover,
+.dark .app-shell .hover\:text-slate-700:hover,
+.dark .app-floating-panel .hover\:text-slate-950:hover,
+.dark .app-floating-panel .hover\:text-slate-900:hover {
+    color: #f8fafc !important;
+}
+
+.dark .app-shell .hover\:bg-amber-50:hover,
+.dark .app-floating-panel .hover\:bg-amber-50:hover,
+.dark .pd-theme-portal .hover\:bg-amber-50:hover,
+.dark [data-overlay-root] .hover\:bg-amber-50:hover {
+    background-color: rgba(245, 158, 11, 0.12) !important;
+}
+
+.dark .app-shell .hover\:bg-rose-50:hover,
+.dark .app-floating-panel .hover\:bg-rose-50:hover,
+.dark .pd-theme-portal .hover\:bg-rose-50:hover,
+.dark [data-overlay-root] .hover\:bg-rose-50:hover {
+    background-color: rgba(244, 63, 94, 0.12) !important;
+}
+
+/* Header search/input controls live outside .app-page. */
+.dark .app-header input,
+.dark .app-header select,
+.dark .app-header textarea {
+    border-color: #344155 !important;
+    background-color: #121b26 !important;
+    color: #e7edf5 !important;
+    box-shadow: none !important;
+}
+.dark .app-header input::placeholder {
+    color: #718096 !important;
+}
+
+/* Keep the sidebar's logo plate intentionally white for logo contrast. */
+.dark [data-pd-sidebar='true'] .bg-white {
+    background-color: #ffffff !important;
+}
+
+/* Scrollbars stay visible but subdued. */
+.dark .app-main,
+.dark .system-dropdown-scroll,
+.dark [data-overlay-part='scroll-body'] {
+    scrollbar-color: #46556a transparent;
+}
+
+.dark .learning-stepper-scroll {
+    scrollbar-color: #46556a transparent;
+}
+
+/* Recharts does not inherit text color consistently because SVG uses fill/stroke. */
+.dark .app-shell .recharts-cartesian-grid line,
+.dark [data-overlay-root] .recharts-cartesian-grid line {
+    stroke: #344155 !important;
+}
+.dark .app-shell .recharts-cartesian-axis-line,
+.dark .app-shell .recharts-cartesian-axis-tick-line,
+.dark [data-overlay-root] .recharts-cartesian-axis-line,
+.dark [data-overlay-root] .recharts-cartesian-axis-tick-line {
+    stroke: #46556a !important;
+}
+.dark .app-shell .recharts-text,
+.dark [data-overlay-root] .recharts-text {
+    fill: #9aa9bc !important;
+}
+.dark .app-shell .recharts-default-tooltip,
+.dark [data-overlay-root] .recharts-default-tooltip {
+    border-color: #344155 !important;
+    background-color: #111821 !important;
+    color: #e7edf5 !important;
+}
+.dark .app-shell .recharts-tooltip-label,
+.dark .app-shell .recharts-tooltip-item,
+.dark [data-overlay-root] .recharts-tooltip-label,
+.dark [data-overlay-root] .recharts-tooltip-item {
+    color: #dbe4ef !important;
+}
+
+
+
+/* Legacy full-page neutral canvases and white fade masks. */
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is([class~='bg-[#f4f4f3]'], [class~='bg-[#f8fafc]']) {
+    background-color: var(--pd-canvas) !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) .from-white {
+    --tw-gradient-from: #111821 !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) .via-white {
+    --tw-gradient-via: #111821 !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is([class~='via-white/90'], [class~='via-white/85'], [class~='via-white/82'], [class~='via-white/80']) {
+    --tw-gradient-via: rgba(17, 24, 33, 0.88) !important;
+}
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) .to-white {
+    --tw-gradient-to: #111821 !important;
+}
+
+/* Theme changes feel intentional, but reduced-motion remains respected. */
+.app-shell,
+.app-header,
+.app-main,
+.app-card,
+.app-kpi-card,
+.app-floating-panel,
+.pd-theme-portal,
+[data-overlay-part='panel'] {
+    transition-property: background-color, border-color, color, box-shadow;
+    transition-duration: 180ms;
+    transition-timing-function: ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-shell,
+    .app-header,
+    .app-main,
+    .app-card,
+    .app-kpi-card,
+    .app-floating-panel,
+    .pd-theme-portal,
+    [data-overlay-part='panel'] {
+        transition-duration: 0.01ms !important;
+    }
+}
+
+
+/* ==========================================================================
+ * Dark palette harmony V2
+ * ==========================================================================
+ * Refines the authenticated dark appearance so the sidebar, header, canvas,
+ * cards, tables, and overlays read as one charcoal/graphite family.
+ * Yellow remains the only strong brand accent.
+ */
+html.dark {
+    --pd-canvas: #0b0f14;
+    --pd-surface: #11171f;
+    --pd-surface-muted: #151c25;
+    --pd-border: #27313d;
+    --pd-border-strong: #34404e;
+    --pd-text: #edf1f6;
+    --pd-text-muted: #98a5b5;
+    --pd-shadow: 0 1px 2px rgba(0, 0, 0, 0.34), 0 1px 3px rgba(0, 0, 0, 0.24);
+    --pd-shadow-raised: 0 16px 34px rgba(0, 0, 0, 0.38);
+}
+
+/* Sidebar becomes the darkest anchor in the interface. */
+.dark [data-pd-sidebar='true'] {
+    background: #07090c !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.055);
+    box-shadow: 12px 0 34px rgba(0, 0, 0, 0.18);
+}
+
+/* Preserve the logo plate, but remove any warm cast around it. */
+.dark [data-pd-sidebar='true'] .bg-white {
+    background-color: #ffffff !important;
+}
+
+/* Sidebar inactive navigation gets a cooler charcoal hover instead of brown. */
+.dark [data-pd-sidebar='true'] .hover\:bg-white\/10:hover {
+    background-color: rgba(255, 255, 255, 0.065) !important;
+}
+
+/* Header and content now share the same neutral graphite family. */
+.dark .app-header {
+    border-color: #252e39;
+    background: rgba(11, 15, 20, 0.96);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.025),
+        0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.dark .app-shell,
+.dark .app-main {
+    background: #0b0f14;
+}
+
+.dark .app-card,
+.dark .app-kpi-card {
+    border-color: #283340;
+    background: #11171f;
+    box-shadow:
+        0 1px 1px rgba(255, 255, 255, 0.012) inset,
+        0 8px 26px rgba(0, 0, 0, 0.14);
+}
+
+.dark .app-card-header {
+    border-bottom-color: #283340;
+}
+
+.dark .app-kpi-card-selected {
+    border-color: #4a5665;
+    background: #151d27;
+    box-shadow:
+        0 0 0 1px rgba(244, 180, 0, 0.16),
+        0 8px 26px rgba(0, 0, 0, 0.15);
+}
+
+/* Shared floating surfaces stay one step above cards, never blue-looking. */
+.dark .app-floating-panel,
+.dark [data-pd-filter-tray='true'],
+.dark .pd-theme-portal {
+    border-color: #2b3643 !important;
+    background: #11171f !important;
+}
+
+/* Inputs/controls inherit the same charcoal family. */
+.dark .app-control,
+.dark .app-button,
+.dark .app-table-page-button {
+    border-color: #34404e;
+    background: #10161e;
+    color: #dce3ec;
+}
+
+.dark .app-button:hover,
+.dark .app-table-page-button:hover:not(:disabled) {
+    border-color: #485667;
+    background: #171f29;
+}
+
+.dark .app-page :is(input, select, textarea):not([type='checkbox']):not([type='radio']) {
+    border-color: #34404e;
+    background-color: #0f141b;
+}
+
+.dark .app-page :is(input, select, textarea):not([type='checkbox']):not([type='radio']):focus {
+    background-color: #121922;
+}
+
+/* Header search and utility controls blend into the header instead of floating blue. */
+.dark .app-header input,
+.dark .app-header select,
+.dark .app-header textarea {
+    border-color: #303b48 !important;
+    background-color: #0f151c !important;
+}
+
+/* Tables: slightly lighter than canvas, same hue as the cards. */
+.dark main table {
+    background-color: #0f151c;
+}
+
+.dark main table thead,
+.dark main table thead tr,
+.dark main table thead th {
+    background-color: #151d27;
+}
+
+.dark main table tbody tr {
+    background-color: #11171f;
+}
+
+.dark main table tbody tr:nth-child(even) {
+    background-color: #131a23;
+}
+
+.dark main table tbody tr:hover {
+    background-color: #211d10;
+}
+
+.dark main table thead th,
+.dark main table tbody td {
+    border-color: #283340;
+}
+
+/* Legacy light surfaces are remapped to the same graphite ladder. */
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) .bg-white,
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']).bg-white {
+    background-color: #11171f !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is([class~='bg-white/98'], [class~='bg-white/97'], [class~='bg-white/95'], [class~='bg-white/92'], [class~='bg-white/90'], [class~='bg-white/88'], [class~='bg-white/86']) {
+    background-color: rgba(17, 23, 31, 0.95) !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-slate-50, [class~='bg-slate-50/90'], [class~='bg-slate-50/80'], [class~='bg-slate-50/70'], [class~='bg-slate-50/60'], [class~='bg-slate-50/50'], [class~='bg-slate-50/40'], .bg-gray-50) {
+    background-color: #151c25 !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-slate-100, .bg-gray-100) {
+    background-color: #1a222d !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is(.bg-slate-200, .bg-gray-200) {
+    background-color: #293542 !important;
+}
+
+/* White gradients used by legacy panels should follow the new surface. */
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) .from-white {
+    --tw-gradient-from: #11171f !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) .via-white {
+    --tw-gradient-via: #11171f !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) :is([class~='via-white/90'], [class~='via-white/85'], [class~='via-white/82'], [class~='via-white/80']) {
+    --tw-gradient-via: rgba(17, 23, 31, 0.90) !important;
+}
+
+.dark :where(.app-shell, .app-floating-panel, .pd-theme-portal, [data-pd-filter-tray='true'], [data-overlay-root], [aria-label='Aevyn AI assistant']) .to-white {
+    --tw-gradient-to: #11171f !important;
+}
+
+/* Chart geometry follows the graphite palette as well. */
+.dark .app-shell .recharts-cartesian-grid line,
+.dark [data-overlay-root] .recharts-cartesian-grid line {
+    stroke: #303b48 !important;
+}
+
+.dark .app-shell .recharts-cartesian-axis-line,
+.dark .app-shell .recharts-cartesian-axis-tick-line,
+.dark [data-overlay-root] .recharts-cartesian-axis-line,
+.dark [data-overlay-root] .recharts-cartesian-axis-tick-line {
+    stroke: #414d5b !important;
+}
+
+.dark .app-shell .recharts-default-tooltip,
+.dark [data-overlay-root] .recharts-default-tooltip {
+    border-color: #303b48 !important;
+    background-color: #10161e !important;
+}
+
+
+/* ==========================================================================
+ * Sidebar unified dark surface V4
+ * ==========================================================================
+ * Direct selectors intentionally override legacy hard-coded sidebar colors.
+ * This fixes the Screen Time footer/fade remaining #121212 while the parent
+ * sidebar is #07090c.
+ */
+html.dark [data-pd-sidebar='true'] {
+    background-color: #07090c !important;
+}
+
+html.dark [data-pd-sidebar-footer='true'] {
+    background-color: #07090c !important;
+    border-top-color: rgba(255, 255, 255, 0.055) !important;
+}
+
+html.dark [data-pd-sidebar-fade='true'] {
+    background-image: linear-gradient(
+        to top,
+        #07090c 0%,
+        rgba(7, 9, 12, 0.90) 52%,
+        rgba(7, 9, 12, 0) 100%
+    ) !important;
+}
+
+html.dark [data-pd-sidebar-flyout='true'] {
+    background-color: #0d1014 !important;
+    border-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* Keep the footer visually continuous with the sidebar all the way down. */
+html.dark [data-pd-sidebar-footer='true'] > div {
+    background-color: transparent !important;
+}
+
+
+/* ==========================================================================
+ * Public/Auth light form isolation V6
+ * ==========================================================================
+ * Chromium/Brave can paint saved/autofilled credentials using its own dark
+ * autofill palette even after the app has returned to light mode. Keep all
+ * GuestLayout forms explicitly light without affecting authenticated pages.
+ */
+[data-pd-auth-shell='true'] {
+    color-scheme: light !important;
+}
+
+[data-pd-auth-shell='true'] input,
+[data-pd-auth-shell='true'] select,
+[data-pd-auth-shell='true'] textarea {
+    color-scheme: light !important;
+}
+
+[data-pd-auth-shell='true'] input:not([type='checkbox']):not([type='radio']),
+[data-pd-auth-shell='true'] textarea,
+[data-pd-auth-shell='true'] select {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border-color: #e2e8f0 !important;
+}
+
+[data-pd-auth-shell='true'] input:not([type='checkbox']):not([type='radio'])::placeholder,
+[data-pd-auth-shell='true'] textarea::placeholder {
+    color: #94a3b8 !important;
+    opacity: 1;
+}
+
+/* Chrome / Brave / Edge saved-credential autofill. */
+[data-pd-auth-shell='true'] input:-webkit-autofill,
+[data-pd-auth-shell='true'] input:-webkit-autofill:hover,
+[data-pd-auth-shell='true'] input:-webkit-autofill:focus,
+[data-pd-auth-shell='true'] textarea:-webkit-autofill,
+[data-pd-auth-shell='true'] select:-webkit-autofill {
+    -webkit-text-fill-color: #0f172a !important;
+    caret-color: #0f172a !important;
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+    box-shadow: 0 0 0 1000px #ffffff inset !important;
+    border-color: #e2e8f0 !important;
+    transition: background-color 9999s ease-out 0s;
+}
+
+/* Modern autofill selector where supported. */
+[data-pd-auth-shell='true'] input:autofill {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: 0 0 0 1000px #ffffff inset !important;
+}
+
+/* Keep auth checkboxes light even when the browser itself is in dark mode. */
+[data-pd-auth-shell='true'] input[type='checkbox'] {
+    color-scheme: light !important;
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    accent-color: #f4b400;
+}
+
+[data-pd-auth-shell='true'] input[type='checkbox']:checked {
+    background-color: #f4b400 !important;
+    border-color: #f4b400 !important;
+}
+
+/* Keep the normal amber focus treatment after the autofill override. */
+[data-pd-auth-shell='true'] input:not([type='checkbox']):not([type='radio']):focus,
+[data-pd-auth-shell='true'] textarea:focus,
+[data-pd-auth-shell='true'] select:focus {
+    border-color: #f4b400 !important;
+    box-shadow: 0 0 0 3px rgba(244, 180, 0, 0.14) !important;
+}
+
+/* ==========================================================================
+ * Notification center + account menu polish
+ * ========================================================================== */
+@keyframes pdNotificationBackdropIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes pdNotificationPanelIn {
+    from { opacity: 0; transform: translateY(12px) scale(0.975); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.notification-center-backdrop {
+    animation: pdNotificationBackdropIn 180ms ease-out both;
+}
+
+.notification-center-panel {
+    transform-origin: center center;
+    animation: pdNotificationPanelIn 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Keep the header account control in the same graphite family in dark mode. */
+html.dark [data-pd-account-trigger='true'] {
+    color: #edf1f6;
+}
+
+html.dark [data-pd-account-menu='true'] {
+    background-color: transparent;
+    color: #edf1f6;
+}
+
+html.dark [data-pd-account-menu='true'] .hover\:bg-slate-50:hover {
+    background-color: #171f29 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .notification-center-backdrop,
+    .notification-center-panel {
+        animation-duration: 0.01ms !important;
     }
 }

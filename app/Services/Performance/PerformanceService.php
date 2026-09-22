@@ -4,6 +4,7 @@ namespace App\Services\Performance;
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Support\CanonicalWorkforceReference;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Arr;
@@ -20,9 +21,38 @@ class PerformanceService
 
     private const PIP_STATUSES = ['Active', 'On Track', 'Extended', 'Completed', 'Escalated for HR Review'];
 
+    private const PIP_OUTCOMES = ['Expectations Met', 'Partially Met', 'Expectations Not Met'];
+
+    private const TRAINEE_JOURNEY_STAGES = [
+        'New Trainee',
+        'Initial Evaluation',
+        'Development Plan',
+        'Learning / Training / Practical Development',
+        'Re-evaluation',
+        'Development Cycle Completed / Ready',
+    ];
+
+    private const LEADERSHIP_360_CRITERIA = [
+        'Communication' => 20,
+        'Coaching & Support' => 20,
+        'Delegation' => 15,
+        'Team Coordination' => 15,
+        'Accountability' => 15,
+        'Leadership Effectiveness' => 15,
+    ];
+
     public function state(User $actor): array
     {
-        $reviewRows = $this->visibleReviewQuery($actor)->get();
+        if ($actor->isPerformanceOperator()) {
+            // Routine review coverage is system-derived. Loading the governed Performance
+            // state repairs any missing standard review assignments idempotently; Admin does
+            // not prepare or reassign routine evaluators by hand.
+            DB::transaction(fn () => $this->deriveReviewAssignments($actor), 3);
+        }
+
+        $reviewRows = $this->visibleReviewQuery($actor)
+            ->whereDate('cycles.review_open_date', '<=', $this->performanceToday()->toDateString())
+            ->get();
         $visibleUserIds = collect([$actor->id]);
 
         foreach ($reviewRows as $row) {
@@ -87,7 +117,29 @@ class PerformanceService
             ->values()
             ->all();
 
+        $today = $this->performanceToday();
+        $actualToday = CarbonImmutable::now(config('app.timezone'))->startOfDay();
+        $demoMode = $today->toDateString() !== $actualToday->toDateString();
+        $reference = app(CanonicalWorkforceReference::class)->payload();
+        $workforceContext = $this->workforceContextFromReference($reference);
+        $performanceCalendar = $this->runtimePerformanceCalendar(
+            is_array($reference['performance_calendar'] ?? null) ? $reference['performance_calendar'] : [],
+            $today,
+        );
+        $performanceQuarterHistory = is_array($reference['performance_quarter_history'] ?? null)
+            ? $reference['performance_quarter_history']
+            : [];
+
         return [
+            'meta' => [
+                'sourceOfTruth' => 'PostgreSQL',
+                'identitySource' => 'Canonical users/personnel',
+                'serverNow' => now(config('app.timezone'))->toIso8601String(),
+                'serverDate' => $today->toDateString(),
+                'actualServerDate' => $actualToday->toDateString(),
+                'demoMode' => $demoMode,
+                'demoScenario' => $demoMode ? 'Controlled Q3 review-workflow demonstration' : null,
+            ],
             'actor' => [
                 'userId' => $actor->id,
                 'personnelKey' => $actor->personnel_key,
@@ -106,21 +158,26 @@ class PerformanceService
             'reviewTemplates' => $reviewTemplates,
             'goalTemplates' => $goalTemplates,
             'goals' => $goals,
+            'goalAuditEvents' => $this->goalAuditEventsForActor($actor),
             'assignments' => $this->assignmentsForActor($actor),
             'reviews' => $reviews,
             'development' => $this->developmentForActor($actor),
+            'workforceContext' => $workforceContext,
+            'performanceCalendar' => $performanceCalendar,
+            'performanceQuarterHistory' => $performanceQuarterHistory,
             'anonymousUpwardFeedback' => [
                 'enabled' => (bool) config('services.groq.performance_anonymous_feedback', false),
                 'subjectSafeOnly' => true,
+                'purpose' => '360 Leadership Review',
             ],
         ];
     }
 
-    public function syncConfiguration(User $actor, array $payload): array
+    public function syncConfiguration(User $actor, array $payload, bool $preserveGoalProgress = true): array
     {
         $this->requireAdmin($actor);
 
-        DB::transaction(function () use ($actor, $payload): void {
+        DB::transaction(function () use ($actor, $payload, $preserveGoalProgress): void {
             foreach ($payload['cycles'] ?? [] as $cycle) {
                 $this->upsertCycle($cycle);
             }
@@ -129,12 +186,13 @@ class PerformanceService
                 $this->upsertReviewTemplate($template);
             }
 
-            foreach ($payload['goalTemplates'] ?? [] as $template) {
-                $this->upsertGoalTemplate($template);
-            }
+            // Goal-plan structure is source-governed. Admin configuration sync may
+            // assign an existing plan to personnel, but it must never create, rename,
+            // revise, reweight, archive, or otherwise mutate the canonical plan library.
+            $this->assertSourceGovernedGoalTemplates($payload['goalTemplates'] ?? []);
 
             foreach ($payload['goals'] ?? [] as $goal) {
-                $this->upsertGoal($goal);
+                $this->upsertGoal($goal, $preserveGoalProgress);
             }
 
             foreach ($payload['assignments'] ?? [] as $assignment) {
@@ -158,20 +216,584 @@ class PerformanceService
         return $this->state($actor);
     }
 
+    /**
+     * Release missing formal-review records for active cycles whose review
+     * window has opened. Assignments are prepared earlier; this scheduled
+     * reconciliation never changes evaluator authority.
+     */
+    public function provisionScheduledReviews(): void
+    {
+        DB::transaction(function (): void {
+            $cycles = DB::table('performance_cycles')
+                ->where('status', 'Active')
+                ->get();
+
+            foreach ($cycles as $cycle) {
+                $this->releaseOpenCycleReviews($cycle);
+            }
+        }, 3);
+    }
+
+    /**
+     * Move one persisted review through the governed Reviews-board workflow.
+     *
+     * The UI uses board-stage labels (Manager Review, Submitted,
+     * Calibration Review, Finalized). This endpoint deliberately reuses the
+     * same server-side calibration and manager-review rules as the normal
+     * review sync path so a board/header action cannot bypass governance.
+     */
+    public function transitionReview(User $actor, string $reviewKey, string|array $target): array
+    {
+        $targetStage = is_array($target)
+            ? (string) ($target['target'] ?? $target['stage'] ?? $target['targetStage'] ?? $target['workflowState'] ?? '')
+            : $target;
+
+        $targetStage = trim($targetStage);
+        $targetStage = match ($targetStage) {
+            'Calibration In Review' => 'Calibration Review',
+            'Calibration Pending' => 'Submitted',
+            default => $targetStage,
+        };
+
+        if (! in_array($targetStage, ['Manager Review', 'Submitted', 'Calibration Review', 'Finalized'], true)) {
+            throw ValidationException::withMessages([
+                'reviews' => 'The requested review workflow transition is not supported.',
+            ]);
+        }
+
+        DB::transaction(function () use ($actor, $reviewKey, $targetStage): void {
+            $row = $this->visibleReviewQuery($actor)
+                ->where('reviews.external_key', trim($reviewKey))
+                ->first();
+
+            if (! $row) {
+                throw ValidationException::withMessages([
+                    'reviews' => 'The referenced Performance review does not exist or is outside your authorized scope.',
+                ]);
+            }
+
+            DB::table('performance_reviews')->where('id', $row->id)->lockForUpdate()->first();
+            $row = $this->visibleReviewQuery($actor)->where('reviews.id', $row->id)->first();
+
+            $currentStage = $this->reviewBoardStage($row);
+            if ($currentStage === $targetStage) {
+                throw ValidationException::withMessages([
+                    'reviews' => "This review is already in {$targetStage}.",
+                ]);
+            }
+
+            if ($currentStage === 'Finalized') {
+                throw ValidationException::withMessages([
+                    'reviews' => 'Finalized reviews can only move backward through the audited Reopen / Request Revision action.',
+                ]);
+            }
+
+            if ($targetStage === 'Manager Review') {
+                if ($currentStage !== 'Not Started') {
+                    throw ValidationException::withMessages([
+                        'reviews' => 'Only a not-started review can enter Manager Review.',
+                    ]);
+                }
+
+                if ((int) $row->evaluator_user_id !== (int) $actor->id
+                    || (int) $row->subject_user_id === (int) $actor->id
+                    || ! $actor->evaluator_capable
+                    || $actor->employment_status === 'Inactive') {
+                    $this->deny('Only the assigned active evaluator may start this review.');
+                }
+
+                $cycle = DB::table('performance_cycles')->where('id', $row->cycle_database_id)->first();
+                $this->assertCycleOpenForManagerReview($cycle);
+
+                DB::table('performance_reviews')->where('id', $row->id)->update([
+                    'status' => 'In Progress',
+                    'workflow_state' => 'Manager Review',
+                    'lock_version' => DB::raw('lock_version + 1'),
+                    'updated_at' => now(),
+                ]);
+                $this->recordEvent($row->id, 'Manager Review Started', $actor);
+
+                return;
+            }
+
+            if ($targetStage === 'Submitted') {
+                if ($currentStage !== 'Manager Review') {
+                    throw ValidationException::withMessages([
+                        'reviews' => 'Only an active Manager Review can be submitted.',
+                    ]);
+                }
+                if (! $row->calibration_required) {
+                    throw ValidationException::withMessages([
+                        'reviews' => 'This cycle does not require calibration; submit/finalize it through the evaluator review flow.',
+                    ]);
+                }
+
+                $this->syncManagerReviewContent($actor, $row, [
+                    'reviewTemplateId' => $row->template_key,
+                    'competencyScores' => $this->decode($row->criteria_scores, []),
+                    'comments' => $row->comments,
+                    'developmentRecommendations' => $this->decode($row->development_recommendations, []),
+                    'managerSubmittedAt' => now()->toIso8601String(),
+                    'status' => 'In Progress',
+                    'workflowState' => 'Calibration Pending',
+                ]);
+
+                return;
+            }
+
+            if ($targetStage === 'Calibration Review') {
+                if ($currentStage !== 'Submitted') {
+                    throw ValidationException::withMessages([
+                        'reviews' => 'Only a submitted review can enter Calibration Review.',
+                    ]);
+                }
+
+                $this->syncCalibration($actor, $row, [
+                    'calibrationStatus' => 'In Review',
+                    'calibrationHistory' => [[
+                        'notes' => 'Calibration review started by authorized Admin/HR.',
+                    ]],
+                ]);
+
+                return;
+            }
+
+            // Finalized
+            if ($row->calibration_required) {
+                if ($currentStage !== 'Calibration Review') {
+                    throw ValidationException::withMessages([
+                        'reviews' => 'Required calibration must be actively reviewed before finalization.',
+                    ]);
+                }
+
+                $this->syncCalibration($actor, $row, [
+                    'calibrationStatus' => 'Approved',
+                    'calibrationHistory' => [[
+                        'notes' => 'Required calibration completed; formal result approved and finalized.',
+                    ]],
+                ]);
+
+                return;
+            }
+
+            if ($currentStage !== 'Manager Review') {
+                throw ValidationException::withMessages([
+                    'reviews' => 'Only an active Manager Review can be finalized when calibration is not required.',
+                ]);
+            }
+
+            $this->syncManagerReviewContent($actor, $row, [
+                'reviewTemplateId' => $row->template_key,
+                'competencyScores' => $this->decode($row->criteria_scores, []),
+                'comments' => $row->comments,
+                'developmentRecommendations' => $this->decode($row->development_recommendations, []),
+                'managerSubmittedAt' => now()->toIso8601String(),
+                'status' => 'Completed',
+                'workflowState' => 'Finalized',
+            ]);
+        }, 3);
+
+        return $this->state($actor);
+    }
+
+    public function transitionCalibration(
+        User $actor,
+        string $reviewKey,
+        string $target,
+        ?string $notes = null,
+    ): array {
+        if (! in_array($target, ['In Review', 'Approved', 'Returned for Revision'], true)) {
+            throw ValidationException::withMessages([
+                'reviews' => 'The requested calibration transition is not supported.',
+            ]);
+        }
+
+        if ($target === 'Returned for Revision' && trim((string) $notes) === '') {
+            throw ValidationException::withMessages([
+                'reviews' => 'A calibration revision comment is required before returning the review to the evaluator.',
+            ]);
+        }
+
+        DB::transaction(function () use ($actor, $reviewKey, $target, $notes): void {
+            $row = $this->visibleReviewQuery($actor)
+                ->where('reviews.external_key', trim($reviewKey))
+                ->first();
+
+            if (! $row) {
+                throw ValidationException::withMessages([
+                    'reviews' => 'The referenced Performance review does not exist or is outside your authorized scope.',
+                ]);
+            }
+
+            DB::table('performance_reviews')->where('id', $row->id)->lockForUpdate()->first();
+            $row = $this->visibleReviewQuery($actor)->where('reviews.id', $row->id)->first();
+
+            $this->syncCalibration($actor, $row, [
+                'calibrationStatus' => $target,
+                'calibrationHistory' => [[
+                    'notes' => trim((string) $notes) ?: null,
+                ]],
+            ]);
+        }, 3);
+
+        return $this->state($actor);
+    }
+
+    public function updateGoalProgress(
+        User $actor,
+        string $goalKey,
+        ?float $progress = null,
+        ?string $status = null,
+        bool $administrativeCorrection = false,
+        ?string $reason = null,
+        ?string $reference = null,
+    ): array {
+        DB::transaction(function () use ($actor, $goalKey, $progress, $status, $administrativeCorrection, $reason, $reference): void {
+            $goal = DB::table('performance_goals as goals')
+                ->join('users as subjects', 'subjects.id', '=', 'goals.user_id')
+                ->join('performance_cycles as cycles', 'cycles.id', '=', 'goals.performance_cycle_id')
+                ->where('goals.external_key', trim($goalKey))
+                ->select([
+                    'goals.*',
+                    'subjects.personnel_key as subject_key',
+                    'cycles.external_key as cycle_key',
+                    'cycles.status as cycle_status',
+                ])
+                ->lockForUpdate()
+                ->first();
+
+            if (! $goal) {
+                throw ValidationException::withMessages(['goals' => 'The referenced Goal/KPI does not exist.']);
+            }
+
+            if ($goal->cycle_status === 'Closed') {
+                throw ValidationException::withMessages(['goals' => 'Historical Goal/KPI records are read-only.']);
+            }
+
+            $assignment = DB::table('performance_review_assignments')
+                ->where('performance_cycle_id', $goal->performance_cycle_id)
+                ->where('subject_user_id', $goal->user_id)
+                ->where('active', true)
+                ->first();
+
+            $formalReview = $assignment
+                ? DB::table('performance_reviews')->where('performance_review_assignment_id', $assignment->id)->first()
+                : null;
+            if ($formalReview && (
+                $formalReview->manager_submitted_at !== null
+                || in_array($formalReview->workflow_state, ['Calibration Pending', 'Calibration In Review', 'Finalized'], true)
+                || $formalReview->status === 'Completed'
+            )) {
+                throw ValidationException::withMessages([
+                    'goals' => 'Goal/KPI progress is locked after formal review submission. Use the governed review revision/correction process instead.',
+                ]);
+            }
+
+            $assignedGoalEvaluatorId = $assignment?->goal_evaluator_user_id ?: $assignment?->evaluator_user_id;
+            $isAssignedEvaluator = $assignedGoalEvaluatorId
+                && (int) $assignedGoalEvaluatorId === (int) $actor->id
+                && (bool) $actor->evaluator_capable
+                && $actor->employment_status !== 'Inactive'
+                && (int) $goal->user_id !== (int) $actor->id;
+
+            $cleanReason = trim((string) $reason);
+            $eventType = null;
+
+            if ($isAssignedEvaluator && ! $administrativeCorrection) {
+                if ($cleanReason === '') {
+                    throw ValidationException::withMessages([
+                        'reason' => 'Document the workplace evidence or evaluator basis used to verify Goal/KPI progress.',
+                    ]);
+                }
+                $eventType = 'Evaluator Goal Progress Verification';
+            } elseif ($actor->isPerformanceOperator() && $administrativeCorrection) {
+                if ($cleanReason === '') {
+                    throw ValidationException::withMessages([
+                        'reason' => 'Administrative Goal/KPI corrections require a documented reason.',
+                    ]);
+                }
+                $eventType = 'Administrative Goal Correction';
+            } elseif ($actor->isPerformanceOperator()) {
+                throw ValidationException::withMessages([
+                    'reason' => 'Admin/HR cannot casually edit formal Goal/KPI progress. Use an administrative correction with a required reason and audit context.',
+                ]);
+            } else {
+                $this->deny('Only the assigned direct evaluator may verify formal Goal/KPI progress.');
+            }
+
+            $nextProgress = $progress === null ? (float) $goal->progress : max(0, min(100, $progress));
+            $nextStatus = $status ?? (string) $goal->status;
+            if (! in_array($nextStatus, ['Not Started', 'On Track', 'At Risk', 'Completed'], true)) {
+                throw ValidationException::withMessages(['status' => 'The Goal/KPI status is invalid.']);
+            }
+
+            if (round($nextProgress, 2) === round((float) $goal->progress, 2) && $nextStatus === $goal->status) {
+                return;
+            }
+
+            DB::table('performance_goals')->where('id', $goal->id)->update([
+                'progress' => $nextProgress,
+                'status' => $nextStatus,
+                'lock_version' => DB::raw('lock_version + 1'),
+                'updated_at' => now(),
+            ]);
+
+            DB::table('performance_goal_events')->insert([
+                'performance_goal_id' => $goal->id,
+                'actor_user_id' => $actor->id,
+                'event_type' => $eventType,
+                'previous_progress' => $goal->progress,
+                'new_progress' => $nextProgress,
+                'previous_status' => $goal->status,
+                'new_status' => $nextStatus,
+                'reason' => $cleanReason ?: null,
+                'reference' => trim((string) $reference) ?: null,
+                'metadata' => json_encode([
+                    'cycleId' => $goal->cycle_key,
+                    'personId' => $goal->subject_key,
+                    'administrativeCorrection' => $administrativeCorrection,
+                ], JSON_THROW_ON_ERROR),
+                'created_at' => now(),
+            ]);
+
+            if ($formalReview) {
+                $this->recordEvent((int) $formalReview->id, $eventType, $actor, [
+                    'reason' => $cleanReason ?: null,
+                    'notes' => trim(($goal->title ?? 'Goal/KPI').' · '.(float) $goal->progress.'% → '.$nextProgress.'%'.($reference ? ' · Ref: '.trim((string) $reference) : '')),
+                ]);
+            }
+        }, 3);
+
+        return $this->state($actor);
+    }
+
     public function syncDevelopment(User $actor, array $development): array
     {
-        DB::transaction(function () use ($actor, $development): void {
+        $current = $this->state($actor)['development'] ?? [];
+
+        $currentFeedback = collect($current['feedbackRecords'] ?? [])->keyBy('id');
+        $currentPips = collect($current['pips'] ?? [])->keyBy('id');
+        $currentJourneys = collect($current['traineeJourneys'] ?? [])->keyBy('id');
+
+        DB::transaction(function () use (
+            $actor,
+            $development,
+            $currentFeedback,
+            $currentPips,
+            $currentJourneys
+        ): void {
             foreach ($development['feedbackRecords'] ?? [] as $record) {
+                $existing = $currentFeedback->get((string) ($record['id'] ?? ''));
+
+                if (is_array($existing) && $existing == $record) {
+                    continue;
+                }
+
                 $this->upsertFeedback($actor, $record);
             }
 
             foreach ($development['pips'] ?? [] as $pip) {
+                $existing = $currentPips->get((string) ($pip['id'] ?? ''));
+
+                if (is_array($existing) && $this->samePipSyncPayload($existing, $pip)) {
+                    continue;
+                }
+
                 $this->upsertPip($actor, $pip);
             }
 
             foreach ($development['traineeJourneys'] ?? [] as $journey) {
+                $existing = $currentJourneys->get((string) ($journey['id'] ?? ''));
+
+                if (is_array($existing) && $this->sameTraineeJourneySyncPayload($existing, $journey)) {
+                    continue;
+                }
+
                 $this->upsertTraineeJourney($actor, $journey);
             }
+        }, 3);
+
+        return $this->state($actor);
+    }
+
+    private function samePipSyncPayload(array $left, array $right): bool
+    {
+        $keys = [
+            'id',
+            'personId',
+            'relatedReviewId',
+            'performanceConcern',
+            'expectedImprovement',
+            'actionItems',
+            'startDate',
+            'targetEndDate',
+            'assignedManagerId',
+            'status',
+            'milestones',
+            'progressNotes',
+            'developmentActions',
+            'outcomeNotes',
+            'hrReviewNotes',
+        ];
+
+        foreach ($keys as $key) {
+            if (($left[$key] ?? null) != ($right[$key] ?? null)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function sameTraineeJourneySyncPayload(array $left, array $right): bool
+    {
+        $keys = [
+            'id',
+            'traineeId',
+            'cycleId',
+            'currentStage',
+            'milestones',
+            'developmentActionIds',
+        ];
+
+        foreach ($keys as $key) {
+            if (($left[$key] ?? null) != ($right[$key] ?? null)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public function savePip(User $actor, array $pip): array
+    {
+        DB::transaction(function () use ($actor, $pip): void {
+            $this->upsertPip($actor, $pip);
+        }, 3);
+
+        return $this->state($actor);
+    }
+
+    public function transitionPipGovernance(User $actor, string $pipKey, string $action, array $payload): array
+    {
+        if (! $actor->isPerformanceOperator()) {
+            $this->deny('Only authorized Admin/HR operators may govern PIP outcomes.');
+        }
+
+        DB::transaction(function () use ($actor, $pipKey, $action, $payload): void {
+            $pip = DB::table('performance_improvement_plans')
+                ->where('external_key', $pipKey)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $pip) {
+                throw ValidationException::withMessages(['pip' => 'Performance Improvement Plan not found.']);
+            }
+            if ($pip->status === 'Completed') {
+                throw ValidationException::withMessages(['pip' => 'Closed Performance Improvement Plans are read-only.']);
+            }
+
+            $today = CarbonImmutable::now(config('app.timezone'))->startOfDay();
+            $currentTarget = CarbonImmutable::parse((string) $pip->target_end_date, config('app.timezone'))->startOfDay();
+            if ($today->lessThan($currentTarget)) {
+                throw ValidationException::withMessages([
+                    'pip' => 'Outcome actions become available on or after the current Target End date.',
+                ]);
+            }
+
+            $milestones = $this->decode($pip->milestones, []);
+            $hasIncompleteMilestone = collect($milestones)->contains(
+                fn (array $milestone): bool => ($milestone['status'] ?? 'Pending') !== 'Completed'
+            );
+            if ($hasIncompleteMilestone) {
+                throw ValidationException::withMessages([
+                    'pip' => 'Complete all required PIP owner check-ins before HR/Admin can close or extend the plan.',
+                ]);
+            }
+
+            $progressNotes = $this->decode($pip->progress_notes, []);
+            $authorKey = $actor->personnel_key ?: (string) $actor->id;
+            $nowIso = CarbonImmutable::now(config('app.timezone'))->toIso8601String();
+
+            if ($action === 'close') {
+                $outcome = trim((string) ($payload['outcomeResult'] ?? ''));
+                $note = trim((string) ($payload['hrOutcomeNote'] ?? ''));
+                if (! in_array($outcome, self::PIP_OUTCOMES, true) || $note === '') {
+                    throw ValidationException::withMessages([
+                        'pip' => 'A valid PIP outcome and HR governance note are required to close the plan.',
+                    ]);
+                }
+
+                $progressNotes[] = [
+                    'id' => 'pip-governance-close-'.now()->format('YmdHisv'),
+                    'authorId' => $authorKey,
+                    'note' => 'PIP closed. Outcome: '.$outcome.'. HR governance note: '.$note,
+                    'createdAt' => $nowIso,
+                ];
+
+                DB::table('performance_improvement_plans')->where('id', $pip->id)->update([
+                    'status' => 'Completed',
+                    'outcome_notes' => $outcome,
+                    'hr_review_notes' => $note,
+                    'progress_notes' => json_encode(array_values($progressNotes), JSON_THROW_ON_ERROR),
+                    'lock_version' => DB::raw('lock_version + 1'),
+                    'updated_at' => now(),
+                ]);
+
+                return;
+            }
+
+            if ($action !== 'extend') {
+                throw ValidationException::withMessages(['pip' => 'Unsupported PIP governance action.']);
+            }
+
+            $reason = trim((string) ($payload['extensionReason'] ?? ''));
+            $newTargetValue = trim((string) ($payload['newTargetEndDate'] ?? ''));
+            $nextCheckInValue = trim((string) ($payload['nextCheckInDate'] ?? ''));
+            $nextCheckInTitle = trim((string) ($payload['nextCheckInTitle'] ?? ''));
+            if ($reason === '' || $newTargetValue === '' || $nextCheckInValue === '' || $nextCheckInTitle === '') {
+                throw ValidationException::withMessages([
+                    'pip' => 'Extension reason, new Target End, and next check-in are required.',
+                ]);
+            }
+
+            $newTarget = CarbonImmutable::parse($newTargetValue, config('app.timezone'))->startOfDay();
+            $extensionDays = (int) $today->diffInDays($newTarget, false);
+            if ($extensionDays < 14 || $extensionDays > 60 || $newTarget->lessThanOrEqualTo($currentTarget)) {
+                throw ValidationException::withMessages([
+                    'pip' => 'An extension Target End must be later than the current target and 14 to 60 calendar days after the extension decision.',
+                ]);
+            }
+
+            $nextCheckIn = CarbonImmutable::parse($nextCheckInValue, config('app.timezone'))->startOfDay();
+            $checkInDays = (int) $today->diffInDays($nextCheckIn, false);
+            if ($checkInDays < 7 || $checkInDays > 14 || $nextCheckIn->greaterThanOrEqualTo($newTarget)) {
+                throw ValidationException::withMessages([
+                    'pip' => 'The extension check-in must be 7 to 14 calendar days after the extension decision and before the new Target End.',
+                ]);
+            }
+
+            $milestones[] = [
+                'id' => 'pip-extension-checkin-'.now()->format('YmdHisv'),
+                'title' => $nextCheckInTitle,
+                'dueDate' => $nextCheckIn->toDateString(),
+                'status' => 'Pending',
+            ];
+            $progressNotes[] = [
+                'id' => 'pip-governance-extension-'.now()->format('YmdHisv'),
+                'authorId' => $authorKey,
+                'note' => 'PIP extension approved. Previous target: '.$currentTarget->toDateString().'. New target: '.$newTarget->toDateString().'. Reason: '.$reason,
+                'createdAt' => $nowIso,
+            ];
+
+            DB::table('performance_improvement_plans')->where('id', $pip->id)->update([
+                'status' => 'Extended',
+                'target_end_date' => $newTarget->toDateString(),
+                'milestones' => json_encode(array_values($milestones), JSON_THROW_ON_ERROR),
+                'progress_notes' => json_encode(array_values($progressNotes), JSON_THROW_ON_ERROR),
+                'lock_version' => DB::raw('lock_version + 1'),
+                'updated_at' => now(),
+            ]);
         }, 3);
 
         return $this->state($actor);
@@ -257,7 +879,7 @@ class PerformanceService
             ->join('performance_review_assignments as assignments', 'assignments.id', '=', 'reviews.performance_review_assignment_id')
             ->join('performance_cycles as cycles', 'cycles.id', '=', 'assignments.performance_cycle_id')
             ->join('users as subjects', 'subjects.id', '=', 'assignments.subject_user_id')
-            ->join('users as evaluators', 'evaluators.id', '=', 'assignments.evaluator_user_id')
+            ->leftJoin('users as evaluators', 'evaluators.id', '=', 'assignments.evaluator_user_id')
             ->leftJoin('performance_review_templates as templates', 'templates.id', '=', 'reviews.performance_review_template_id')
             ->when(! $actor->isPerformanceOperator(), function (Builder $query) use ($actor): void {
                 $query->where(function (Builder $scope) use ($actor): void {
@@ -271,6 +893,7 @@ class PerformanceService
                 'assignments.external_key as assignment_external_key',
                 'assignments.subject_user_id',
                 'assignments.evaluator_user_id',
+                'assignments.basis as assignment_basis',
                 'assignments.lock_version as assignment_lock_version',
                 'subjects.personnel_key as subject_key',
                 'evaluators.personnel_key as evaluator_key',
@@ -348,7 +971,7 @@ class PerformanceService
         $cycleAssignments = DB::table('performance_review_assignments as assignments')
             ->join('performance_cycles as cycles', 'cycles.id', '=', 'assignments.performance_cycle_id')
             ->join('users as subjects', 'subjects.id', '=', 'assignments.subject_user_id')
-            ->join('users as evaluators', 'evaluators.id', '=', 'assignments.evaluator_user_id')
+            ->leftJoin('users as evaluators', 'evaluators.id', '=', 'assignments.evaluator_user_id')
             ->when(! $actor->isPerformanceOperator(), function (Builder $query) use ($actor): void {
                 $query->where(function (Builder $scope) use ($actor): void {
                     $scope->where('assignments.evaluator_user_id', $actor->id)
@@ -364,7 +987,7 @@ class PerformanceService
             ])
             ->map(fn (object $assignment) => [
                 'id' => $assignment->external_key,
-                'evaluatorId' => $assignment->evaluator_key,
+                'evaluatorId' => $assignment->evaluator_key ?? '',
                 'scopeType' => 'Specific Person',
                 'personId' => $assignment->subject_key,
                 'isPrimaryEvaluator' => true,
@@ -495,8 +1118,9 @@ class PerformanceService
         }
 
         if (($requested['evaluatorId'] ?? null) !== $row->evaluator_key) {
-            $this->reassignReview($actor, $row, $requested);
-            $row = $this->visibleReviewQuery($actor)->where('reviews.id', $row->id)->first();
+            throw ValidationException::withMessages([
+                'reviews' => 'Routine evaluator reassignment is disabled. Correct the authoritative reporting relationship instead of assigning a different manager or supervisor.',
+            ]);
         }
 
         if ($row->status === 'Completed' && ($requested['status'] ?? 'Completed') !== 'Completed') {
@@ -564,43 +1188,6 @@ class PerformanceService
         ]);
     }
 
-    private function reassignReview(User $actor, object $row, array $requested): void
-    {
-        $this->requireOperator($actor);
-
-        if ($row->status === 'Completed') {
-            throw ValidationException::withMessages([
-                'reviews' => 'Reopen a finalized review before reassigning it.',
-            ]);
-        }
-
-        $history = Arr::last($requested['assignmentHistory'] ?? []);
-        $reason = trim((string) ($history['reason'] ?? ''));
-        if ($reason === '') {
-            throw ValidationException::withMessages(['reviews' => 'A reassignment reason is required.']);
-        }
-
-        $target = $this->userByKey((string) $requested['evaluatorId']);
-        if ($target->id === $row->subject_user_id || ! $target->evaluator_capable || $target->employment_status === 'Inactive') {
-            throw ValidationException::withMessages(['reviews' => 'The selected evaluator is not eligible.']);
-        }
-
-        DB::table('performance_review_assignments')->where('id', $row->assignment_id)->update([
-            'evaluator_user_id' => $target->id,
-            'basis' => 'Exception',
-            'assigned_by_id' => $actor->id,
-            'assigned_at' => now(),
-            'lock_version' => DB::raw('lock_version + 1'),
-            'updated_at' => now(),
-        ]);
-
-        $this->recordEvent($row->id, 'Reassigned', $actor, [
-            'from_evaluator_user_id' => $row->evaluator_user_id,
-            'to_evaluator_user_id' => $target->id,
-            'reason' => $reason,
-            'notes' => $history['notes'] ?? null,
-        ]);
-    }
 
     private function reopenReview(User $actor, object $row, array $requested): void
     {
@@ -676,11 +1263,29 @@ class PerformanceService
                 'finalized_at' => now(),
             ];
         } elseif ($next === 'Returned for Revision') {
+            $isLeadership360 = ($row->assignment_basis ?? '') === '360 Leadership Review';
             $updates += [
                 'status' => 'In Progress',
-                'workflow_state' => 'Revision In Progress',
+                'workflow_state' => $isLeadership360 ? '360 Feedback Collection' : 'Revision In Progress',
                 'finalized_at' => null,
             ];
+            if ($isLeadership360) {
+                $updates['manager_submitted_at'] = null;
+                $updates['final_rating'] = null;
+            }
+
+            $version = DB::table('performance_review_events')
+                ->where('performance_review_id', $row->id)
+                ->whereIn('event_type', ['Reopened', 'Revision Requested'])
+                ->max('revision_version');
+            $this->recordEvent($row->id, 'Revision Requested', $actor, [
+                'reason' => $notes ?: 'Returned during required calibration review.',
+                'notes' => $isLeadership360
+                    ? '360° Leadership Review returned to multi-source feedback collection before it can re-enter calibration.'
+                    : 'Assigned evaluator must revise and resubmit before finalization.',
+                'snapshot' => $this->reviewSnapshot($row),
+                'revision_version' => ((int) $version) + 1,
+            ]);
         } else {
             $updates['workflow_state'] = 'Calibration In Review';
         }
@@ -859,41 +1464,66 @@ class PerformanceService
         $existing = DB::table('performance_feedback_records')->where('external_key', $key)->lockForUpdate()->first();
         $this->assertLockVersion($existing, $record, 'Feedback record');
 
-        if ($author->id !== $actor->id && ! $actor->isPerformanceOperator()) {
-            $this->deny('Feedback authorship cannot be impersonated.');
+        $visibility = in_array($record['visibility'] ?? null, ['Employee & Manager', 'Manager & HR', 'HR Only'], true)
+            ? $record['visibility']
+            : 'Employee & Manager';
+        $recordType = in_array($record['recordType'] ?? null, ['1:1 Check-in', 'Feedback Note', 'Coaching Action'], true)
+            ? $record['recordType']
+            : 'Feedback Note';
+        $cycleId = ! empty($record['cycleId']) ? $this->cycleByKey($record['cycleId'])->id : null;
+        $reviewId = ! empty($record['relatedReviewId'])
+            ? DB::table('performance_reviews')->where('external_key', $record['relatedReviewId'])->value('id')
+            : null;
+        $linkedGoalKeys = array_values($record['linkedGoalIds'] ?? []);
+        $coachingAction = trim((string) ($record['coachingAction'] ?? '')) ?: null;
+        $followUpDate = ! empty($record['followUpDate']) ? (string) $record['followUpDate'] : null;
+        $note = trim((string) ($record['note'] ?? ''));
+
+        if ($existing && (int) $existing->author_user_id !== (int) $actor->id && ! $actor->isPerformanceOperator()) {
+            $unchanged =
+                (int) $existing->subject_user_id === (int) $subject->id
+                && (int) $existing->author_user_id === (int) $author->id
+                && ($existing->performance_cycle_id === null ? null : (int) $existing->performance_cycle_id) === ($cycleId === null ? null : (int) $cycleId)
+                && ($existing->performance_review_id === null ? null : (int) $existing->performance_review_id) === ($reviewId === null ? null : (int) $reviewId)
+                && (string) $existing->record_type === $recordType
+                && trim((string) $existing->note) === $note
+                && (trim((string) ($existing->coaching_action ?? '')) ?: null) === $coachingAction
+                && array_values($this->decode($existing->linked_goal_keys, [])) === $linkedGoalKeys
+                && ($existing->follow_up_date ? (string) $existing->follow_up_date : null) === $followUpDate
+                && (string) $existing->visibility === $visibility;
+
+            if ($unchanged) {
+                // Bulk Development saves echo visible records back to the server.
+                // A manager may carry an unchanged governance-authored note in
+                // that payload without receiving authorship rights over it.
+                return;
+            }
+
+            $this->deny('You cannot change another author’s feedback record.');
         }
 
-        if ($existing && $existing->author_user_id !== $actor->id && ! $actor->isPerformanceOperator()) {
-            $this->deny('You cannot change another author’s feedback record.');
+        if ($author->id !== $actor->id && ! $actor->isPerformanceOperator()) {
+            $this->deny('Feedback authorship cannot be impersonated.');
         }
 
         if (! $actor->isPerformanceOperator() && ! $this->hasEvaluatorScope($actor->id, $subject->id, $record['cycleId'] ?? null)) {
             $this->deny('Feedback is limited to assigned personnel.');
         }
 
-        $visibility = in_array($record['visibility'] ?? null, ['Employee & Manager', 'Manager & HR', 'HR Only'], true)
-            ? $record['visibility']
-            : 'Employee & Manager';
         if ($visibility === 'HR Only' && ! $actor->isPerformanceOperator()) {
             $this->deny('Only Admin/HR may create HR-only feedback.');
         }
 
-        $cycleId = ! empty($record['cycleId']) ? $this->cycleByKey($record['cycleId'])->id : null;
-        $reviewId = ! empty($record['relatedReviewId'])
-            ? DB::table('performance_reviews')->where('external_key', $record['relatedReviewId'])->value('id')
-            : null;
         $values = [
             'subject_user_id' => $subject->id,
             'author_user_id' => $author->id,
             'performance_cycle_id' => $cycleId,
             'performance_review_id' => $reviewId,
-            'record_type' => in_array($record['recordType'] ?? null, ['1:1 Check-in', 'Feedback Note', 'Coaching Action'], true)
-                ? $record['recordType']
-                : 'Feedback Note',
-            'note' => trim((string) ($record['note'] ?? '')),
-            'coaching_action' => trim((string) ($record['coachingAction'] ?? '')) ?: null,
-            'linked_goal_keys' => json_encode(array_values($record['linkedGoalIds'] ?? []), JSON_THROW_ON_ERROR),
-            'follow_up_date' => $record['followUpDate'] ?? null,
+            'record_type' => $recordType,
+            'note' => $note,
+            'coaching_action' => $coachingAction,
+            'linked_goal_keys' => json_encode($linkedGoalKeys, JSON_THROW_ON_ERROR),
+            'follow_up_date' => $followUpDate,
             'visibility' => $visibility,
             'lock_version' => $existing ? DB::raw('lock_version + 1') : 1,
             'updated_at' => now(),
@@ -922,7 +1552,12 @@ class PerformanceService
         $review = DB::table('performance_reviews as reviews')
             ->join('performance_review_assignments as assignments', 'assignments.id', '=', 'reviews.performance_review_assignment_id')
             ->where('reviews.external_key', $pip['relatedReviewId'] ?? '')
-            ->select('reviews.*', 'assignments.subject_user_id')
+            ->select(
+                'reviews.*',
+                'assignments.subject_user_id',
+                'assignments.evaluator_user_id',
+                'assignments.basis as assignment_basis',
+            )
             ->first();
 
         if (! $review || $review->subject_user_id !== $subject->id || $review->status !== 'Completed') {
@@ -932,11 +1567,105 @@ class PerformanceService
         if (! $existing && ! $actor->isPerformanceOperator()) {
             $this->deny('Only authorized Admin/HR operators may create a PIP.');
         }
-        if ($existing && ! $actor->isPerformanceOperator() && $existing->assigned_manager_id !== $actor->id) {
+        if ($existing && ! $actor->isPerformanceOperator() && (int) $existing->assigned_manager_id !== (int) $actor->id) {
             $this->deny('Only the assigned manager or Admin/HR may update this PIP.');
         }
-        if (! $this->hasEvaluatorScope($manager->id, $subject->id, null)) {
-            throw ValidationException::withMessages(['development' => 'The PIP manager must have a legitimate evaluator relationship.']);
+        $resolvedPipOwner = $this->resolvePipOwnerForReview($subject, $review);
+        if (! $resolvedPipOwner || $manager->id !== $resolvedPipOwner->id) {
+            throw ValidationException::withMessages([
+                'development' => 'The PIP owner must match the server-resolved Review Governance or Admin/HR governance owner for this finalized review.',
+            ]);
+        }
+
+        $managerFollowThrough = $existing !== null && ! $actor->isPerformanceOperator();
+
+        if ($existing && $managerFollowThrough) {
+            if (
+                (int) $existing->subject_user_id !== (int) $subject->id
+                || (int) $existing->performance_review_id !== (int) $review->id
+                || (int) $existing->assigned_manager_id !== (int) $manager->id
+            ) {
+                $this->deny('Managers may update PIP follow-through only; subject, review linkage, and ownership are governed.');
+            }
+        }
+
+        if ($existing) {
+            if ($existing->status === 'Completed') {
+                throw ValidationException::withMessages(['pip' => 'Closed Performance Improvement Plans are read-only.']);
+            }
+
+            $immutableChanged =
+                trim((string) ($pip['performanceConcern'] ?? '')) !== trim((string) $existing->performance_concern)
+                || trim((string) ($pip['expectedImprovement'] ?? '')) !== trim((string) $existing->expected_improvement)
+                || array_values($pip['actionItems'] ?? []) !== array_values($this->decode($existing->action_items, []))
+                || (string) ($pip['startDate'] ?? '') !== (string) $existing->start_date;
+            if ($immutableChanged && ! $managerFollowThrough) {
+                throw ValidationException::withMessages([
+                    'pip' => 'The started PIP basis, concern, expected improvement, action plan, and Start Date are locked. Material changes require a governed amendment workflow.',
+                ]);
+            }
+
+            if (! $managerFollowThrough && (string) ($pip['targetEndDate'] ?? '') !== (string) $existing->target_end_date) {
+                throw ValidationException::withMessages([
+                    'pip' => 'Target End cannot be edited directly. Use the governed Extend Plan action when the outcome review is due.',
+                ]);
+            }
+            $requestedStatus = in_array($pip['status'] ?? null, self::PIP_STATUSES, true)
+                ? (string) $pip['status']
+                : (string) $existing->status;
+            if ($requestedStatus !== (string) $existing->status
+                && in_array($requestedStatus, ['Extended', 'Completed'], true)) {
+                throw ValidationException::withMessages([
+                    'pip' => 'Extended and Completed are governance outcomes. Use the HR/Admin governance action.',
+                ]);
+            }
+            if (! $managerFollowThrough && trim((string) ($pip['outcomeNotes'] ?? '')) !== trim((string) ($existing->outcome_notes ?? ''))) {
+                throw ValidationException::withMessages([
+                    'pip' => 'PIP outcome cannot be edited directly. Use the governed Close PIP action.',
+                ]);
+            }
+            if ($actor->isPerformanceOperator() && trim((string) ($pip['hrReviewNotes'] ?? '')) !== trim((string) ($existing->hr_review_notes ?? ''))) {
+                throw ValidationException::withMessages([
+                    'pip' => 'HR governance outcome notes are recorded only through the governed outcome workflow.',
+                ]);
+            }
+        } elseif (($pip['status'] ?? 'Active') !== 'Active' || trim((string) ($pip['outcomeNotes'] ?? '')) !== '' || trim((string) ($pip['hrReviewNotes'] ?? '')) !== '') {
+            throw ValidationException::withMessages([
+                'pip' => 'A new Performance Improvement Plan must start as Active without a pre-recorded outcome.',
+            ]);
+        }
+
+        $actualStart = CarbonImmutable::now(config('app.timezone'))->startOfDay();
+        $targetEndValue = $managerFollowThrough
+            ? (string) $existing->target_end_date
+            : (string) ($pip['targetEndDate'] ?? '');
+        $targetEnd = CarbonImmutable::parse($targetEndValue, config('app.timezone'))->startOfDay();
+        $milestones = array_values($pip['milestones'] ?? []);
+
+        if (! $existing) {
+            $planDays = (int) $actualStart->diffInDays($targetEnd, false);
+            if ($planDays < 30 || $planDays > 90) {
+                throw ValidationException::withMessages([
+                    'pip.targetEndDate' => 'Target End must be 30 to 90 calendar days after the PIP starts.',
+                ]);
+            }
+
+            $firstMilestone = $milestones[0] ?? null;
+            $firstMilestoneTitle = trim((string) ($firstMilestone['title'] ?? ''));
+            $firstMilestoneDateValue = trim((string) ($firstMilestone['dueDate'] ?? ''));
+            if ($firstMilestoneTitle === '' || $firstMilestoneDateValue === '') {
+                throw ValidationException::withMessages([
+                    'pip.milestones' => 'A first PIP check-in and check-in date are required.',
+                ]);
+            }
+
+            $firstMilestoneDate = CarbonImmutable::parse($firstMilestoneDateValue, config('app.timezone'))->startOfDay();
+            $checkInDays = (int) $actualStart->diffInDays($firstMilestoneDate, false);
+            if ($checkInDays < 7 || $checkInDays > 14 || $firstMilestoneDate->greaterThanOrEqualTo($targetEnd)) {
+                throw ValidationException::withMessages([
+                    'pip.milestones' => 'The first check-in must be scheduled 7 to 14 calendar days after the PIP starts and before Target End.',
+                ]);
+            }
         }
 
         $status = in_array($pip['status'] ?? null, self::PIP_STATUSES, true) ? $pip['status'] : 'Active';
@@ -944,16 +1673,24 @@ class PerformanceService
             'subject_user_id' => $subject->id,
             'performance_review_id' => $review->id,
             'assigned_manager_id' => $manager->id,
-            'performance_concern' => trim((string) ($pip['performanceConcern'] ?? '')),
-            'expected_improvement' => trim((string) ($pip['expectedImprovement'] ?? '')),
-            'action_items' => json_encode(array_values($pip['actionItems'] ?? []), JSON_THROW_ON_ERROR),
-            'start_date' => $pip['startDate'] ?? null,
-            'target_end_date' => $pip['targetEndDate'] ?? null,
+            'performance_concern' => $managerFollowThrough
+                ? $existing->performance_concern
+                : trim((string) ($pip['performanceConcern'] ?? '')),
+            'expected_improvement' => $managerFollowThrough
+                ? $existing->expected_improvement
+                : trim((string) ($pip['expectedImprovement'] ?? '')),
+            'action_items' => $managerFollowThrough
+                ? $existing->action_items
+                : json_encode(array_values($pip['actionItems'] ?? []), JSON_THROW_ON_ERROR),
+            'start_date' => $existing ? $existing->start_date : $actualStart->toDateString(),
+            'target_end_date' => $targetEnd->toDateString(),
             'status' => $status,
-            'milestones' => json_encode(array_values($pip['milestones'] ?? []), JSON_THROW_ON_ERROR),
+            'milestones' => json_encode($milestones, JSON_THROW_ON_ERROR),
             'progress_notes' => json_encode(array_values($pip['progressNotes'] ?? []), JSON_THROW_ON_ERROR),
             'development_actions' => json_encode(array_values($pip['developmentActions'] ?? []), JSON_THROW_ON_ERROR),
-            'outcome_notes' => trim((string) ($pip['outcomeNotes'] ?? '')) ?: null,
+            'outcome_notes' => $managerFollowThrough
+                ? $existing->outcome_notes
+                : (trim((string) ($pip['outcomeNotes'] ?? '')) ?: null),
             'hr_review_notes' => $actor->isPerformanceOperator()
                 ? (trim((string) ($pip['hrReviewNotes'] ?? '')) ?: null)
                 : ($existing->hr_review_notes ?? null),
@@ -989,11 +1726,57 @@ class PerformanceService
         $key = trim((string) ($journey['id'] ?? ''));
         $existing = DB::table('performance_trainee_journeys')->where('external_key', $key)->lockForUpdate()->first();
         $this->assertLockVersion($existing, $journey, 'Trainee journey');
+
+        $requestedStage = trim((string) ($journey['currentStage'] ?? 'New Trainee'));
+        if (! in_array($requestedStage, self::TRAINEE_JOURNEY_STAGES, true)) {
+            throw ValidationException::withMessages(['development' => 'The trainee journey stage is invalid.']);
+        }
+
+        $milestones = array_values($journey['milestones'] ?? []);
+        $incompleteSeen = false;
+        foreach ($milestones as $milestone) {
+            $completed = trim((string) ($milestone['completedAt'] ?? '')) !== '';
+            if (! $completed) {
+                $incompleteSeen = true;
+                continue;
+            }
+            if ($incompleteSeen) {
+                throw ValidationException::withMessages([
+                    'development' => 'Trainee milestones must be completed in sequence.',
+                ]);
+            }
+        }
+
+        if ($existing) {
+            $currentStage = trim((string) $existing->current_stage);
+
+            $nextStage = [
+                'New Trainee' => 'Initial Evaluation',
+                'Initial Evaluation' => 'Development Plan',
+                'Development Plan' => 'Learning / Training / Practical Development',
+                'Learning / Training / Practical Development' => 'Re-evaluation',
+                'Re-evaluation' => 'Development Cycle Completed / Ready',
+                'Development Cycle Completed / Ready' => null,
+            ];
+
+            if (
+                ! array_key_exists($currentStage, $nextStage)
+                || (
+                    $requestedStage !== $currentStage
+                    && $nextStage[$currentStage] !== $requestedStage
+                )
+            ) {
+                throw ValidationException::withMessages([
+                    'development' => 'Trainee journey stages must advance one governed step at a time.',
+                ]);
+            }
+        }
+
         $values = [
             'trainee_user_id' => $trainee->id,
             'performance_cycle_id' => $cycleId,
-            'current_stage' => (string) ($journey['currentStage'] ?? 'New Trainee'),
-            'milestones' => json_encode(array_values($journey['milestones'] ?? []), JSON_THROW_ON_ERROR),
+            'current_stage' => $requestedStage,
+            'milestones' => json_encode($milestones, JSON_THROW_ON_ERROR),
             'development_action_keys' => json_encode(array_values($journey['developmentActionIds'] ?? []), JSON_THROW_ON_ERROR),
             'lock_version' => $existing ? DB::raw('lock_version + 1') : 1,
             'updated_at' => now(),
@@ -1081,6 +1864,49 @@ class PerformanceService
         ]);
     }
 
+    private function assertSourceGovernedGoalTemplates(array $templates): void
+    {
+        $current = DB::table('performance_goal_templates')
+            ->orderBy('external_key')
+            ->get()
+            ->map(fn (object $template) => $this->goalTemplateToArray($template))
+            ->keyBy('id');
+
+        $incoming = collect($templates)
+            ->filter(fn ($template) => is_array($template) && trim((string) ($template['id'] ?? '')) !== '')
+            ->keyBy(fn (array $template) => trim((string) $template['id']));
+
+        if ($incoming->count() !== $current->count() || $incoming->keys()->sort()->values()->all() !== $current->keys()->sort()->values()->all()) {
+            throw ValidationException::withMessages([
+                'goalTemplates' => 'Goal Plans are maintained from authoritative company sources and cannot be created or removed from Performance configuration.',
+            ]);
+        }
+
+        $normalize = static function (array $template): array {
+            return [
+                'id' => trim((string) ($template['id'] ?? '')),
+                'name' => trim((string) ($template['name'] ?? '')),
+                'applicablePersonTypes' => array_values($template['applicablePersonTypes'] ?? []),
+                'departmentScopes' => array_values($template['departmentScopes'] ?? []),
+                'positionScopes' => array_values($template['positionScopes'] ?? []),
+                'cycleIds' => array_values($template['cycleIds'] ?? []),
+                'description' => trim((string) ($template['description'] ?? '')) ?: null,
+                'allowIndividualOverrides' => (bool) ($template['allowIndividualOverrides'] ?? false),
+                'items' => array_values($template['items'] ?? []),
+                'active' => (bool) ($template['active'] ?? false),
+            ];
+        };
+
+        foreach ($current as $key => $template) {
+            $candidate = $incoming->get($key);
+            if (! is_array($candidate) || $normalize($candidate) != $normalize($template)) {
+                throw ValidationException::withMessages([
+                    'goalTemplates' => 'Goal Plan structure, scope, metrics, and weights are source-governed and read-only in this workspace.',
+                ]);
+            }
+        }
+    }
+
     private function upsertGoalTemplate(array $template): void
     {
         $items = array_values($template['items'] ?? []);
@@ -1107,7 +1933,7 @@ class PerformanceService
         ]);
     }
 
-    private function upsertGoal(array $goal): void
+    private function upsertGoal(array $goal, bool $preserveProgress = true): void
     {
         $person = $this->userByKey((string) ($goal['personId'] ?? ''));
         $cycle = $this->cycleByKey((string) ($goal['cycleId'] ?? ''));
@@ -1128,8 +1954,10 @@ class PerformanceService
             'target' => trim((string) ($goal['target'] ?? '')),
             'unit' => trim((string) ($goal['unit'] ?? '')) ?: null,
             'weight' => (float) ($goal['weight'] ?? 0),
-            'progress' => $progress,
-            'status' => $goal['status'] ?? 'Not Started',
+            // Formal progress/status is evaluator-owned. Configuration sync may define
+            // structure but must never become a casual Admin progress editor.
+            'progress' => $existing && $preserveProgress ? $existing->progress : $progress,
+            'status' => $existing && $preserveProgress ? $existing->status : ($goal['status'] ?? 'Not Started'),
             'start_date' => $goal['startDate'] ?? $cycle->performance_start_date,
             'end_date' => $goal['endDate'] ?? $cycle->performance_end_date,
             'individual_override' => (bool) ($goal['individualOverride'] ?? false),
@@ -1143,7 +1971,12 @@ class PerformanceService
     private function upsertAssignmentConfiguration(User $actor, array $assignment): void
     {
         $basis = $assignment['basis'] ?? null;
-        if ($basis === 'Cycle Assignment') {
+        $scopeType = $assignment['scopeType'] ?? 'Specific Person';
+
+        // Review Governance is system-derived. Configuration sync may carry the
+        // canonical reporting relationships used by the seeder/source, but it must
+        // ignore derived cycle assignments (including 360° and smart routing rows).
+        if ($scopeType !== 'Reporting Relationship' || in_array($basis, ['Cycle Assignment', '360 Leadership Review', 'Smart Department Leadership'], true)) {
             return;
         }
 
@@ -1152,7 +1985,6 @@ class PerformanceService
             throw ValidationException::withMessages(['configuration' => 'The selected evaluator is not active and evaluator-capable.']);
         }
 
-        $scopeType = $assignment['scopeType'] ?? 'Specific Person';
         $subjects = match ($scopeType) {
             'Department' => User::query()
                 ->where('department', $assignment['department'] ?? '')
@@ -1169,20 +2001,63 @@ class PerformanceService
 
             if ($scopeType === 'Reporting Relationship') {
                 $relationshipKey = trim((string) ($assignment['reportingRelationshipId'] ?? $assignment['id'] ?? ''));
-                DB::table('performance_reporting_relationships')->updateOrInsert(
-                    ['external_key' => $relationshipKey],
-                    [
-                        'supervisor_id' => $evaluator->id,
-                        'direct_report_id' => $subject->id,
-                        'source' => 'Manual',
-                        'active' => true,
-                        'effective_from' => now()->toDateString(),
-                        'effective_to' => null,
-                        'created_by_id' => $actor->id,
+                if ($relationshipKey === '') {
+                    throw ValidationException::withMessages([
+                        'configuration' => 'A reporting relationship must have a stable source identifier.',
+                    ]);
+                }
+
+                // Configuration sync must be idempotent. The reporting table has both
+                // a unique external key and a unique (supervisor, direct report, effective_from)
+                // constraint. The previous updateOrInsert matched only external_key while
+                // stamping effective_from with "today", so the same canonical relationship
+                // could collide with an already-persisted row under the tuple constraint.
+                $effectiveFrom = null;
+                $effectiveFromSource = trim((string) ($assignment['effectiveFrom'] ?? $assignment['createdAt'] ?? ''));
+                if ($effectiveFromSource !== '') {
+                    try {
+                        $effectiveFrom = CarbonImmutable::parse($effectiveFromSource)->toDateString();
+                    } catch (\Throwable) {
+                        $effectiveFrom = null;
+                    }
+                }
+                $effectiveFrom ??= now()->toDateString();
+
+                $existingRelationship = DB::table('performance_reporting_relationships')
+                    ->where('supervisor_id', $evaluator->id)
+                    ->where('direct_report_id', $subject->id)
+                    ->whereDate('effective_from', $effectiveFrom)
+                    ->first();
+
+                if (! $existingRelationship) {
+                    $existingRelationship = DB::table('performance_reporting_relationships')
+                        ->where('external_key', $relationshipKey)
+                        ->first();
+                }
+
+                $relationshipValues = [
+                    'supervisor_id' => $evaluator->id,
+                    'direct_report_id' => $subject->id,
+                    'source' => 'Configuration Sync',
+                    'active' => true,
+                    'effective_from' => $effectiveFrom,
+                    'effective_to' => null,
+                    'created_by_id' => $actor->id,
+                    'updated_at' => now(),
+                ];
+
+                if ($existingRelationship) {
+                    DB::table('performance_reporting_relationships')
+                        ->where('id', $existingRelationship->id)
+                        ->update($relationshipValues);
+                } else {
+                    DB::table('performance_reporting_relationships')->insert([
+                        'external_key' => $relationshipKey,
+                        ...$relationshipValues,
                         'created_at' => now(),
-                        'updated_at' => now(),
-                    ],
-                );
+                    ]);
+                }
+
                 User::query()->whereKey($subject->id)->update(['manager_id' => $evaluator->id]);
             }
 
@@ -1203,7 +2078,7 @@ class PerformanceService
                     ->first();
                 if ($existing && $existing->evaluator_user_id !== $evaluator->id) {
                     throw ValidationException::withMessages([
-                        'configuration' => "{$subject->name} already has one primary evaluator for {$cycle->name}. Use the audited Reassign action.",
+                        'configuration' => "{$subject->name} already has a primary evaluator for {$cycle->name}. Routine evaluator reassignment is disabled; correct the authoritative reporting relationship if the organizational structure changed.",
                     ]);
                 }
 
@@ -1226,6 +2101,7 @@ class PerformanceService
             ->join('users as reports', 'reports.id', '=', 'relationships.direct_report_id')
             ->where('relationships.active', true)
             ->where('supervisors.evaluator_capable', true)
+            ->where('supervisors.employment_status', '!=', 'Inactive')
             ->where('reports.employment_status', '!=', 'Inactive')
             ->select([
                 'relationships.id as relationship_id',
@@ -1235,7 +2111,22 @@ class PerformanceService
             ])
             ->get();
 
+        $leaderIds = $relationships
+            ->pluck('supervisor_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        $directReportIds = $relationships
+            ->pluck('report_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        $topScopeLeaderIds = $leaderIds
+            ->reject(fn (int $leaderId) => $directReportIds->contains($leaderId))
+            ->values();
+
         foreach ($cycles as $cycle) {
+            // 1) Standard path: the recorded organizational reporting relationship is authoritative.
             foreach ($relationships as $relationship) {
                 $subject = User::query()->find($relationship->report_id);
                 $evaluator = User::query()->find($relationship->supervisor_id);
@@ -1251,8 +2142,100 @@ class PerformanceService
                     continue;
                 }
 
-                $this->ensureAssignmentAndReview($actor, $cycle, $subject, $evaluator, 'Reporting Relationship', $relationship->relationship_id);
+                $this->ensureAssignmentAndReview(
+                    $actor,
+                    $cycle,
+                    $subject,
+                    $evaluator,
+                    'Reporting Relationship',
+                    $relationship->relationship_id,
+                );
             }
+
+            // 2) Top-of-scope leaders are governed through a multi-source 360° Leadership Review.
+            //    No unrelated manager is invented and no subordinate receives unilateral authority.
+            foreach ($topScopeLeaderIds as $leaderId) {
+                $subject = User::query()->find($leaderId);
+                if (! $subject || ! $this->cycleAppliesToUser($cycle, $subject)) {
+                    continue;
+                }
+
+                $existing = DB::table('performance_review_assignments')
+                    ->where('performance_cycle_id', $cycle->id)
+                    ->where('subject_user_id', $subject->id)
+                    ->first();
+
+                if (! $existing) {
+                    $this->ensureAssignmentAndReview(
+                        $actor,
+                        $cycle,
+                        $subject,
+                        null,
+                        '360 Leadership Review',
+                    );
+                }
+            }
+
+            // 3) Smart fallback for ordinary personnel whose manager field is missing from the
+            //    current source. Route only when there is exactly one unambiguous top-of-scope
+            //    evaluator-capable leader in the same department. This creates review authority
+            //    for the cycle without rewriting manager_id or the reporting relationship table.
+            $eligibleSubjects = User::query()
+                ->whereNotNull('personnel_key')
+                ->where('employment_status', '!=', 'Inactive')
+                ->get();
+
+            foreach ($eligibleSubjects as $subject) {
+                if (! $this->cycleAppliesToUser($cycle, $subject)) {
+                    continue;
+                }
+
+                if (DB::table('performance_review_assignments')
+                    ->where('performance_cycle_id', $cycle->id)
+                    ->where('subject_user_id', $subject->id)
+                    ->exists()) {
+                    continue;
+                }
+
+                // A top-of-scope leader is intentionally NOT assigned to another manager here.
+                // Review Governance routes that population to the 360° Leadership Review method.
+                if ($topScopeLeaderIds->contains((int) $subject->id)) {
+                    continue;
+                }
+
+                $departmentLeaderIds = $topScopeLeaderIds
+                    ->filter(function (int $leaderId) use ($subject): bool {
+                        $leader = User::query()->find($leaderId);
+
+                        return $leader
+                            && $leader->id !== $subject->id
+                            && $leader->department === $subject->department
+                            && $leader->evaluator_capable
+                            && $leader->employment_status !== 'Inactive';
+                    })
+                    ->values();
+
+                if ($departmentLeaderIds->count() !== 1) {
+                    continue;
+                }
+
+                $evaluator = User::query()->find($departmentLeaderIds->first());
+                if (! $evaluator) {
+                    continue;
+                }
+
+                $this->ensureAssignmentAndReview(
+                    $actor,
+                    $cycle,
+                    $subject,
+                    $evaluator,
+                    'Smart Department Leadership',
+                );
+            }
+
+            // Assignments exist throughout the performance period, but formal review
+            // records are released only when the configured review window opens.
+            $this->releaseOpenCycleReviews($cycle);
         }
     }
 
@@ -1260,49 +2243,111 @@ class PerformanceService
         User $actor,
         object $cycle,
         User $subject,
-        User $evaluator,
+        ?User $evaluator,
         string $basis,
         ?int $relationshipId = null,
     ): void {
         $assignmentKey = "assignment-{$cycle->external_key}-{$subject->personnel_key}";
-        DB::table('performance_review_assignments')->updateOrInsert(
-            [
-                'performance_cycle_id' => $cycle->id,
-                'subject_user_id' => $subject->id,
-            ],
-            [
-                'external_key' => $assignmentKey,
-                'evaluator_user_id' => $evaluator->id,
-                'reporting_relationship_id' => $relationshipId,
-                'basis' => $basis,
-                'active' => true,
-                'assigned_by_id' => $actor->id,
-                'assigned_at' => now(),
-                'lock_version' => 1,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-        );
+
+        // state() may be requested concurrently by the browser (for example the page
+        // request plus a follow-up API refresh). A SELECT-then-INSERT/updateOrInsert
+        // sequence can race in PostgreSQL: both requests can observe no assignment and
+        // then one loses on the one_primary_evaluator_per_cycle unique constraint.
+        // Insert idempotently first, then lock the canonical row before ensuring its
+        // review. Existing evaluator authority is never overwritten here.
+        DB::table('performance_review_assignments')->insertOrIgnore([
+            'external_key' => $assignmentKey,
+            'performance_cycle_id' => $cycle->id,
+            'subject_user_id' => $subject->id,
+            'evaluator_user_id' => $evaluator?->id,
+            'goal_evaluator_user_id' => $evaluator?->id,
+            'reporting_relationship_id' => $relationshipId,
+            'basis' => $basis,
+            'active' => true,
+            'assigned_by_id' => $actor->id,
+            'assigned_at' => now(),
+            'lock_version' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         $assignment = DB::table('performance_review_assignments')
             ->where('performance_cycle_id', $cycle->id)
             ->where('subject_user_id', $subject->id)
+            ->lockForUpdate()
             ->first();
-        if (DB::table('performance_reviews')->where('performance_review_assignment_id', $assignment->id)->exists()) {
+
+        if (! $assignment) {
+            throw ValidationException::withMessages([
+                'configuration' => "Unable to resolve the governed review assignment for {$subject->name} in {$cycle->name}.",
+            ]);
+        }
+
+        $this->ensureReviewForAssignment($cycle, $assignment, $subject);
+    }
+
+    private function releaseOpenCycleReviews(object $cycle): void
+    {
+        $today = $this->performanceToday();
+        if ($today->lt(CarbonImmutable::parse($cycle->review_open_date))) {
             return;
         }
 
-        $templateKeys = $this->decode($cycle->review_template_keys, []);
-        $templateKey = $templateKeys[$subject->person_type] ?? null;
+        $assignments = DB::table('performance_review_assignments')
+            ->where('performance_cycle_id', $cycle->id)
+            ->where('active', true)
+            ->get();
+
+        foreach ($assignments as $assignment) {
+            $subject = User::query()->find($assignment->subject_user_id);
+            if (! $subject || ! $this->cycleAppliesToUser($cycle, $subject)) {
+                continue;
+            }
+            $this->ensureReviewForAssignment($cycle, $assignment, $subject);
+        }
+    }
+
+    private function ensureReviewForAssignment(object $cycle, object $assignment, User $subject): void
+    {
+        $today = $this->performanceToday();
+        if ($today->lt(CarbonImmutable::parse($cycle->review_open_date))) {
+            return;
+        }
+
+        if (DB::table('performance_reviews')->where('performance_review_assignment_id', $assignment->id)->exists()) {
+            if (($assignment->basis ?? '') === '360 Leadership Review') {
+                $this->refreshLeadership360Review($subject, $cycle);
+            }
+            return;
+        }
+
+        $isLeadership360 = ($assignment->basis ?? '') === '360 Leadership Review';
+        // Keep the existing person-type template foreign key populated for schema compatibility.
+        // A 360° Leadership Review uses its own governed leadership criteria at runtime; the
+        // standard template here is only the compatible persisted template reference.
+        $templateKey = $this->defaultReviewTemplateKey($cycle, $subject);
         $templateId = $templateKey
-            ? DB::table('performance_review_templates')->where('external_key', $templateKey)->value('id')
+            ? DB::table('performance_review_templates')
+                ->where('external_key', $templateKey)
+                ->where('person_type', $subject->person_type)
+                ->where('active', true)
+                ->value('id')
             : null;
+
+        if (! $templateId) {
+            // A single incomplete template mapping must not make the whole
+            // Performance workspace unavailable. Keep the governed assignment
+            // intact and allow Admin/HR to correct template coverage; explicit
+            // evaluator review creation still validates through resolveTemplate().
+            return;
+        }
+
         DB::table('performance_reviews')->insert([
             'external_key' => "review-{$cycle->external_key}-{$subject->personnel_key}",
             'performance_review_assignment_id' => $assignment->id,
             'performance_review_template_id' => $templateId,
             'status' => 'Pending',
-            'workflow_state' => 'Manager Review',
+            'workflow_state' => $isLeadership360 ? '360 Feedback Collection' : 'Manager Review',
             'calibration_status' => $cycle->calibration_required ? 'Pending' : 'Not Required',
             'due_date' => $cycle->review_due_date,
             'linked_evidence' => json_encode([], JSON_THROW_ON_ERROR),
@@ -1310,6 +2355,510 @@ class PerformanceService
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        if ($isLeadership360) {
+            $this->refreshLeadership360Review($subject, $cycle);
+        }
+    }
+
+    private function leadership360TopScopeLeaderIds(): \Illuminate\Support\Collection
+    {
+        $relationships = DB::table('performance_reporting_relationships as relationships')
+            ->join('users as supervisors', 'supervisors.id', '=', 'relationships.supervisor_id')
+            ->join('users as reports', 'reports.id', '=', 'relationships.direct_report_id')
+            ->where('relationships.active', true)
+            ->where('supervisors.evaluator_capable', true)
+            ->where('supervisors.employment_status', '!=', 'Inactive')
+            ->where('reports.employment_status', '!=', 'Inactive')
+            ->get(['relationships.supervisor_id', 'relationships.direct_report_id']);
+
+        $leaderIds = $relationships->pluck('supervisor_id')->map(fn ($id) => (int) $id)->unique();
+        $reportIds = $relationships->pluck('direct_report_id')->map(fn ($id) => (int) $id)->unique();
+
+        return $leaderIds->reject(fn (int $id) => $reportIds->contains($id))->values();
+    }
+
+    private function leadership360SourceRole(User $actor, User $subject): ?string
+    {
+        if ($actor->id === $subject->id) {
+            return 'Self';
+        }
+
+        $isDirectReport = DB::table('performance_reporting_relationships')
+            ->where('active', true)
+            ->where('supervisor_id', $subject->id)
+            ->where('direct_report_id', $actor->id)
+            ->exists();
+        if ($isDirectReport) {
+            return 'Direct Report';
+        }
+
+        $topLeaders = $this->leadership360TopScopeLeaderIds();
+        if ($topLeaders->contains((int) $actor->id) && $topLeaders->contains((int) $subject->id)) {
+            return 'Peer Leader';
+        }
+
+        return null;
+    }
+
+    private function ensureOpenLeadership360Routing(): void
+    {
+        $today = $this->performanceToday();
+        $cycles = DB::table('performance_cycles')
+            ->where('status', 'Active')
+            ->whereDate('review_open_date', '<=', $today->toDateString())
+            ->get();
+        $topLeaderIds = $this->leadership360TopScopeLeaderIds();
+
+        foreach ($cycles as $cycle) {
+            foreach ($topLeaderIds as $leaderId) {
+                $subject = User::query()->find($leaderId);
+                if (! $subject || ! $this->cycleAppliesToUser($cycle, $subject)) {
+                    continue;
+                }
+
+                DB::table('performance_review_assignments')->insertOrIgnore([
+                    'external_key' => "assignment-{$cycle->external_key}-{$subject->personnel_key}",
+                    'performance_cycle_id' => $cycle->id,
+                    'subject_user_id' => $subject->id,
+                    'evaluator_user_id' => null,
+                    'reporting_relationship_id' => null,
+                    'basis' => '360 Leadership Review',
+                    'active' => true,
+                    'assigned_by_id' => null,
+                    'assigned_at' => now(),
+                    'lock_version' => 1,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $assignment = DB::table('performance_review_assignments')
+                    ->where('performance_cycle_id', $cycle->id)
+                    ->where('subject_user_id', $subject->id)
+                    ->first();
+
+                if ($assignment && ($assignment->basis ?? '') === '360 Leadership Review') {
+                    $this->ensureReviewForAssignment($cycle, $assignment, $subject);
+                }
+            }
+        }
+    }
+
+    public function leadership360Tasks(User $actor): array
+    {
+        if (! $actor->hasPersonnelIdentity() || $actor->employment_status === 'Inactive') {
+            return [];
+        }
+
+        DB::transaction(fn () => $this->ensureOpenLeadership360Routing(), 3);
+
+        $today = $this->performanceToday();
+        $cycles = DB::table('performance_cycles')
+            ->where('status', 'Active')
+            ->whereDate('review_open_date', '<=', $today->toDateString())
+            ->get();
+        $topLeaderIds = $this->leadership360TopScopeLeaderIds();
+        $tasks = [];
+
+        foreach ($cycles as $cycle) {
+            foreach ($topLeaderIds as $leaderId) {
+                $subject = User::query()->find($leaderId);
+                if (! $subject || ! $this->cycleAppliesToUser($cycle, $subject)) {
+                    continue;
+                }
+                $sourceRole = $this->leadership360SourceRole($actor, $subject);
+                if (! $sourceRole) {
+                    continue;
+                }
+
+                $existing = DB::table('performance_anonymous_feedback')
+                    ->where('subject_user_id', $subject->id)
+                    ->where('evaluator_user_id', $actor->id)
+                    ->where('performance_cycle_id', $cycle->id)
+                    ->first();
+                $payload = $existing ? $this->decode($existing->feedback, null) : null;
+
+                $tasks[] = [
+                    'id' => "360-{$cycle->external_key}-{$subject->personnel_key}-{$actor->personnel_key}",
+                    'subjectId' => $subject->personnel_key,
+                    'subjectName' => $subject->name,
+                    'subjectPosition' => $subject->position,
+                    'subjectDepartment' => $subject->department,
+                    'cycleId' => $cycle->external_key,
+                    'cycleName' => $cycle->name,
+                    'sourceRole' => $sourceRole,
+                    'dueDate' => (string) $cycle->review_due_date,
+                    'criteria' => collect(self::LEADERSHIP_360_CRITERIA)->map(fn (int $weight, string $name) => [
+                        'name' => $name,
+                        'weight' => $weight,
+                    ])->values()->all(),
+                    'submitted' => is_array($payload) && ($payload['kind'] ?? null) === 'leadership360',
+                    'ratings' => is_array($payload) ? ($payload['ratings'] ?? []) : [],
+                    'comment' => is_array($payload) ? (string) ($payload['comment'] ?? '') : '',
+                ];
+            }
+        }
+
+        return $tasks;
+    }
+
+    public function submitLeadership360Feedback(User $actor, string $subjectKey, string $cycleKey, array $ratings, ?string $comment = null): array
+    {
+        $subject = $this->userByKey($subjectKey);
+        $cycle = $this->cycleByKey($cycleKey);
+        $today = $this->performanceToday();
+        DB::transaction(fn () => $this->ensureOpenLeadership360Routing(), 3);
+
+        if ($cycle->status !== 'Active' || $today->lt(CarbonImmutable::parse($cycle->review_open_date))) {
+            throw ValidationException::withMessages(['feedback' => 'Leadership feedback is available only after the formal review window opens.']);
+        }
+        if (! $this->leadership360TopScopeLeaderIds()->contains((int) $subject->id)) {
+            throw ValidationException::withMessages(['feedback' => 'This person is not routed to a 360° Leadership Review.']);
+        }
+
+        $sourceRole = $this->leadership360SourceRole($actor, $subject);
+        if (! $sourceRole) {
+            $this->deny('You are not an authorized feedback source for this leadership review.');
+        }
+
+        $canonicalRatings = [];
+        foreach (self::LEADERSHIP_360_CRITERIA as $criterion => $weight) {
+            $value = isset($ratings[$criterion]) ? (float) $ratings[$criterion] : 0.0;
+            if ($value < 1 || $value > 5) {
+                throw ValidationException::withMessages(['ratings' => "Rate {$criterion} from 1 to 5."]);
+            }
+            $canonicalRatings[$criterion] = $value;
+        }
+
+        DB::table('performance_anonymous_feedback')->updateOrInsert(
+            [
+                'subject_user_id' => $subject->id,
+                'evaluator_user_id' => $actor->id,
+                'performance_cycle_id' => $cycle->id,
+            ],
+            [
+                'feedback' => json_encode([
+                    'kind' => 'leadership360',
+                    'sourceRole' => $sourceRole,
+                    'ratings' => $canonicalRatings,
+                    'comment' => trim((string) $comment),
+                ], JSON_THROW_ON_ERROR),
+                'submitted_at' => now(),
+                'updated_at' => now(),
+                'created_at' => now(),
+            ],
+        );
+
+        $this->refreshLeadership360Review($subject, $cycle, true);
+
+        return $this->leadership360Tasks($actor);
+    }
+
+    private function leadership360Summary(User $subject, object $cycle): array
+    {
+        $rows = DB::table('performance_anonymous_feedback')
+            ->where('subject_user_id', $subject->id)
+            ->where('performance_cycle_id', $cycle->id)
+            ->get(['feedback', 'evaluator_user_id']);
+
+        $valid = collect();
+        foreach ($rows as $row) {
+            $payload = $this->decode($row->feedback, null);
+            if (! is_array($payload) || ($payload['kind'] ?? null) !== 'leadership360' || ! is_array($payload['ratings'] ?? null)) {
+                continue;
+            }
+            $valid->push(['payload' => $payload, 'evaluatorUserId' => (int) $row->evaluator_user_id]);
+        }
+
+        $directReportIds = DB::table('performance_reporting_relationships')
+            ->where('active', true)
+            ->where('supervisor_id', $subject->id)
+            ->pluck('direct_report_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique();
+        $peerLeaderIds = $this->leadership360TopScopeLeaderIds()
+            ->reject(fn (int $id) => $id === (int) $subject->id)
+            ->values();
+
+        $selfCount = $valid->filter(fn (array $row) => $row['evaluatorUserId'] === (int) $subject->id)->count();
+        $directCount = $valid->filter(fn (array $row) => $directReportIds->contains($row['evaluatorUserId']))->count();
+        $peerCount = $valid->filter(fn (array $row) => $peerLeaderIds->contains($row['evaluatorUserId']))->count();
+        $requiredDirect = min(2, $directReportIds->count());
+        $requiredPeer = min(2, $peerLeaderIds->count());
+        $coverageReady = $selfCount >= 1 && $directCount >= $requiredDirect && $peerCount >= $requiredPeer;
+
+        $scores = [];
+        foreach (self::LEADERSHIP_360_CRITERIA as $criterion => $weight) {
+            $values = $valid->map(fn (array $row) => (float) ($row['payload']['ratings'][$criterion] ?? 0))
+                ->filter(fn (float $value) => $value >= 1 && $value <= 5)
+                ->values();
+            if ($values->count() > 0) {
+                $scores[] = ['name' => $criterion, 'score' => round($values->avg(), 2), 'weight' => $weight];
+            }
+        }
+
+        $rating = null;
+        if ($coverageReady && count($scores) === count(self::LEADERSHIP_360_CRITERIA)) {
+            $weighted = 0.0;
+            foreach ($scores as $score) {
+                $weighted += $score['score'] * ($score['weight'] / 100);
+            }
+            $rating = round($weighted, 2);
+        }
+
+        return [
+            'responseCount' => $valid->count(),
+            'selfResponses' => $selfCount,
+            'directReportResponses' => $directCount,
+            'peerLeaderResponses' => $peerCount,
+            'requiredSelfResponses' => 1,
+            'requiredDirectReportResponses' => $requiredDirect,
+            'requiredPeerLeaderResponses' => $requiredPeer,
+            'coverageReady' => $coverageReady,
+            'criteria' => collect(self::LEADERSHIP_360_CRITERIA)->map(fn (int $weight, string $name) => ['name' => $name, 'weight' => $weight])->values()->all(),
+            'scores' => $scores,
+            'submittedRating' => $rating,
+        ];
+    }
+
+    private function refreshLeadership360Review(User $subject, object $cycle, bool $allowRevisionResubmit = false): void
+    {
+        $assignment = DB::table('performance_review_assignments')
+            ->where('performance_cycle_id', $cycle->id)
+            ->where('subject_user_id', $subject->id)
+            ->where('basis', '360 Leadership Review')
+            ->first();
+        if (! $assignment) {
+            return;
+        }
+
+        $review = DB::table('performance_reviews')
+            ->where('performance_review_assignment_id', $assignment->id)
+            ->first();
+        if (! $review || $review->status === 'Completed' || $review->calibration_status === 'In Review') {
+            return;
+        }
+        if ($review->calibration_status === 'Returned for Revision' && ! $allowRevisionResubmit) {
+            return;
+        }
+
+        $summary = $this->leadership360Summary($subject, $cycle);
+        $updates = [
+            'linked_evidence' => json_encode([[
+                'source' => '360 Leadership Feedback',
+                'title' => $summary['responseCount'].' confidential multi-source responses',
+                'dateCompleted' => now()->toDateString(),
+            ]], JSON_THROW_ON_ERROR),
+            'lock_version' => DB::raw('lock_version + 1'),
+            'updated_at' => now(),
+        ];
+
+        if ($summary['coverageReady'] && $summary['submittedRating'] !== null) {
+            $updates += [
+                'status' => 'In Progress',
+                'workflow_state' => 'Calibration Pending',
+                'calibration_status' => 'Pending',
+                'criteria_scores' => json_encode(array_map(fn (array $score) => [
+                    'name' => $score['name'],
+                    'score' => $score['score'],
+                ], $summary['scores']), JSON_THROW_ON_ERROR),
+                'final_rating' => $summary['submittedRating'],
+                'comments' => 'Governed 360° Leadership Review reached the required self, direct-report, and peer-leadership feedback coverage. Individual contributor identities are not disclosed in the formal review record.',
+                'manager_submitted_at' => now(),
+            ];
+        } else {
+            $updates += [
+                'status' => $summary['responseCount'] > 0 ? 'In Progress' : 'Pending',
+                'workflow_state' => '360 Feedback Collection',
+                'manager_submitted_at' => null,
+                'final_rating' => null,
+            ];
+        }
+
+        DB::table('performance_reviews')->where('id', $review->id)->update($updates);
+    }
+
+    private function workforceContextFromReference(array $reference): array
+    {
+        $people = collect(Arr::wrap($reference['people'] ?? []))
+            ->filter(fn ($person): bool => is_array($person) && trim((string) ($person['personnel_key'] ?? '')) !== '')
+            ->map(function (array $person): array {
+                $goal = is_array($person['performance_goal_context'] ?? null)
+                    ? $person['performance_goal_context']
+                    : [];
+                $evaluator = is_array($person['performance_evaluator_context'] ?? null)
+                    ? $person['performance_evaluator_context']
+                    : [];
+
+                return [
+                    'personnelKey' => (string) $person['personnel_key'],
+                    'name' => (string) ($person['name'] ?? ''),
+                    'department' => (string) ($person['department'] ?? ''),
+                    'position' => (string) ($person['position'] ?? ''),
+                    'personClass' => (string) ($person['person_class'] ?? ''),
+                    'developmentStatus' => (string) ($person['development_status'] ?? ''),
+                    'promotionTrack' => (string) ($person['promotion_track'] ?? ''),
+                    'successionRole' => $person['succession_role'] ?? null,
+                    'readiness' => $person['readiness'] ?? null,
+                    'performanceGoalContext' => $goal === [] ? null : [
+                        'activeCycleId' => (string) ($goal['active_cycle_id'] ?? ''),
+                        'goalPlanId' => isset($goal['goal_plan_id']) ? (string) $goal['goal_plan_id'] : null,
+                        'goalPlanName' => isset($goal['goal_plan_name']) ? (string) $goal['goal_plan_name'] : null,
+                        'assignmentStatus' => (string) ($goal['assignment_status'] ?? ''),
+                        'formalProgressAuthority' => isset($goal['formal_progress_authority'])
+                            ? (string) $goal['formal_progress_authority']
+                            : null,
+                        'formalProgressAuthorityStatus' => (string) ($goal['formal_progress_authority_status'] ?? ''),
+                    ],
+                    'performanceEvaluatorContext' => $evaluator === [] ? null : [
+                        'defaultEvaluatorName' => isset($evaluator['default_evaluator_name'])
+                            ? (string) $evaluator['default_evaluator_name']
+                            : null,
+                        'defaultEvaluatorPersonnelKey' => isset($evaluator['default_evaluator_personnel_key'])
+                            ? (string) $evaluator['default_evaluator_personnel_key']
+                            : null,
+                        'assignmentStatus' => (string) ($evaluator['assignment_status'] ?? ''),
+                        'assignmentBasis' => (string) ($evaluator['assignment_basis'] ?? ''),
+                        'requiresExplicitAssignment' => (bool) ($evaluator['requires_explicit_assignment'] ?? false),
+                    ],
+                ];
+            })
+            ->values()
+            ->all();
+
+        return [
+            'source' => 'DEFENSE_WORKFORCE_PERSONAS_V1',
+            'asOfDate' => (string) ($reference['as_of_date'] ?? ''),
+            'people' => $people,
+        ];
+    }
+
+    private function runtimePerformanceCalendar(array $calendar, CarbonImmutable $today): array
+    {
+        $date = $today->toDateString();
+        $quarters = collect(Arr::wrap($calendar['quarters'] ?? []))
+            ->filter(fn ($quarter): bool => is_array($quarter) && trim((string) ($quarter['cycle_id'] ?? '')) !== '')
+            ->map(function (array $quarter) use ($date): array {
+                $cycleId = (string) $quarter['cycle_id'];
+                $dbCycle = DB::table('performance_cycles')->where('external_key', $cycleId)->first();
+                $performanceStart = (string) ($quarter['performance_start'] ?? '');
+                $reviewEnd = (string) ($quarter['review_end'] ?? '');
+
+                if ($dbCycle?->status === 'Closed') {
+                    $status = 'Finalized';
+                    $readOnly = true;
+                } elseif ($performanceStart !== '' && $date < $performanceStart) {
+                    $status = 'Upcoming';
+                    $readOnly = true;
+                } elseif ($reviewEnd !== '' && $date <= $reviewEnd) {
+                    $status = 'Current';
+                    $readOnly = false;
+                } else {
+                    $assignmentCount = $dbCycle
+                        ? DB::table('performance_review_assignments')->where('performance_cycle_id', $dbCycle->id)->where('active', true)->count()
+                        : 0;
+                    $finalizedCount = $dbCycle
+                        ? DB::table('performance_reviews as reviews')
+                            ->join('performance_review_assignments as assignments', 'assignments.id', '=', 'reviews.performance_review_assignment_id')
+                            ->where('assignments.performance_cycle_id', $dbCycle->id)
+                            ->where('assignments.active', true)
+                            ->where('reviews.status', 'Completed')
+                            ->count()
+                        : 0;
+                    $unfinished = $assignmentCount > $finalizedCount;
+                    $status = $unfinished ? 'Current' : 'Finalized';
+                    $readOnly = ! $unfinished;
+                }
+
+                return [
+                    'cycle_id' => $cycleId,
+                    'year' => (int) ($quarter['year'] ?? 0),
+                    'quarter' => (string) ($quarter['quarter'] ?? ''),
+                    'status' => $status,
+                    'performance_start' => (string) ($quarter['performance_start'] ?? ''),
+                    'performance_end' => (string) ($quarter['performance_end'] ?? ''),
+                    'review_start' => (string) ($quarter['review_start'] ?? ''),
+                    'review_end' => (string) ($quarter['review_end'] ?? ''),
+                    'read_only' => $readOnly,
+                    'planning_only' => $status === 'Upcoming',
+                ];
+            })
+            ->values()
+            ->all();
+
+        $currentPerformance = collect($quarters)->first(fn (array $quarter): bool =>
+            $date >= $quarter['performance_start'] && $date <= $quarter['performance_end']
+        );
+        $defaultCycleId = $currentPerformance['cycle_id'] ?? ($calendar['default_cycle_id'] ?? '');
+
+        return [
+            'available_years' => array_values(array_map('intval', Arr::wrap($calendar['available_years'] ?? []))),
+            'default_year' => (int) ($calendar['default_year'] ?? (int) substr($date, 0, 4)),
+            'historical_data_before_2026' => (bool) ($calendar['historical_data_before_2026'] ?? false),
+            'historical_data_before_2026_note' => $calendar['historical_data_before_2026_note'] ?? null,
+            'default_cycle_id' => (string) $defaultCycleId,
+            'quarters' => $quarters,
+            'selector_rule' => $calendar['selector_rule'] ?? null,
+        ];
+    }
+
+    private function goalAuditEventsForActor(User $actor): array
+    {
+        $query = DB::table('performance_goal_events as events')
+            ->join('performance_goals as goals', 'goals.id', '=', 'events.performance_goal_id')
+            ->join('users as subjects', 'subjects.id', '=', 'goals.user_id')
+            ->join('performance_cycles as cycles', 'cycles.id', '=', 'goals.performance_cycle_id')
+            ->leftJoin('users as actors', 'actors.id', '=', 'events.actor_user_id');
+
+        if (! $actor->isPerformanceOperator()) {
+            $query->where(function (Builder $scope) use ($actor): void {
+                $scope->where('goals.user_id', $actor->id)
+                    ->orWhereExists(function (Builder $subquery) use ($actor): void {
+                        $subquery->selectRaw('1')
+                            ->from('performance_review_assignments as assignments')
+                            ->whereColumn('assignments.subject_user_id', 'goals.user_id')
+                            ->whereColumn('assignments.performance_cycle_id', 'goals.performance_cycle_id')
+                            ->where(function (Builder $authority) use ($actor): void {
+                                $authority->where('assignments.goal_evaluator_user_id', $actor->id)
+                                    ->orWhere('assignments.evaluator_user_id', $actor->id);
+                            })
+                            ->where('assignments.active', true);
+                    });
+            });
+        }
+
+        return $query
+            ->orderByDesc('events.created_at')
+            ->get([
+                'events.*',
+                'goals.external_key as goal_key',
+                'goals.title as goal_title',
+                'subjects.personnel_key as subject_key',
+                'cycles.external_key as cycle_key',
+                'actors.personnel_key as actor_key',
+                'actors.name as actor_name',
+                'actors.role as actor_role',
+            ])
+            ->map(fn (object $event) => [
+                'id' => 'goal-event-'.$event->id,
+                'goalId' => $event->goal_key,
+                'personId' => $event->subject_key,
+                'cycleId' => $event->cycle_key,
+                'goalTitle' => $event->goal_title,
+                'eventType' => $event->event_type,
+                'previousProgress' => $event->previous_progress !== null ? (float) $event->previous_progress : null,
+                'newProgress' => $event->new_progress !== null ? (float) $event->new_progress : null,
+                'previousStatus' => $event->previous_status,
+                'newStatus' => $event->new_status,
+                'reason' => $event->reason,
+                'reference' => $event->reference,
+                'actorId' => $event->actor_key,
+                'actorName' => $event->actor_name ?? 'System',
+                'actorRole' => $event->actor_role,
+                'createdAt' => CarbonImmutable::parse($event->created_at)->toIso8601String(),
+            ])
+            ->values()
+            ->all();
     }
 
     private function personnelToArray(object $user): array
@@ -1325,6 +2874,7 @@ class PerformanceService
             'accessRole' => $user->role instanceof UserRole ? $user->role->label() : UserRole::from($user->role)->label(),
             'personType' => $user->person_type ?? 'Employee',
             'employmentStatus' => $user->employment_status ?? 'Employee',
+            'evaluatorCapable' => (bool) ($user->evaluator_capable ?? false),
         ];
     }
 
@@ -1451,6 +3001,33 @@ class PerformanceService
             'notes' => $event->notes,
         ])->values()->all();
 
+        $reviewAuditTrail = $events->map(fn (object $event) => [
+            'type' => $event->event_type,
+            'actor' => $event->actor_name ?? 'System',
+            'timestamp' => CarbonImmutable::parse($event->occurred_at)->toIso8601String(),
+            'reason' => $event->reason,
+            'notes' => $event->notes,
+        ]);
+
+        $goalAuditTrail = DB::table('performance_goal_events as goal_events')
+            ->join('performance_goals as goals', 'goals.id', '=', 'goal_events.performance_goal_id')
+            ->leftJoin('users as actors', 'actors.id', '=', 'goal_events.actor_user_id')
+            ->where('goals.user_id', $review->subject_user_id)
+            ->where('goals.performance_cycle_id', $review->cycle_database_id)
+            ->orderBy('goal_events.created_at')
+            ->get([
+                'goal_events.*',
+                'goals.title as goal_title',
+                'actors.name as actor_name',
+            ])
+            ->map(fn (object $event) => [
+                'type' => $event->event_type,
+                'actor' => $event->actor_name ?? 'System',
+                'timestamp' => CarbonImmutable::parse($event->created_at)->toIso8601String(),
+                'reason' => $event->reason,
+                'notes' => trim(($event->goal_title ?? 'Goal/KPI').' · '.(($event->previous_progress ?? null) !== null ? $event->previous_progress.'% → '.$event->new_progress.'%' : 'status updated')),
+            ]);
+
         return [
             'id' => $review->external_key,
             'personId' => $review->subject_key,
@@ -1474,6 +3051,12 @@ class PerformanceService
             'acknowledgment' => $this->decode($review->acknowledgment, null),
             'assignmentHistory' => $assignmentHistory,
             'revisionHistory' => $revisionHistory,
+            'auditTrail' => $reviewAuditTrail->concat($goalAuditTrail)->sortBy('timestamp')->values()->all(),
+            'reviewMethod' => ($review->assignment_basis ?? '') === '360 Leadership Review' ? '360° Leadership Review' : 'Manager Review',
+            'leadership360' => ($review->assignment_basis ?? '') === '360 Leadership Review'
+                ? $this->leadership360Summary(User::query()->findOrFail($review->subject_user_id), DB::table('performance_cycles')->where('id', $review->cycle_database_id)->first())
+                : null,
+            'pipOwner' => $this->pipOwnerContextForReview($review),
             'lockVersion' => (int) $review->lock_version,
         ];
     }
@@ -1537,6 +3120,91 @@ class PerformanceService
         ];
     }
 
+    private function resolvePipOwnerForReview(User $subject, object $review): ?User
+    {
+        $evaluatorId = isset($review->evaluator_user_id) ? (int) $review->evaluator_user_id : 0;
+        if ($evaluatorId > 0 && $evaluatorId !== $subject->id) {
+            $evaluator = User::query()->activePersonnel()->find($evaluatorId);
+            if ($evaluator) {
+                return $evaluator;
+            }
+        }
+
+        $reportingSupervisorId = DB::table('performance_reporting_relationships')
+            ->where('direct_report_id', $subject->id)
+            ->where('active', true)
+            ->value('supervisor_id');
+        if ($reportingSupervisorId && (int) $reportingSupervisorId !== $subject->id) {
+            $supervisor = User::query()->activePersonnel()->find((int) $reportingSupervisorId);
+            if ($supervisor) {
+                return $supervisor;
+            }
+        }
+
+        $isLeadership360 = (string) ($review->assignment_basis ?? '') === '360 Leadership Review';
+        if (! $isLeadership360) {
+            return null;
+        }
+
+        $preferredRoles = match ($subject->role) {
+            UserRole::HR => [UserRole::Admin],
+            UserRole::Admin => [UserRole::HR],
+            default => [UserRole::HR, UserRole::Admin],
+        };
+
+        foreach ($preferredRoles as $role) {
+            $owner = User::query()
+                ->activePersonnel()
+                ->where('role', $role->value)
+                ->where('id', '!=', $subject->id)
+                ->orderBy('id')
+                ->first();
+            if ($owner) {
+                return $owner;
+            }
+        }
+
+        return null;
+    }
+
+    private function pipOwnerContextForReview(object $review): array
+    {
+        $subject = User::query()->find($review->subject_user_id);
+        if (! $subject) {
+            return [
+                'id' => null,
+                'name' => null,
+                'authorityType' => null,
+                'source' => null,
+                'assignmentBasis' => null,
+            ];
+        }
+
+        $owner = $this->resolvePipOwnerForReview($subject, $review);
+        if (! $owner) {
+            return [
+                'id' => null,
+                'name' => null,
+                'authorityType' => null,
+                'source' => null,
+                'assignmentBasis' => null,
+            ];
+        }
+
+        $leadership360 = (string) ($review->assignment_basis ?? '') === '360 Leadership Review';
+        $usesGovernanceSponsor = $leadership360 && empty($review->evaluator_user_id);
+
+        return [
+            'id' => $owner->personnel_key,
+            'name' => $owner->name,
+            'authorityType' => $usesGovernanceSponsor ? 'Governance Sponsor' : 'Evaluator',
+            'source' => $usesGovernanceSponsor ? 'Admin/HR Governance' : 'Review Governance',
+            'assignmentBasis' => $usesGovernanceSponsor
+                ? 'Leadership 360 review has no single evaluator; the server resolves a non-self Admin/HR governance owner for PIP follow-through.'
+                : 'Assigned evaluator or recorded reporting relationship.',
+        ];
+    }
+
     private function hasEvaluatorScope(int $evaluatorId, int $subjectId, ?string $cycleKey): bool
     {
         if ($evaluatorId === $subjectId) {
@@ -1574,11 +3242,43 @@ class PerformanceService
             && ($departments === [] || in_array($user->department, $departments, true));
     }
 
+    private function defaultReviewTemplateKey(object $cycle, User $subject): ?string
+    {
+        $cycleKeys = $this->decode($cycle->review_template_keys, []);
+        $fallback = $cycleKeys[$subject->person_type] ?? null;
+
+        if ($subject->person_type !== 'Employee') {
+            return $fallback;
+        }
+
+        $functionKey = match ($subject->department) {
+            'Crane Operations' => 'review-template-employee-crane-operations',
+            'Logistics' => 'review-template-employee-logistics',
+            'Operations' => 'review-template-employee-operations',
+            'Finance' => 'review-template-employee-finance',
+            'Contracts' => 'review-template-employee-contracts',
+            'Safety & Compliance' => 'review-template-employee-safety',
+            'Administration' => 'review-template-employee-administration',
+            'Information Technology' => 'review-template-employee-it',
+            'Human Resources' => 'review-template-employee-hr',
+            default => null,
+        };
+
+        if ($functionKey && DB::table('performance_review_templates')
+            ->where('external_key', $functionKey)
+            ->where('person_type', 'Employee')
+            ->where('active', true)
+            ->exists()) {
+            return $functionKey;
+        }
+
+        return $fallback;
+    }
+
     private function resolveTemplate(?string $templateKey, object $cycle, User $subject): object
     {
         if (! $templateKey) {
-            $keys = $this->decode($cycle->review_template_keys, []);
-            $templateKey = $keys[$subject->person_type] ?? null;
+            $templateKey = $this->defaultReviewTemplateKey($cycle, $subject);
         }
 
         $template = DB::table('performance_review_templates')
@@ -1594,16 +3294,58 @@ class PerformanceService
         return $template;
     }
 
+    private function performanceToday(): CarbonImmutable
+    {
+        $configured = trim((string) config('performance.review_demo_date', ''));
+        if ($configured !== '') {
+            try {
+                return CarbonImmutable::parse($configured, config('app.timezone'))->startOfDay();
+            } catch (\Throwable) {
+                // Invalid demo configuration must never break production date handling.
+            }
+        }
+
+        return CarbonImmutable::now(config('app.timezone'))->startOfDay();
+    }
+
     private function assertCycleOpenForManagerReview(object $cycle): void
     {
         if ($cycle->status !== 'Active') {
             throw ValidationException::withMessages(['reviews' => 'Manager review is available only in an active cycle.']);
         }
 
-        $today = CarbonImmutable::today(config('app.timezone'));
+        $today = $this->performanceToday();
         if ($today->lt(CarbonImmutable::parse($cycle->review_open_date))) {
             throw ValidationException::withMessages(['reviews' => 'The review window has not opened yet.']);
         }
+
+        if ($today->gt(CarbonImmutable::parse($cycle->review_due_date))) {
+            throw ValidationException::withMessages(['reviews' => 'The review window has already closed.']);
+        }
+    }
+
+    private function reviewBoardStage(object $review): string
+    {
+        if ($review->status === 'Completed' || $review->workflow_state === 'Finalized') {
+            return 'Finalized';
+        }
+
+        if ($review->workflow_state === 'Calibration In Review' || $review->calibration_status === 'In Review') {
+            return 'Calibration Review';
+        }
+
+        if ($review->workflow_state === 'Calibration Pending'
+            || ($review->calibration_required && $review->manager_submitted_at !== null && $review->calibration_status === 'Pending')) {
+            return 'Submitted';
+        }
+
+        $scores = $this->decode($review->criteria_scores, []);
+        $hasManagerActivity = $review->status === 'In Progress'
+            || $review->manager_submitted_at !== null
+            || count($scores) > 0
+            || trim((string) ($review->comments ?? '')) !== '';
+
+        return $hasManagerActivity ? 'Manager Review' : 'Not Started';
     }
 
     private function reviewSnapshot(object $review): array

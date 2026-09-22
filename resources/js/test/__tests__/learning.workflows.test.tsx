@@ -1,376 +1,177 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { emptyDraft } from "@/data/learning";
+import { encodeWorkspaceHash } from "@/workspaceNavigation";
 import AdminLearning from "../../Pages/AdminLearning";
-import LearnerLearning from "../../Pages/LearnerLearning";
 
 const client = vi.hoisted(() => ({
     state: vi.fn(),
     create: vi.fn(),
-    save: vi.fn(),
-    player: vi.fn(),
-    recordLesson: vi.fn(),
-    startAttempt: vi.fn(),
-    saveResponses: vi.fn(),
-    submitAttempt: vi.fn(),
-    selfEnroll: vi.fn(),
-    assignmentPreview: vi.fn(),
-    assign: vi.fn(),
-    regradeAttempt: vi.fn(),
+    createWorkingDraft: vi.fn(),
+    archive: vi.fn(),
+    sourceReview: vi.fn(),
+    decideReview: vi.fn(),
+    publish: vi.fn(),
+    retryPublication: vi.fn(),
+    cancelAssignment: vi.fn(),
+    migrateAssignment: vi.fn(),
     revokeCertificate: vi.fn(),
+    regradeAttempt: vi.fn(),
 }));
 
 vi.mock("@/data/learningClient", () => ({
     learningClient: client,
-    learningError: (error: unknown) =>
-        error instanceof Error ? error.message : String(error),
+    learningError: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 vi.mock("@/Layouts/AuthenticatedLayout", () => ({
     default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    HeaderActions: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    HeaderFilters: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock("@inertiajs/react", () => ({ Head: () => null }));
+vi.mock("../../Pages/CourseBuilder", () => ({
+    default: ({ initialDraft }: { initialDraft: { title: string } }) => <div>Course Builder: {initialDraft.title || "New course draft"}</div>,
+}));
 
-const course = {
-    id: "course-1",
+const base = {
+    catalog: [], personnel: [], governanceActors: [], sourceLibrary: [], assignments: [], completions: [], requests: [], reviews: [], attempts: [], analytics: {}, competencyCatalog: [], roleProfiles: [],
+};
+
+const draft = {
+    ...emptyDraft(4),
+    id: "version-1",
+    courseId: "course-1",
     code: "LRN-2026-001",
-    title: "Safe operations",
-    category: "Operations",
-    status: "Published",
-    owner: "Owner",
-    ownerId: 1,
-    audience: "Employees · Operations",
-    publishedVersion: 1,
-    publishedVersionId: "version-1",
-    draftVersionId: null,
-    activeAssignments: 1,
-    completionRate: 0,
-    lastUpdated: "2026-08-13T08:00:00+08:00",
-    archived: false,
-    competencies: [],
-    versionHistory: [
-        {
-            id: "version-1",
-            versionNumber: 1,
-            status: "Published",
-            title: "Safe operations",
-            publishedAt: "2026-08-13T08:00:00+08:00",
-            updatedAt: "2026-08-13T08:00:00+08:00",
-        },
-    ],
-    publishedDetail: {
-        audience: { mandatoryDefault: true, defaultDueDays: 30 },
+    status: "In Review" as const,
+    title: "Operational handover",
+    description: "A source-grounded operational handover course prepared by HR.",
+    learningObjectives: ["Apply the approved handover procedure correctly."],
+    sourceDocumentIds: ["ALB-PND-SOP-002"],
+    sourceDocuments: [{
+        documentId: "ALB-PND-SOP-002", type: "SOP", title: "Operational Handover Procedure", version: "1.0", owner: "Operations", departments: ["Operations"], filename: "ALB-PND-SOP-002.md", relatedCourseCodes: [],
+    }],
+    sourceReview: {
+        id: "source-review-1", status: "Ready" as const, coveragePercent: 95,
+        summary: "Course content is supported by the selected sources.", findings: [], aiUsed: true,
+        model: "test", scannedAt: "2026-09-15T09:00:00+08:00", current: true,
     },
 };
 
-const baseState: any = {
-    actor: { id: 1, name: "Learning Admin", role: "admin" },
-    courses: [course],
-    catalog: [],
-    personnel: [
-        {
-            id: 7,
-            personnel_key: "P-7",
-            name: "Alex Learner",
-            email: "alex@example.test",
-            role: "User",
-            person_type: "Employee",
-            department: "Operations",
-            position: "Staff Professional",
-            evaluator_capable: false,
-        },
-    ],
-    governanceActors: [
-        {
-            id: 1,
-            personnel_key: null,
-            name: "Learning Admin",
-            email: "admin@alibaton.com",
-            role: "Admin",
-            person_type: null,
-            department: null,
-            position: null,
-            evaluator_capable: false,
-            hasPersonnelIdentity: false,
-            canOwn: true,
-            canAuthor: true,
-            canReview: false,
-            canPublish: true,
-        },
-    ],
-    assignments: [],
-    completions: [],
-    requests: [],
-    reviews: [],
-    attempts: [],
-    analytics: {},
-    competencyCatalog: [],
-    roleProfiles: [],
+const reviewCourse = {
+    id: "course-1", code: "LRN-2026-001", title: "Operational handover", category: "Operations", targetDepartment: "Operations",
+    status: "In Review", owner: "Celso Ramirez", ownerId: 4, audience: "Employees · Operations",
+    publishedVersion: null, publishedVersionId: null, draftVersionId: "version-1", activeAssignments: 0, completionRate: 0,
+    lastUpdated: "2026-09-15T09:00:00+08:00", archived: false, competencies: [], draftDetail: draft, sourceReview: draft.sourceReview,
 };
 
-describe("Admin Learning production handlers", () => {
+const adminState = { ...base, actor: { id: 1, name: "Learning Admin", role: "admin" }, courses: [reviewCourse] };
+const hrDraft = { ...draft, status: "Draft" as const, sourceReview: null };
+const hrState = {
+    ...base,
+    actor: { id: 4, name: "Celso Ramirez", role: "hr" },
+    courses: [{ ...reviewCourse, status: "Draft", draftDetail: hrDraft, sourceReview: null }],
+};
+
+async function coursesWorkspace() {
+    window.location.hash = encodeWorkspaceHash("Courses");
+}
+
+describe("final HR to Admin to LMS Learning workflow", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        client.state.mockResolvedValue(baseState);
+        window.location.hash = encodeWorkspaceHash("Courses");
     });
 
-    it("creates and reopens a persistent working Draft from New Course", async () => {
+    it("allows HR to create a persistent course draft", async () => {
         const user = userEvent.setup();
-        const draft = {
-            title: "",
-            description: "",
-            category: "General",
-            difficulty: "Beginner",
-            language: "English",
-            learningObjectives: [""],
-            subjectMatterExpertId: null,
-            durationOverrideMinutes: null,
-            ownerId: 1,
-            authorIds: [1],
-            reviewerIds: [],
-            publisherId: null,
-            audience: {
-                personTypes: ["Employee"],
-                allDepartments: true,
-                departments: [],
-                positions: [],
-                roleProfileIds: [],
-                catalogVisibility: "Assigned only",
-                defaultDueDays: 30,
-                mandatoryDefault: true,
-            },
-            competencies: [],
-            modules: [],
-            assessments: [],
-            completion: {
-                completeRequiredLessons: true,
-                passRequiredKnowledgeChecks: true,
-                passFinalAssessment: true,
-                issueCertificate: false,
-                certificateValidityMonths: null,
-                renewalIntervalMonths: null,
-            },
-            id: "version-draft",
-            courseId: "course-draft",
-            code: "LRN-2026-101",
-            status: "Draft",
+        const created = { ...hrDraft, id: "version-new", courseId: "course-new", code: "LRN-2026-010", title: "" };
+        const fresh = {
+            ...hrState,
+            courses: [{ ...reviewCourse, id: "course-new", code: "LRN-2026-010", title: "", status: "Draft", draftVersionId: "version-new", draftDetail: created, sourceReview: null }],
         };
-        client.create.mockResolvedValue({
-            versionId: "version-draft",
-            courseId: "course-draft",
-            code: "LRN-2026-101",
-        });
-        client.state.mockResolvedValue({
-            ...baseState,
-            courses: [
-                ...baseState.courses,
-                {
-                    ...course,
-                    id: "course-draft",
-                    code: "LRN-2026-101",
-                    status: "Draft",
-                    publishedVersionId: null,
-                    draftVersionId: "version-draft",
-                    draftDetail: draft,
-                },
-            ],
-        });
-        render(<AdminLearning initialLearningState={baseState} />);
-
-        await user.click(screen.getByRole("button", { name: "Courses" }));
+        client.create.mockResolvedValue({ versionId: "version-new", courseId: "course-new", code: "LRN-2026-010" });
+        client.state.mockResolvedValue(fresh);
+        render(<AdminLearning initialLearningState={hrState} />);
         await user.click(screen.getByRole("button", { name: "New Course" }));
         await waitFor(() => expect(client.create).toHaveBeenCalledTimes(1));
-        expect(await screen.findByDisplayValue("LRN-2026-101")).toBeVisible();
+        expect(await screen.findByText("Course Builder: New course draft")).toBeVisible();
     });
 
-    it("runs the authorized regrade handler with a mandatory reason", async () => {
+    it("keeps course authoring unavailable to Admin", () => {
+        render(<AdminLearning initialLearningState={adminState} />);
+        expect(screen.queryByRole("button", { name: "New Course" })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Open Operational handover" })).toBeVisible();
+    });
+
+    it("shows the source-grounding result before Admin publication", async () => {
         const user = userEvent.setup();
-        const state = {
-            ...baseState,
-            attempts: [
-                {
-                    id: "attempt-1",
-                    status: "Submitted",
-                    learner_name: "Alex Learner",
-                    course_title: "Safe operations",
-                    version_number: 1,
-                    assessment_title: "Knowledge Check",
-                    attempt_number: 1,
-                    submitted_at: "2026-08-13T09:00:00+08:00",
-                    score_percent: 70,
-                    passed: false,
-                },
-            ],
-        };
-        client.regradeAttempt.mockResolvedValue({
-            score: 100,
-            passed: true,
-            attemptNumber: 1,
-            assignmentStatus: "Completed",
-            completionId: "completion-1",
-        });
-        client.state.mockResolvedValue({ ...state, attempts: [] });
-        render(<AdminLearning initialLearningState={state} />);
-
-        await user.click(
-            screen.getByRole("button", {
-                name: "Completions & Certificates",
-            }),
-        );
-        await user.click(screen.getByRole("button", { name: "Regrade" }));
-        const submit = screen.getByRole("button", {
-            name: "Regrade and reconcile",
-        });
-        expect(submit).toBeDisabled();
-        await user.type(
-            screen.getByRole("textbox", {
-                name: /Required regrade reason/,
-            }),
-            "Correct deterministic scoring defect",
-        );
-        await user.click(submit);
-
-        await waitFor(() =>
-            expect(client.regradeAttempt).toHaveBeenCalledWith(
-                "attempt-1",
-                "Correct deterministic scoring defect",
-            ),
-        );
-        expect(client.state).toHaveBeenCalled();
+        render(<AdminLearning initialLearningState={adminState} />);
+        await user.click(screen.getByRole("button", { name: "Open Operational handover" }));
+        expect(screen.getByText("Aevyn Source Review")).toBeVisible();
+        expect(screen.getByText("95%")).toBeVisible();
+        expect(screen.getByText("Operational Handover Procedure")).toBeVisible();
+        expect(screen.getByRole("button", { name: "Publish to LMS" })).toBeEnabled();
     });
 
-    it("keeps the selected learner and source completion in renewal assignment payloads", async () => {
+    it("publishes the reviewed course and records LMS delivery state", async () => {
         const user = userEvent.setup();
-        const completion = {
-            id: "completion-1",
-            learner_id: 7,
-            learner_name: "Alex Learner",
-            course_id: "course-1",
-            title: "Safe operations",
-            version_number: 1,
-            completed_at: "2026-08-13T09:00:00+08:00",
-            completion_basis: "Published online course rules",
-            assessment_score: 100,
-            certificate_id: "certificate-1",
-            certificate_number: "ALB-LRN-001",
-            certificate_status: "Valid",
-            expires_on: "2027-08-13",
-            transcript_id: "transcript-1",
-        };
-        const state = { ...baseState, completions: [completion] };
-        client.assignmentPreview.mockResolvedValue([
-            { id: 7, name: "Alex Learner", result: "Eligible" },
-        ]);
-        client.assign.mockResolvedValue({ assignmentIds: ["assignment-2"] });
-        client.state.mockResolvedValue(state);
-        render(<AdminLearning initialLearningState={state} />);
-
-        await user.click(
-            screen.getByRole("button", {
-                name: "Completions & Certificates",
-            }),
-        );
-        await user.click(
-            screen.getByRole("button", {
-                name: "Create renewal assignment",
-            }),
-        );
-        expect(screen.getByText(/Renewal for/)).toHaveTextContent(
-            "Alex Learner",
-        );
-        await user.click(
-            screen.getByRole("button", { name: "Preview exact impact" }),
-        );
-        await user.click(
-            await screen.findByRole("button", {
-                name: "Confirm 1 assignment(s)",
-            }),
-        );
-
-        await waitFor(() => expect(client.assign).toHaveBeenCalledTimes(1));
-        expect(client.assign.mock.calls[0][0]).toBe("version-1");
-        expect(client.assign.mock.calls[0][1]).toMatchObject({
-            learnerIds: [7],
-            source: "Reassignment/Renewal",
-            sourceCompletionId: "completion-1",
-            sourceCertificateId: "certificate-1",
-        });
-    });
-});
-
-describe("Learner LMS player production handlers", () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
-
-    it("opens the version-pinned player and records real lesson progress", async () => {
-        const user = userEvent.setup();
-        const state = {
-            ...baseState,
-            actor: { id: 7, name: "Alex Learner", role: "user" },
-            courses: [],
-            assignments: [
-                {
-                    id: "assignment-1",
-                    code: "LRN-2026-001",
-                    title: "Safe operations",
-                    version_number: 1,
-                    status: "Not Started",
-                    display_status: "Not Started",
-                    progress_percent: 0,
-                    is_mandatory: true,
-                    source: "Manual Assignment",
-                    due_at: "2026-12-31T17:00:00+08:00",
-                },
-            ],
-        };
-        const player = {
-            assignment: state.assignments[0],
-            course: {
-                title: "Safe operations",
+        const publishedState = {
+            ...adminState,
+            courses: [{
+                ...reviewCourse,
                 status: "Published",
-                version_number: 1,
-                assessments: [],
-            },
-            modules: [
-                {
-                    id: "module-1",
-                    title: "Foundation",
-                    lessons: [
-                        {
-                            id: "lesson-1",
-                            title: "Required reading",
-                            objective: "Apply the safe procedure.",
-                            description: "Read the governed lesson.",
-                            text_content: "Version-pinned lesson content",
-                            is_required: true,
-                            materials: [],
-                        },
-                    ],
-                },
-            ],
-            progress: [],
-            attempts: [],
+                draftVersionId: null,
+                draftDetail: null,
+                publishedVersion: 1,
+                publishedVersionId: "version-1",
+                delivery: { id: "delivery-1", event: "course.published", status: "Queued", targetCount: 12, attempts: 1, lastError: "Learner LMS endpoint is not configured.", lastAttemptAt: "2026-09-15T10:00:00+08:00", deliveredAt: null },
+            }],
         };
-        client.player.mockResolvedValue(player);
-        client.recordLesson.mockResolvedValue({
-            progress: 100,
-            status: "Completed",
-        });
-        client.state.mockResolvedValue(state);
-        render(<LearnerLearning initialLearningState={state} />);
+        client.publish.mockResolvedValue(publishedState);
+        render(<AdminLearning initialLearningState={adminState} />);
+        await user.click(screen.getByRole("button", { name: "Open Operational handover" }));
+        await user.click(screen.getByRole("button", { name: "Publish to LMS" }));
+        await waitFor(() => expect(client.publish).toHaveBeenCalledWith("version-1"));
+        expect(await screen.findByText("Course published. LMS delivery is queued.")).toBeVisible();
+        const courseDetails = screen.getByRole("dialog");
+        expect(within(courseDetails).getByText("Queued")).toBeVisible();
+        expect(within(courseDetails).getByText("Waiting for LMS delivery.")).toBeVisible();
+        expect(document.body.textContent).not.toMatch(/endpoint is not configured/i);
+    });
 
-        await user.click(screen.getByRole("button", { name: "Start course" }));
-        expect((await screen.findAllByText("Required reading")).length).toBe(2);
-        expect(screen.getByText("Version-pinned lesson content")).toBeVisible();
-        await user.click(screen.getByRole("button", { name: /Mark Complete/ }));
+    it("returns a course to HR only after Admin provides a change reason", async () => {
+        const user = userEvent.setup();
+        const returnedState = { ...adminState, courses: [{ ...reviewCourse, status: "Changes Requested", draftDetail: { ...draft, status: "Changes Requested" } }] };
+        client.decideReview.mockResolvedValue(returnedState);
+        render(<AdminLearning initialLearningState={adminState} />);
+        await user.click(screen.getByRole("button", { name: "Open Operational handover" }));
+        await user.click(screen.getByRole("button", { name: "Request Changes" }));
+        const confirm = screen.getByRole("button", { name: "Return to HR" });
+        expect(confirm).toBeDisabled();
+        await user.type(screen.getByLabelText("What should HR change?"), "Align the final lesson with the selected operations procedure.");
+        expect(confirm).toBeEnabled();
+        await user.click(confirm);
+        await waitFor(() => expect(client.decideReview).toHaveBeenCalledWith("version-1", "Changes Requested", expect.stringContaining("Align the final lesson")));
+    });
 
-        await waitFor(() =>
-            expect(client.recordLesson).toHaveBeenCalledWith(
-                "assignment-1",
-                "lesson-1",
-                true,
-            ),
-        );
-        expect(client.player).toHaveBeenCalledWith("assignment-1");
+    it("keeps source review automatic and only offers a refresh when the saved scan is stale", async () => {
+        const user = userEvent.setup();
+        const staleState = {
+            ...adminState,
+            courses: [{
+                ...reviewCourse,
+                sourceReview: { ...draft.sourceReview, current: false },
+                draftDetail: {
+                    ...draft,
+                    sourceReview: { ...draft.sourceReview, current: false },
+                },
+            }],
+        };
+        client.sourceReview.mockResolvedValue(adminState);
+        render(<AdminLearning initialLearningState={staleState} />);
+        await user.click(screen.getByRole("button", { name: "Open Operational handover" }));
+        await user.click(screen.getByRole("button", { name: "Refresh Source Review" }));
+        await waitFor(() => expect(client.sourceReview).toHaveBeenCalledWith("version-1"));
     });
 });

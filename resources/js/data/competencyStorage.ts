@@ -1,8 +1,6 @@
 import {
-    COMPETENCY_STORAGE_KEY,
     cloneAssessmentCycleSnapshot,
     cloneRoleProfileSnapshot,
-    createCompetencyInitialState,
     snapshotAssessmentCycle,
     snapshotCompetencyDefinition,
     type AssessmentAcknowledgmentEvent,
@@ -19,7 +17,6 @@ import {
     type RoleRequirementSnapshot,
 } from "@/data/competency";
 import { preserveFinalizedSnapshotAcknowledgments } from "@/data/competencyLifecycle";
-import { useEffect, useState } from "react";
 
 function looksLikeCompetencyState(value: unknown): value is CompetencyState {
     if (!value || typeof value !== "object") return false;
@@ -365,33 +362,5 @@ export function migrateCompetencyState(state: CompetencyState): CompetencyState 
     };
 }
 
-export function loadCompetencyState(): CompetencyState {
-    if (typeof window === "undefined") return createCompetencyInitialState();
-    try {
-        const raw = window.localStorage.getItem(COMPETENCY_STORAGE_KEY);
-        if (!raw) return createCompetencyInitialState();
-        const parsed: unknown = JSON.parse(raw);
-        return looksLikeCompetencyState(parsed)
-            ? migrateCompetencyState(parsed)
-            : createCompetencyInitialState();
-    } catch {
-        return createCompetencyInitialState();
-    }
-}
-
-export function useCompetencyStore() {
-    const [state, setState] = useState<CompetencyState>(loadCompetencyState);
-    const [storageError, setStorageError] = useState("");
-
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-        try {
-            window.localStorage.setItem(COMPETENCY_STORAGE_KEY, JSON.stringify(state));
-            setStorageError("");
-        } catch {
-            setStorageError("Competency changes could not be saved in this browser.");
-        }
-    }, [state]);
-
-    return { state, setState, storageError };
-}
+// Legacy normalization is retained for existing test fixtures only.
+// Runtime records are loaded and saved through competencyServerStore.

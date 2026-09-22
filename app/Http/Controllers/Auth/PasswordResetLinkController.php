@@ -3,18 +3,19 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Notifications\Auth\PasswordResetRecoveryNotification;
+use App\Services\Security\SecurityAuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password;
-use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class PasswordResetLinkController extends Controller
 {
-    /**
-     * Display the password reset link request view.
-     */
     public function create(): Response
     {
         return Inertia::render('Auth/ForgotPassword', [
@@ -23,29 +24,76 @@ class PasswordResetLinkController extends Controller
     }
 
     /**
-     * Handle an incoming password reset link request.
+     * Always return the same public response whether or not an account exists.
+     * This prevents the reset endpoint from becoming an account-enumeration oracle.
      *
-     * @throws ValidationException
+     * The account email remains the login identity, while delivery may use a
+     * separately registered recovery mailbox. The recovery address is never
+     * returned to the browser.
      */
     public function store(Request $request): RedirectResponse
     {
-        $request->validate([
-            'email' => 'required|email',
+        $validated = $request->validate([
+            'email' => ['required', 'email'],
         ]);
 
-        // We will send the password reset link to this user. Once we have attempted
-        // to send the link, we will examine the response then see the message we
-        // need to show to the user. Finally, we'll send out a proper response.
-        $status = Password::sendResetLink(
-            $request->only('email')
-        );
+        $loginEmail = strtolower(trim((string) $validated['email']));
+        $user = User::query()
+            ->whereRaw('LOWER(email) = ?', [$loginEmail])
+            ->first();
 
-        if ($status == Password::RESET_LINK_SENT) {
-            return back()->with('status', __($status));
+        $status = Password::INVALID_USER;
+        $deliveryStatus = 'not_delivered';
+
+        if ($user && $this->isRecoveryEligible($user)) {
+            $destination = $user->passwordRecoveryDestination();
+
+            if ($destination !== null) {
+                try {
+                    $status = Password::broker()->sendResetLink(
+                        ['email' => (string) $user->email],
+                        function (User $brokerUser, string $token) use ($destination): void {
+                            Notification::route('mail', $destination)
+                                ->notify(new PasswordResetRecoveryNotification(
+                                    $token,
+                                    (string) $brokerUser->email,
+                                ));
+                        },
+                    );
+
+                    $deliveryStatus = $status === Password::RESET_LINK_SENT
+                        ? 'accepted'
+                        : 'not_delivered';
+                } catch (Throwable $exception) {
+                    report($exception);
+                    $deliveryStatus = 'failed';
+                }
+            } else {
+                $deliveryStatus = 'recovery_email_not_configured';
+            }
         }
 
-        throw ValidationException::withMessages([
-            'email' => [trans($status)],
-        ]);
+        app(SecurityAuditService::class)->record(
+            $request,
+            'PASSWORD_RESET_REQUESTED',
+            'Success',
+            $user,
+            [
+                'delivery_status' => $deliveryStatus,
+                'delivery_channel' => 'registered_recovery_email',
+            ],
+        );
+
+        return back()->with(
+            'status',
+            'If an active account matches that email, a reset link has been sent to its registered recovery email.',
+        );
+    }
+
+    private function isRecoveryEligible(User $user): bool
+    {
+        return $user->archived_at === null
+            && $user->employment_status !== 'Inactive'
+            && in_array((string) ($user->pnd_access_status ?: 'Active'), ['Active'], true);
     }
 }

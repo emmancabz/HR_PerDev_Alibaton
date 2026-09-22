@@ -13,6 +13,9 @@ export type PersonnelIdentity = {
     accessRole: AccessRole;
     personType: PersonType;
     employmentStatus: EmploymentStatus;
+    evaluatorCapable?: boolean;
+    managerPersonnelKey?: string | null;
+    managerName?: string | null;
 };
 
 export const BASE_8_IDENTITIES: PersonnelIdentity[] = [
@@ -28,12 +31,15 @@ export const BASE_8_IDENTITIES: PersonnelIdentity[] = [
 
 const GEN_NAMES = ["Luis Gomez", "Sofia Reyes", "Mateo Cruz", "Isabella Torres", "Lucas Flores", "Mia Ramos", "Gabriel Morales", "Camila Ortiz", "Jose Castillo", "Elena Chavez", "Antonio Ruiz", "Valeria Herrera", "Carlos Medina", "Mariana Aguilar", "Jorge Vargas", "Lucia Castro", "Pedro Salazar", "Valentina Guzman", "Juan Pena", "Ximena Rojas", "Diego Mendez", "Mariana Silva", "Alejandro Rios", "Daniela Navarro", "Fernando Delgado", "Victoria Nunez", "Ricardo Padilla"];
 const GEN_DEPARTMENTS = ["Crane Operations", "Logistics", "Operations", "Finance", "Contracts", "Safety & Compliance", "Administration", "Information Technology", "Crane Operations", "Logistics", "Operations", "Finance", "Contracts", "Safety & Compliance", "Administration", "Information Technology", "Crane Operations", "Logistics", "Operations", "Finance", "Contracts", "Safety & Compliance", "Administration", "Information Technology", "Crane Operations", "Operations", "Logistics"];
-const GEN_POSITIONS = GEN_NAMES.map(() => 'Staff Professional');
-GEN_POSITIONS[8] = 'Crane Operations Supervisor';
-GEN_POSITIONS[9] = 'Logistics Supervisor';
-GEN_POSITIONS[10] = 'Operations Supervisor';
-GEN_POSITIONS[11] = 'Finance Manager';
-GEN_POSITIONS[13] = 'Safety Supervisor';
+const GEN_POSITIONS = [
+    'Crane Operator', 'Logistics Coordinator', 'Operations Coordinator', 'Finance Analyst',
+    'Contracts Officer', 'Safety Inspector', 'Administrative Assistant', 'IT Support Specialist',
+    'Crane Operations Supervisor', 'Logistics Supervisor', 'Operations Supervisor', 'Finance Manager',
+    'Contracts & Compliance Supervisor', 'Safety Supervisor', 'Administrative Services Supervisor', 'IT Operations Supervisor',
+    'Rigger and Signalperson', 'Dispatch Coordinator', 'Project Site Coordinator', 'Accounts Payable Specialist',
+    'Contract Documentation Specialist', 'Safety Compliance Specialist', 'Records Coordinator', 'Systems Analyst',
+    'Crane Maintenance Coordinator', 'Project Controls Coordinator', 'Fleet Scheduling Coordinator',
+];
 
 export const GENERATED_IDENTITIES: PersonnelIdentity[] = GEN_NAMES.map((name, i) => ({
     id: `user-gen-${i}`,

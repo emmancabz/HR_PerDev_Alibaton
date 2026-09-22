@@ -11,18 +11,16 @@ const stateResponse = (response: { data: { data: unknown } }): LearningState =>
 export const learningClient = {
     state: async () => stateResponse(await axios.get("/learning/api/state")),
     create: async (draft: CourseDraft) =>
-        unwrap<{ versionId: string; courseId: string }>(
+        unwrap<{ versionId: string; courseId: string; code: string }>(
             await axios.post("/learning/api/courses", draft),
         ),
     save: async (versionId: string, draft: CourseDraft) =>
         stateResponse(
             await axios.put(`/learning/api/versions/${versionId}`, draft),
         ),
-    submitReview: async (versionId: string, reviewerId: number) =>
+    submitReview: async (versionId: string) =>
         stateResponse(
-            await axios.post(`/learning/api/versions/${versionId}/review`, {
-                reviewerId,
-            }),
+            await axios.post(`/learning/api/versions/${versionId}/review`),
         ),
     decideReview: async (
         versionId: string,
@@ -38,6 +36,14 @@ export const learningClient = {
     publish: async (versionId: string) =>
         stateResponse(
             await axios.post(`/learning/api/versions/${versionId}/publish`),
+        ),
+    sourceReview: async (versionId: string) =>
+        stateResponse(
+            await axios.post(`/learning/api/versions/${versionId}/source-review`),
+        ),
+    retryPublication: async (versionId: string) =>
+        stateResponse(
+            await axios.post(`/learning/api/versions/${versionId}/publication-retry`),
         ),
     createWorkingDraft: async (versionId: string) =>
         unwrap<{ versionId: string; courseId: string }>(

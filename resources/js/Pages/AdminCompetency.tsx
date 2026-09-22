@@ -1,3 +1,4 @@
+import SystemSelect from '@/Components/SystemSelect';
 import {
     AssessmentAssignmentForm,
     AssessorAuthorizationForm,
@@ -31,8 +32,7 @@ import {
     secondaryButtonClass,
     StatusBadge,
 } from "@/Components/Competency/CompetencyUI";
-import PageHeader from "@/Components/PageHeader";
-import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
+import AuthenticatedLayout, { HeaderActions } from "@/Layouts/AuthenticatedLayout";
 import {
     cloneAssessmentCycleSnapshot,
     cloneRoleProfileSnapshot,
@@ -59,12 +59,17 @@ import {
 } from "@/data/competency";
 import {
     assessmentProgress,
+    assessmentContextChanged,
+    assessmentRequiresGovernanceValidation,
+    assignmentDueDate,
     buildAssessmentRows,
     buildCompetencyProfiles,
     buildGapRows,
+    buildDevelopmentRows,
     canAssess,
     cyclePopulationMatches,
     cycleConfigurationMatches,
+    effectiveCycleStatus,
     findActiveProfileForPerson,
     formatDate,
     getAuthorizedAssessors,
@@ -81,9 +86,10 @@ import {
     publishCompetencyDraft,
     publishRoleProfileDraft,
 } from "@/data/competencyLifecycle";
-import { useCompetencyStore } from "@/data/competencyStorage";
-import { SHARED_PERSONNEL, getPersonById } from "@/data/personnel";
+import { useCompetencyServerStore, type CompetencyPayload } from "@/data/competencyServerStore";
+import { SHARED_PERSONNEL, getPersonById, initialsFor, replaceSharedPersonnel, type PersonnelIdentity } from "@/data/personnel";
 import { Head, usePage } from "@inertiajs/react";
+import { useHashWorkspace } from "@/workspaceNavigation";
 import {
     AlertTriangle,
     Archive,
@@ -98,6 +104,7 @@ import {
     Library,
     Pencil,
     Plus,
+    RefreshCw,
     RotateCcw,
     Save,
     Send,
@@ -113,24 +120,24 @@ import { useMemo, useState, type ComponentType } from "react";
 
 type WorkspaceTab =
     | "Overview"
-    | "Competency Library"
-    | "Role Profiles"
-    | "Assessment Cycles"
+    | "People"
+    | "Competency Framework"
     | "Assessments"
-    | "Competency Profiles"
-    | "Gap & Development"
+    | "Development"
     | "Analytics";
 
 const WORKSPACE_TABS: { label: WorkspaceTab; icon: LucideIcon }[] = [
     { label: "Overview", icon: ClipboardList },
-    { label: "Competency Library", icon: Library },
-    { label: "Role Profiles", icon: FolderKanban },
-    { label: "Assessment Cycles", icon: CalendarClock },
+    { label: "People", icon: Users },
+    { label: "Competency Framework", icon: Library },
     { label: "Assessments", icon: FileCheck2 },
-    { label: "Competency Profiles", icon: Users },
-    { label: "Gap & Development", icon: Wrench },
+    { label: "Development", icon: Wrench },
     { label: "Analytics", icon: BarChart3 },
 ];
+
+const COMPETENCY_WORKSPACES = WORKSPACE_TABS.map(
+    (tab) => tab.label,
+) as WorkspaceTab[];
 
 type DetailSelection =
     | { kind: "competency"; id: string }
@@ -167,11 +174,6 @@ function nowIso(): string {
     return localDateTimeValue();
 }
 
-function addDays(days: number): string {
-    const date = new Date();
-    date.setDate(date.getDate() + days);
-    return localDateValue(date);
-}
 
 function cloneRatings(ratings: CompetencyRating[]): CompetencyRating[] {
     return ratings.map((rating) => ({
@@ -201,7 +203,9 @@ function finalizedSnapshotFor(
 }
 
 export default function AdminCompetency() {
-    const { state, setState, storageError } = useCompetencyStore();
+    const props = usePage().props as unknown as { canonicalPersonnel: PersonnelIdentity[]; competency?: CompetencyPayload };
+    useState(() => { replaceSharedPersonnel(props.canonicalPersonnel ?? []); return true; });
+    const { state, setState, storageError, saving } = useCompetencyServerStore(props.competency);
     const authUser = usePage().props.auth.user;
     const actor = SHARED_PERSONNEL.find(
         (person) =>
@@ -209,7 +213,7 @@ export default function AdminCompetency() {
             person.email === authUser.email ||
             person.fullName === authUser.name,
     );
-    const actorId = actor?.id ?? "";
+    const actorId = authUser.personnel_key ?? actor?.id ?? "";
     const actorName = actor?.fullName ?? authUser.name ?? "Current Admin User";
     const canValidate =
         actor?.accessRole === "Admin" ||
@@ -217,9 +221,15 @@ export default function AdminCompetency() {
         authUser.role === "admin" ||
         authUser.role === "hr";
 
-    const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("Overview");
+    const [workspaceTab, setWorkspaceTab] = useHashWorkspace<WorkspaceTab>(
+        COMPETENCY_WORKSPACES,
+        "Overview",
+    );
     const [workspaceFocus, setWorkspaceFocus] = useState("");
     const [detail, setDetail] = useState<DetailSelection>(null);
+    const [assessmentDetailContext, setAssessmentDetailContext] = useState<
+        "workspace" | "overview"
+    >("workspace");
     const [competencyForm, setCompetencyForm] =
         useState<CompetencyFormState>(null);
     const [profileFormId, setProfileFormId] = useState<
@@ -271,7 +281,7 @@ export default function AdminCompetency() {
                   (item) => item.person.id === detail.id,
               ) ?? null)
             : null;
-    const gapRows = useMemo(() => buildGapRows(state), [state]);
+    const gapRows = useMemo(() => buildDevelopmentRows(state), [state]);
     const selectedGap =
         detail?.kind === "gap"
             ? (gapRows.find((item) => item.id === detail.id) ?? null)
@@ -322,6 +332,7 @@ export default function AdminCompetency() {
     function navigate(tab: WorkspaceTab, focus = "") {
         setWorkspaceTab(tab);
         setWorkspaceFocus(focus);
+        setAssessmentDetailContext("workspace");
         setDetail(null);
     }
 
@@ -855,6 +866,9 @@ export default function AdminCompetency() {
         assessorId: string,
         dueDate: string,
         revisionSourceAssessmentId: string | null = null,
+        scope: "Full Role Profile" | "Targeted Competencies" = "Full Role Profile",
+        targetCompetencyIds: string[] = [],
+        sourceRecommendationIds: string[] = [],
     ): CompetencyAssessment | null {
         const person = getPersonById(personId);
         const profile = state.roleProfiles.find(
@@ -875,7 +889,25 @@ export default function AdminCompetency() {
             )
         )
             return null;
-        const snapshot = snapshotRoleProfile(profile, state.competencies);
+        const fullSnapshot = snapshotRoleProfile(profile, state.competencies);
+        const targets =
+            scope === "Targeted Competencies"
+                ? [...new Set(targetCompetencyIds)]
+                : fullSnapshot.requirements.map((item) => item.competencyId);
+        if (!targets.length) return null;
+        if (targets.some((id) => !fullSnapshot.requirements.some((item) => item.competencyId === id)))
+            return null;
+        if (
+            scope === "Targeted Competencies" &&
+            !["Post-Training Reassessment", "Certification Renewal", "Ad Hoc Assessment"].includes(cycle.type)
+        )
+            return null;
+        const snapshot = {
+            ...fullSnapshot,
+            requirements: fullSnapshot.requirements.filter((item) =>
+                targets.includes(item.competencyId),
+            ),
+        };
         return {
             id: uniqueId("assessment"),
             personId,
@@ -904,6 +936,9 @@ export default function AdminCompetency() {
             finalizedSnapshot: null,
             finalizedSnapshots: [],
             revisionSourceAssessmentId,
+            scope,
+            targetCompetencyIds: targets,
+            sourceRecommendationIds,
             revisionHistory: [],
             reassignmentHistory: [],
             auditHistory: [
@@ -1012,124 +1047,6 @@ export default function AdminCompetency() {
         setAssignmentFormCycleId(undefined);
         setDetail({ kind: "assessment", id: record.id });
         showNotice("Assessment assignment created.");
-    }
-    function generateCycleAssignments(cycleId: string) {
-        const cycle = state.cycles.find((item) => item.id === cycleId);
-        if (!cycle) {
-            showNotice("The selected assessment cycle is no longer available.");
-            return;
-        }
-        if (cycle.assignmentMethod === "Manual Authorized Assignment") {
-            setAssignmentFormCycleId(cycle.id);
-            showNotice(
-                "Manual cycles require one explicit person, role profile, and authorized assessor selection per assignment.",
-            );
-            return;
-        }
-        const additions: CompetencyAssessment[] = [];
-        let skippedNoAssessor = 0;
-        for (const profileId of cycle.roleProfileIds) {
-            const profile = state.roleProfiles.find(
-                (item) => item.id === profileId && item.status === "Active",
-            );
-            if (!profile) continue;
-            for (const person of SHARED_PERSONNEL) {
-                const matches = cyclePopulationMatches(cycle, person, profile);
-                if (!matches) continue;
-                if (
-                    state.assessments.some(
-                        (item) =>
-                            item.personId === person.id &&
-                            item.cycleId === cycle.id &&
-                            item.roleProfileId === profile.id,
-                    ) ||
-                    additions.some(
-                        (item) =>
-                            item.personId === person.id &&
-                            item.cycleId === cycle.id &&
-                            item.roleProfileId === profile.id,
-                    )
-                )
-                    continue;
-                const resolution = resolveAssessmentAssessor(
-                    state,
-                    cycle,
-                    person,
-                    profile,
-                );
-                const assessor = resolution.assessor;
-                if (!assessor) {
-                    skippedNoAssessor += 1;
-                    continue;
-                }
-                const record = makeAssessment(
-                    person.id,
-                    profile.id,
-                    cycle.id,
-                    assessor.id,
-                    addDays(cycle.dueDaysAfterAssignment),
-                );
-                if (record) additions.push(record);
-            }
-        }
-        if (!additions.length) {
-            showNotice(
-                skippedNoAssessor
-                    ? `${skippedNoAssessor} matching people have no authorized assessor; no assignments were created.`
-                    : "No new eligible assignments were found. Duplicate person/cycle/profile records were skipped.",
-            );
-            return;
-        }
-        setState((current) => ({
-            ...current,
-            assessments: [...additions, ...current.assessments],
-            activities: [
-                addActivity(
-                    "Cycle",
-                    "Cycle assignments prepared",
-                    `${additions.length} assignments created; ${skippedNoAssessor} skipped without authorization.`,
-                ),
-                ...current.activities,
-            ],
-            auditLog: [
-                auditEntry(
-                    "Cycle assignments prepared",
-                    `${additions.length} eligible assignments were created; ${skippedNoAssessor} people were skipped without an authorized assessor.`,
-                    "Cycle",
-                    cycle.id,
-                    {
-                        created: additions.length,
-                        skippedNoAssessor,
-                        duplicateSafe: true,
-                    },
-                ),
-                ...current.auditLog,
-            ],
-        }));
-        showNotice(
-            `${additions.length} assignments created. ${skippedNoAssessor ? `${skippedNoAssessor} skipped without an authorized assessor.` : ""}`,
-        );
-    }
-    function requestCycleAssignments(cycleId: string) {
-        const cycle = state.cycles.find((item) => item.id === cycleId);
-        if (!cycle) {
-            showNotice("The selected assessment cycle is no longer available.");
-            return;
-        }
-        if (cycle.assignmentMethod === "Manual Authorized Assignment") {
-            setAssignmentFormCycleId(cycle.id);
-            return;
-        }
-        openConfirm({
-            title: "Prepare cycle assignments",
-            description: `This will create one complete role-profile assessment per eligible person in ${cycle.name} using the configured ${cycle.assignmentMethod} rules. Existing person/cycle/profile records will be skipped, and unresolved assessors will not be assigned.`,
-            label: "Prepare Assignments",
-            tone: "primary",
-            execute: () => {
-                generateCycleAssignments(cycleId);
-                setConfirmAction(null);
-            },
-        });
     }
     function saveAuthorization(authorization: AssessorAuthorization) {
         const duplicate = state.assessorAuthorizations.some(
@@ -1528,9 +1445,9 @@ export default function AdminCompetency() {
         }
         openConfirm({
             title: "Submit competency assessment",
-            description: cycle?.requireHrValidation
-                ? "This submits the completed role-profile assessment for HR validation. Save Draft remains editable; Submit locks assessor input until returned."
-                : "This cycle does not require HR validation, so submission will finalize the assessment.",
+            description: assessmentRequiresGovernanceValidation(assessment, cycle)
+                ? "This assessment requires Admin/HR validation before finalization. Critical competencies always require governance validation even when the cycle toggle is off."
+                : "This non-critical assessment can finalize on valid authorized submission because the cycle does not require HR validation.",
             label: "Submit Assessment",
             tone: "primary",
             execute: () => {
@@ -1540,7 +1457,10 @@ export default function AdminCompetency() {
                         (item) => item.id === assessment.id,
                     );
                     if (!currentAssessment) return current;
-                    const finalizing = !cycle?.requireHrValidation;
+                    const finalizing = !assessmentRequiresGovernanceValidation(
+                        currentAssessment,
+                        cycle,
+                    );
                     const assessmentForSnapshot = {
                         ...currentAssessment,
                         submittedAt,
@@ -1990,7 +1910,7 @@ export default function AdminCompetency() {
             profile.id,
             cycle.id,
             assessorId,
-            addDays(cycle.dueDaysAfterAssignment),
+            assignmentDueDate(cycle),
             source.id,
         );
         if (!revision) {
@@ -2155,6 +2075,133 @@ export default function AdminCompetency() {
             },
         });
     }
+    function reissueContextChangedAssessment(
+        assessment: CompetencyAssessment,
+    ) {
+        if (!canValidate || !assessmentContextChanged(state, assessment)) {
+            showNotice("This assessment does not require a context reissue.");
+            return;
+        }
+        const person = getPersonById(assessment.personId);
+        const profile = person ? findActiveProfileForPerson(state, person) : null;
+        if (!person || !profile) {
+            showNotice(
+                "The current workforce context has no active Role Profile. Publish the correct profile before reissuing.",
+            );
+            return;
+        }
+        const today = localDateValue();
+        if (assessment.finalizedSnapshots.length) {
+            showNotice(
+                "This stale record already contains immutable finalized history. Keep that history intact and issue the current-context assessment in a separate compatible cycle.",
+            );
+            return;
+        }
+        const cycle = state.cycles.find(
+            (candidate) =>
+                effectiveCycleStatus(candidate, today) === "Active" &&
+                candidate.type === assessment.cycleSnapshot.type &&
+                cyclePopulationMatches(candidate, person, profile) &&
+                !state.assessments.some(
+                    (item) =>
+                        item.id !== assessment.id &&
+                        item.personId === person.id &&
+                        item.cycleId === candidate.id &&
+                        item.status !== "Cancelled",
+                ),
+        );
+        if (!cycle) {
+            showNotice(
+                "Context change detected, but no open compatible assessment cycle covers the employee’s current Role Profile. Create or schedule the correct cycle first.",
+            );
+            return;
+        }
+        const resolution = resolveAssessmentAssessor(
+            state,
+            cycle,
+            person,
+            profile,
+        );
+        if (!resolution.assessor) {
+            showNotice(
+                resolution.error ??
+                    "The current context has no resolvable authorized assessor.",
+            );
+            return;
+        }
+        const record = makeAssessment(
+            person.id,
+            profile.id,
+            cycle.id,
+            resolution.assessor.id,
+            assignmentDueDate(cycle, today),
+        );
+        if (!record) {
+            showNotice("The current-context replacement could not be created.");
+            return;
+        }
+        openConfirm({
+            title: "Reissue using current workforce context",
+            description: `The open ${assessment.roleProfileSnapshot.name} assignment is stale because the employee’s Position/Department/Role Profile changed. It will be cancelled and a new governed assignment will be created under ${profile.name}. Finalized historical results, if any, remain immutable.`,
+            label: "Cancel & Reissue",
+            tone: "primary",
+            execute: () => {
+                const changedAt = nowIso();
+                setState((current) => ({
+                    ...current,
+                    assessments: [
+                        ...current.assessments.map((item) =>
+                            item.id === assessment.id
+                                ? {
+                                      ...item,
+                                      status: "Cancelled" as const,
+                                      lastUpdated: changedAt,
+                                      auditHistory: [
+                                          ...item.auditHistory,
+                                          {
+                                              id: uniqueId("audit"),
+                                              action: "Cancelled after organizational context change",
+                                              detail: `Reissued under ${profile.name} in ${cycle.name}.`,
+                                              actorId,
+                                              actorName,
+                                              createdAt: changedAt,
+                                          },
+                                      ],
+                                  }
+                                : item,
+                        ),
+                        record,
+                    ],
+                    activities: [
+                        addActivity(
+                            "Assessment",
+                            "Stale assessment reissued",
+                            `${person.fullName} · ${profile.name}`,
+                            person.id,
+                        ),
+                        ...current.activities,
+                    ],
+                    auditLog: [
+                        auditEntry(
+                            "Assessment reissued after organizational context change",
+                            `${assessment.id} cancelled; ${record.id} created under ${profile.name}.`,
+                            "Assessment",
+                            record.id,
+                            {
+                                priorAssessmentId: assessment.id,
+                                newCycleId: cycle.id,
+                                newRoleProfileId: profile.id,
+                            },
+                        ),
+                        ...current.auditLog,
+                    ],
+                }));
+                setConfirmAction(null);
+                setDetail({ kind: "assessment", id: record.id });
+            },
+        });
+    }
+
     function acknowledgeAssessment(assessment: CompetencyAssessment) {
         const snapshot = latestFinalizedSnapshot(assessment);
         if (
@@ -2361,7 +2408,7 @@ export default function AdminCompetency() {
         }));
         setRecommendationTarget(null);
         showNotice(
-            `${recommendation.type} recommendation saved. No enrollment or schedule was created.`,
+            `${recommendation.type} recommendation sent for review.`,
         );
         return { ok: true };
     }
@@ -2410,41 +2457,43 @@ export default function AdminCompetency() {
                 : `Recommendation marked ${status}.`,
         );
     }
-    const pageAction =
-        workspaceTab === "Competency Library" ? (
-            <button
-                type="button"
-                onClick={() =>
-                    setCompetencyForm({ id: null, duplicate: false })
-                }
-                className={primaryButtonClass}
-            >
-                <Plus className="h-3.5 w-3.5" /> Add Competency
-            </button>
-        ) : workspaceTab === "Role Profiles" ? (
-            <button
-                type="button"
-                onClick={() => setProfileFormId(null)}
-                className={primaryButtonClass}
-            >
-                <Plus className="h-3.5 w-3.5" /> Create Role Profile
-            </button>
-        ) : workspaceTab === "Assessment Cycles" ? (
-            <button
-                type="button"
-                onClick={() => setCycleFormId(null)}
-                className={primaryButtonClass}
-            >
-                <Plus className="h-3.5 w-3.5" /> Create Cycle
-            </button>
+    const pageAction = !canValidate ? null :
+        workspaceTab === "Competency Framework" ? (
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() =>
+                        setCompetencyForm({ id: null, duplicate: false })
+                    }
+                    className={primaryButtonClass}
+                >
+                    <Plus className="h-3.5 w-3.5" /> Add Competency
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setProfileFormId(null)}
+                    className={secondaryButtonClass}
+                >
+                    <Plus className="h-3.5 w-3.5" /> New Role Profile
+                </button>
+            </div>
         ) : workspaceTab === "Assessments" ? (
-            <button
-                type="button"
-                onClick={() => setAssignmentFormCycleId(null)}
-                className={primaryButtonClass}
-            >
-                <Plus className="h-3.5 w-3.5" /> Create Assignment
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => setAssignmentFormCycleId(null)}
+                    className={primaryButtonClass}
+                >
+                    <Plus className="h-3.5 w-3.5" /> Exception Assignment
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setCycleFormId(null)}
+                    className={secondaryButtonClass}
+                >
+                    <Plus className="h-3.5 w-3.5" /> Create Cycle
+                </button>
+            </div>
         ) : null;
     return (
         <AuthenticatedLayout
@@ -2455,14 +2504,10 @@ export default function AdminCompetency() {
             }
         >
             <Head title="Competency Management" />
-            <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-4 overflow-x-clip">
-                <PageHeader
-                    title="Competency Management"
-                    description="Govern competency definitions, role requirements, evidence-based assessments, validated profiles, gaps, and reassessments"
-                    actions={pageAction}
-                />
-
-                {(storageError || notice) && (
+            {pageAction && <HeaderActions>{pageAction}</HeaderActions>}
+            <div className="app-page app-page-enter flex flex-col gap-4 overflow-x-clip">
+                {saving && <div role="status" className="text-xs text-slate-500">Saving Competency changes…</div>}
+                {(storageError || (!saving && notice)) && (
                     <div
                         role={storageError ? "alert" : "status"}
                         className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-xs ${storageError ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
@@ -2480,101 +2525,89 @@ export default function AdminCompetency() {
                         )}
                     </div>
                 )}
-                <nav
-                    aria-label="Competency Management workspaces"
-                    className="overflow-x-auto rounded-xl border border-slate-200 bg-white px-2 shadow-sm"
-                >
-                    <div className="flex min-w-max">
-                        {WORKSPACE_TABS.map((tab) => {
-                            const Icon = tab.icon;
-                            const active = workspaceTab === tab.label;
-                            return (
-                                <button
-                                    key={tab.label}
-                                    type="button"
-                                    onClick={() => navigate(tab.label)}
-                                    className={`relative flex items-center gap-1.5 px-3 py-3 text-xs font-semibold transition ${active ? "text-slate-900" : "text-slate-500 hover:text-slate-800"}`}
-                                    aria-current={active ? "page" : undefined}
-                                >
-                                    <Icon
-                                        className={`h-3.5 w-3.5 ${active ? "text-amber-500" : "text-slate-400"}`}
-                                    />
-                                    {tab.label}
-                                    {active && (
-                                        <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#F4B400]" />
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </nav>
                 {workspaceTab === "Overview" && (
                     <OverviewView
                         state={state}
                         onNavigate={navigate}
-                        onSelectAssessment={(id) =>
-                            setDetail({ kind: "assessment", id })
-                        }
-                        onSelectGap={(id) => setDetail({ kind: "gap", id })}
-                        onCreateCompetency={() =>
-                            setCompetencyForm({ id: null, duplicate: false })
-                        }
-                        onCreateCycle={() => setCycleFormId(null)}
-                        onCreateAssignment={() =>
-                            setAssignmentFormCycleId(null)
-                        }
+                        onSelectAssessment={(id) => {
+                            setAssessmentDetailContext("overview");
+                            setDetail({ kind: "assessment", id });
+                        }}
                     />
                 )}
-                {workspaceTab === "Competency Library" && (
-                    <LibraryView
-                        state={state}
-                        onSelect={(id) => setDetail({ kind: "competency", id })}
-                        onCreate={() =>
-                            setCompetencyForm({ id: null, duplicate: false })
-                        }
-                    />
-                )}
-                {workspaceTab === "Role Profiles" && (
-                    <RoleProfilesView
-                        state={state}
-                        onSelect={(id) => setDetail({ kind: "profile", id })}
-                        onCreate={() => setProfileFormId(null)}
-                    />
-                )}
-                {workspaceTab === "Assessment Cycles" && (
-                    <CyclesView
-                        state={state}
-                        focus={workspaceFocus}
-                        onSelect={(id) => setDetail({ kind: "cycle", id })}
-                        onCreate={() => setCycleFormId(null)}
-                        onPrepareAssignments={requestCycleAssignments}
-                        onAuthorize={() => setShowAuthorizationForm(true)}
-                        onToggleAuthorization={toggleAuthorization}
-                    />
-                )}
-                {workspaceTab === "Assessments" && (
-                    <AssessmentsView
-                        state={state}
-                        focus={workspaceFocus}
-                        onSelect={(id) => setDetail({ kind: "assessment", id })}
-                        onCreate={() => setAssignmentFormCycleId(null)}
-                    />
-                )}
-                {workspaceTab === "Competency Profiles" && (
+
+                {workspaceTab === "People" && (
                     <ProfilesView
                         state={state}
                         focus={workspaceFocus}
+                        selectedPersonId={selectedPersonProfile?.person.id ?? null}
+                        onCloseDetails={() => setDetail(null)}
+                        inlineDetails={
+                            selectedPersonProfile ? (
+                                <PersonProfileInlineDetails
+                                    row={selectedPersonProfile}
+                                    onClose={() => setDetail(null)}
+                                />
+                            ) : null
+                        }
                         onSelect={(id) =>
                             setDetail({ kind: "person-profile", id })
                         }
                     />
                 )}
-                {workspaceTab === "Gap & Development" && (
+
+                {workspaceTab === "Competency Framework" && (
+                    <div className="space-y-6">
+                        <LibraryView
+                            state={state}
+                            onSelect={(id) =>
+                                setDetail({ kind: "competency", id })
+                            }
+                            onCreate={() =>
+                                setCompetencyForm({ id: null, duplicate: false })
+                            }
+                        />
+                        <RoleProfilesView
+                            state={state}
+                            onSelect={(id) =>
+                                setDetail({ kind: "profile", id })
+                            }
+                            onCreate={() => setProfileFormId(null)}
+                        />
+                    </div>
+                )}
+
+                {workspaceTab === "Assessments" && (
+                    <div className="space-y-6">
+                        <AssessmentsView
+                            state={state}
+                            focus={workspaceFocus}
+                            onSelect={(id) => {
+                                setAssessmentDetailContext("workspace");
+                                setDetail({ kind: "assessment", id });
+                            }}
+                            onCreate={() => setAssignmentFormCycleId(null)}
+                        />
+                        <CyclesView
+                            state={state}
+                            focus={workspaceFocus}
+                            onSelect={(id) =>
+                                setDetail({ kind: "cycle", id })
+                            }
+                            onCreate={() => setCycleFormId(null)}
+                            onAuthorize={() => setShowAuthorizationForm(true)}
+                            onToggleAuthorization={toggleAuthorization}
+                        />
+                    </div>
+                )}
+
+                {workspaceTab === "Development" && (
                     <GapDevelopmentView
                         state={state}
                         onSelect={(id) => setDetail({ kind: "gap", id })}
                     />
                 )}
+
                 {workspaceTab === "Analytics" && (
                     <AnalyticsView state={state} />
                 )}
@@ -2783,7 +2816,6 @@ export default function AdminCompetency() {
                 onClose={() => setDetail(null)}
                 onEdit={(id) => setCycleFormId(id)}
                 onTransition={transitionCycle}
-                onPrepareAssignments={requestCycleAssignments}
             />
             <AssessmentDetailDrawer
                 key={selectedAssessment?.id ?? "no-assessment"}
@@ -2791,7 +2823,19 @@ export default function AdminCompetency() {
                 state={state}
                 actorId={actorId}
                 canValidate={canValidate}
-                onClose={() => setDetail(null)}
+                overviewPreview={assessmentDetailContext === "overview"}
+                onOpenAssessments={() => {
+                    const assessmentId = selectedAssessment?.id;
+                    navigate("Assessments", "Assessment Queue");
+                    setAssessmentDetailContext("workspace");
+                    if (assessmentId) {
+                        setDetail({ kind: "assessment", id: assessmentId });
+                    }
+                }}
+                onClose={() => {
+                    setAssessmentDetailContext("workspace");
+                    setDetail(null);
+                }}
                 onRating={updateRating}
                 onSelfRating={updateSelfAssessment}
                 onEvidence={(assessmentId, competencyId, evidenceId) =>
@@ -2809,11 +2853,8 @@ export default function AdminCompetency() {
                 onReassign={(id) => setReassignAssessmentId(id)}
                 onReopen={(assessment) => setReopenAssessmentId(assessment.id)}
                 onCancel={cancelAssessment}
+                onReissueContext={reissueContextChangedAssessment}
                 onAcknowledge={acknowledgeAssessment}
-            />
-            <PersonProfileDetailDrawer
-                row={selectedPersonProfile}
-                onClose={() => setDetail(null)}
             />
             <GapDetailDrawer
                 gap={selectedGap}
@@ -2844,7 +2885,7 @@ function CompetencyDetailDrawer({
     onStatus,
 }: {
     competency: CompetencyDefinition | null;
-    state: ReturnType<typeof useCompetencyStore>["state"];
+    state: ReturnType<typeof useCompetencyServerStore>["state"];
     onClose: () => void;
     onEdit: (id: string) => void;
     onDuplicate: (id: string) => void;
@@ -2864,8 +2905,10 @@ function CompetencyDetailDrawer({
             show
             title={`${competency.code} · ${competency.name}`}
             description="Competency Library definition"
+            presentation="modal"
+            maxWidthClassName="!max-w-[1040px]"
             onClose={onClose}
-            footer={
+            footer={state.governanceAllowed !== false && (
                 <>
                     <button
                         type="button"
@@ -2883,7 +2926,7 @@ function CompetencyDetailDrawer({
                         {competency.status === "Draft" ? "Edit Draft" : "Edit Working Draft"}
                     </button>
                 </>
-            }
+            )}
         >
             <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge value={competency.status} />
@@ -3008,7 +3051,7 @@ function CompetencyDetailDrawer({
                 </div>
             </SectionCard>
             <div className="mt-4 flex gap-2">
-                {competency.status === "Draft" && (
+                {state.governanceAllowed !== false && competency.status === "Draft" && (
                     <button
                         type="button"
                         onClick={() => onStatus(competency, "Active")}
@@ -3017,7 +3060,7 @@ function CompetencyDetailDrawer({
                         <CheckCircle2 className="h-3.5 w-3.5" /> Publish Draft
                     </button>
                 )}
-                {competency.status === "Active" && (
+                {state.governanceAllowed !== false && competency.status === "Active" && (
                     <button
                         type="button"
                         onClick={() => onStatus(competency, "Archived")}
@@ -3055,7 +3098,7 @@ function RoleProfileDetailDrawer({
     onArchive,
 }: {
     profile: RoleProfile | null;
-    state: ReturnType<typeof useCompetencyStore>["state"];
+    state: ReturnType<typeof useCompetencyServerStore>["state"];
     onClose: () => void;
     onEdit: (id: string) => void;
     onPublish: (profile: RoleProfile) => void;
@@ -3069,13 +3112,26 @@ function RoleProfileDetailDrawer({
             (profile.appliesTo === "Both" ||
                 profile.appliesTo === person.personType),
     );
+    const impactedProfiles = buildCompetencyProfiles(state).filter(
+        (row) => row.profile?.id === profile.id,
+    );
+    const impact = {
+        people: impactedProfiles.length,
+        withGaps: impactedProfiles.filter((row) => row.openGaps > 0).length,
+        incomplete: impactedProfiles.filter((row) => row.notAssessed > 0).length,
+        reassessmentDue: impactedProfiles.filter(
+            (row) => row.status === "Reassessment Due",
+        ).length,
+    };
     return (
         <AppDrawer
             show
             title={profile.name}
             description={`${profile.position} · ${profile.department}`}
+            presentation="modal"
+            maxWidthClassName="!max-w-[1040px]"
             onClose={onClose}
-            footer={
+            footer={state.governanceAllowed !== false && (
                 <>
                     <button
                         type="button"
@@ -3104,7 +3160,7 @@ function RoleProfileDetailDrawer({
                         </button>
                     )}
                 </>
-            }
+            )}
         >
             <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge value={profile.status} />
@@ -3174,6 +3230,29 @@ function RoleProfileDetailDrawer({
                 </div>
             </SectionCard>
             <SectionCard
+                title="Current Workforce Impact"
+                description="Live impact of this active Role Profile. Publishing a new version recalculates current requirements while finalized historical assessment snapshots remain immutable."
+                className="mt-4"
+            >
+                <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
+                    {[
+                        ["Matched People", impact.people],
+                        ["People with Gaps", impact.withGaps],
+                        ["Assessment Incomplete", impact.incomplete],
+                        ["Reassessment Due", impact.reassessmentDue],
+                    ].map(([label, value]) => (
+                        <div key={String(label)} className="rounded-lg bg-slate-50 p-3">
+                            <p className="text-lg font-bold tabular-nums text-slate-800">
+                                {String(value)}
+                            </p>
+                            <p className="text-xs font-semibold text-slate-400">
+                                {String(label)}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            </SectionCard>
+            <SectionCard
                 title="Assigned People"
                 description={`${people.length} current personnel match position, department, and person type`}
                 className="mt-4"
@@ -3239,17 +3318,15 @@ function CycleDetailDrawer({
     onClose,
     onEdit,
     onTransition,
-    onPrepareAssignments,
 }: {
     cycle: AssessmentCycle | null;
-    state: ReturnType<typeof useCompetencyStore>["state"];
+    state: ReturnType<typeof useCompetencyServerStore>["state"];
     onClose: () => void;
     onEdit: (id: string) => void;
     onTransition: (
         cycle: AssessmentCycle,
         status: AssessmentCycle["status"],
     ) => void;
-    onPrepareAssignments: (id: string) => void;
 }) {
     if (!cycle) return null;
     const assignments = state.assessments.filter(
@@ -3258,39 +3335,36 @@ function CycleDetailDrawer({
     const unresolved = assignments.filter(
         (item) => !["Finalized", "Cancelled"].includes(item.status),
     );
+    const effectiveStatus = effectiveCycleStatus(cycle);
+    const assignmentAutomation =
+        cycle.autoAssign !== false &&
+        cycle.assignmentMethod !== "Manual Authorized Assignment";
     return (
         <AppDrawer
             show
             title={cycle.name}
             description={cycle.type}
+            presentation="modal"
+            maxWidthClassName="!max-w-[1040px]"
             onClose={onClose}
-            footer={
-                <>
-                    <button
-                        type="button"
-                        onClick={() => onEdit(cycle.id)}
-                        disabled={["Closed", "Cancelled"].includes(
-                            cycle.status,
-                        )}
-                        className={secondaryButtonClass}
-                    >
-                        <Pencil className="h-3.5 w-3.5" /> Edit
-                    </button>
-                    {["Scheduled", "Active"].includes(cycle.status) && (
-                        <button
-                            type="button"
-                            onClick={() => onPrepareAssignments(cycle.id)}
-                            className={primaryButtonClass}
-                        >
-                            <UserCheck className="h-3.5 w-3.5" /> Prepare
-                            Assignments
-                        </button>
-                    )}
-                </>
-            }
+            footer={state.governanceAllowed !== false && (
+                <button
+                    type="button"
+                    onClick={() => onEdit(cycle.id)}
+                    disabled={["Closed", "Cancelled"].includes(cycle.status)}
+                    className={secondaryButtonClass}
+                >
+                    <Pencil className="h-3.5 w-3.5" /> Edit Governance
+                </button>
+            )}
         >
             <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge value={cycle.status} />
+                <StatusBadge value={effectiveStatus} />
+                {effectiveStatus !== cycle.status && (
+                    <span className="text-xs font-semibold text-slate-400">
+                        Stored: {cycle.status}
+                    </span>
+                )}
                 <span className="text-xs text-slate-400">
                     {formatDate(cycle.startDate)} – {formatDate(cycle.endDate)}
                 </span>
@@ -3307,6 +3381,22 @@ function CycleDetailDrawer({
                                   `Assessor positions: ${cycle.roleBasedAssessorPositions.join(", ") || "Not configured"}`,
                               ]
                             : []),
+                    ]}
+                />
+                <InfoBlock
+                    label="Lifecycle Automation"
+                    values={[
+                        "Scheduled → Active on start date",
+                        "Resolved expired cycle → Closed automatically",
+                    ]}
+                />
+                <InfoBlock
+                    label="Assignment Automation"
+                    values={[
+                        assignmentAutomation
+                            ? "System resolves eligible people, Role Profile, and authorized assessor"
+                            : "Governance exception/manual path",
+                        "Due date is capped at cycle end",
                     ]}
                 />
                 <InfoBlock
@@ -3348,7 +3438,15 @@ function CycleDetailDrawer({
                             "Supporting evidence",
                             cycle.requireSupportingEvidence,
                         ],
-                        ["HR validation", cycle.requireHrValidation],
+                        [
+                            "HR validation",
+                            cycle.requireHrValidation ||
+                                cycle.roleProfileIds.some((profileId) =>
+                                    state.roleProfiles
+                                        .find((profile) => profile.id === profileId)
+                                        ?.requirements.some((requirement) => requirement.critical),
+                                ),
+                        ],
                         [
                             "Employee acknowledgment",
                             cycle.requireAcknowledgment,
@@ -3430,10 +3528,18 @@ function CycleDetailDrawer({
             <div
                 className={`mt-4 rounded-xl border px-4 py-3 text-xs leading-5 ${unresolved.length ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
             >
-                <strong>Closure readiness:</strong>{" "}
-                {unresolved.length
-                    ? `${unresolved.length} unresolved assessment(s) block cycle closure.`
-                    : "All assignments are finalized or cancelled; the cycle may close."}
+                <strong>Lifecycle status:</strong>{" "}
+                {effectiveStatus === "Expired" && cycle.status === "Scheduled" && !unresolved.length
+                    ? "The approved window expired without unresolved assignments. The system will close this cycle automatically and will not fabricate late assignments."
+                    : effectiveStatus === "Expired" && cycle.status === "Scheduled"
+                      ? `The approved window expired before activation synchronization. ${unresolved.length} unresolved assignment(s) require governance resolution before the cycle can close.`
+                    : effectiveStatus === "Expired" && unresolved.length
+                      ? `The assessment window has expired. ${unresolved.length} unresolved assessment(s) keep this cycle open as a governance exception until they are finalized or cancelled.`
+                      : effectiveStatus === "Expired"
+                        ? "The window has expired and all assignments are resolved; the system will close this cycle automatically."
+                        : unresolved.length
+                        ? `${unresolved.length} assessment(s) remain unresolved. The system will not auto-close the cycle until governance resolves them.`
+                        : "All current assignments are resolved. Cycle activation and closure are system-managed from the governed dates."}
             </div>
             <SectionCard
                 title="Cycle Audit History"
@@ -3463,47 +3569,14 @@ function CycleDetailDrawer({
                         ))}
                 </div>
             </SectionCard>
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
                 {cycle.status === "Draft" && (
-                    <>
-                        <button
-                            type="button"
-                            onClick={() => onTransition(cycle, "Scheduled")}
-                            className={secondaryButtonClass}
-                        >
-                            Schedule
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => onTransition(cycle, "Active")}
-                            className={primaryButtonClass}
-                        >
-                            Activate
-                        </button>
-                    </>
-                )}
-                {cycle.status === "Scheduled" && (
                     <button
                         type="button"
-                        onClick={() => onTransition(cycle, "Active")}
+                        onClick={() => onTransition(cycle, "Scheduled")}
                         className={primaryButtonClass}
                     >
-                        Activate
-                    </button>
-                )}
-                {cycle.status === "Active" && (
-                    <button
-                        type="button"
-                        disabled={Boolean(unresolved.length)}
-                        title={
-                            unresolved.length
-                                ? "Resolve every open assessment before closing."
-                                : undefined
-                        }
-                        onClick={() => onTransition(cycle, "Closed")}
-                        className={primaryButtonClass}
-                    >
-                        Close Cycle
+                        Schedule Governed Window
                     </button>
                 )}
                 {!["Closed", "Cancelled"].includes(cycle.status) && (
@@ -3515,6 +3588,11 @@ function CycleDetailDrawer({
                         Cancel Cycle
                     </button>
                 )}
+                {["Scheduled", "Active"].includes(cycle.status) && (
+                    <span className="text-xs text-slate-500">
+                        Activation and closure are system-managed from the approved dates.
+                    </span>
+                )}
             </div>
         </AppDrawer>
     );
@@ -3524,6 +3602,8 @@ function AssessmentDetailDrawer({
     state,
     actorId,
     canValidate,
+    overviewPreview = false,
+    onOpenAssessments,
     onClose,
     onRating,
     onSelfRating,
@@ -3536,12 +3616,15 @@ function AssessmentDetailDrawer({
     onReassign,
     onReopen,
     onCancel,
+    onReissueContext,
     onAcknowledge,
 }: {
     assessment: CompetencyAssessment | null;
-    state: ReturnType<typeof useCompetencyStore>["state"];
+    state: ReturnType<typeof useCompetencyServerStore>["state"];
     actorId: string;
     canValidate: boolean;
+    overviewPreview?: boolean;
+    onOpenAssessments?: () => void;
     onClose: () => void;
     onRating: (
         assessmentId: string,
@@ -3570,6 +3653,7 @@ function AssessmentDetailDrawer({
     onReassign: (id: string) => void;
     onReopen: (assessment: CompetencyAssessment) => void;
     onCancel: (assessment: CompetencyAssessment) => void;
+    onReissueContext: (assessment: CompetencyAssessment) => void;
     onAcknowledge: (assessment: CompetencyAssessment) => void;
 }) {
     const [validationNotes, setValidationNotes] = useState(
@@ -3579,6 +3663,7 @@ function AssessmentDetailDrawer({
     const person = getPersonById(assessment.personId);
     const assessor = getPersonById(assessment.assessorId);
     const cycle = state.cycles.find((item) => item.id === assessment.cycleId);
+    const contextChanged = assessmentContextChanged(state, assessment);
     const rules = assessment.cycleSnapshot;
     const openStatus = [
         "Pending",
@@ -3587,10 +3672,12 @@ function AssessmentDetailDrawer({
         "Overdue",
     ].includes(assessment.status);
     const editable =
+        !overviewPreview &&
         cycle?.status === "Active" &&
         canAssess(state, assessment, actorId) &&
         openStatus;
     const selfEditable =
+        !overviewPreview &&
         actorId === assessment.personId &&
         cycle?.status === "Active" &&
         rules.requireSelfAssessment &&
@@ -3603,7 +3690,9 @@ function AssessmentDetailDrawer({
               latestSnapshot.version,
           )
         : null;
+    const effectiveCanValidate = canValidate && !overviewPreview;
     const canAcknowledge =
+        !overviewPreview &&
         actorId === assessment.personId &&
         assessment.status === "Finalized" &&
         rules.requireAcknowledgment &&
@@ -3612,15 +3701,33 @@ function AssessmentDetailDrawer({
     return (
         <AppDrawer
             show
-            title={
-                person
-                    ? `${person.fullName} · Competency Assessment`
-                    : "Competency Assessment"
-            }
+            title="Competency Assessment"
             description={`${assessment.roleProfileSnapshot.name} · v${assessment.roleProfileSnapshot.version}`}
+            eyebrow={overviewPreview ? "Overview Preview" : "Assessment Details"}
+            variant="light"
+            presentation="modal"
+            maxWidthClassName="!max-w-[1040px]"
             onClose={onClose}
             footer={
+                overviewPreview ? (
+                    <button
+                        type="button"
+                        onClick={onOpenAssessments}
+                        className={primaryButtonClass}
+                    >
+                        <ClipboardList className="h-3.5 w-3.5" /> Open in Assessments
+                    </button>
+                ) : (
                 <>
+                    {contextChanged && effectiveCanValidate && !["Finalized", "Cancelled"].includes(assessment.status) && (
+                        <button
+                            type="button"
+                            onClick={() => onReissueContext(assessment)}
+                            className={primaryButtonClass}
+                        >
+                            <RefreshCw className="h-3.5 w-3.5" /> Reissue Current Context
+                        </button>
+                    )}
                     {canAcknowledge && (
                         <button
                             type="button"
@@ -3648,7 +3755,7 @@ function AssessmentDetailDrawer({
                             </button>
                         </>
                     )}
-                    {canValidate &&
+                    {effectiveCanValidate &&
                         ["Submitted", "Pending Validation"].includes(
                             assessment.status,
                         ) && (
@@ -3663,21 +3770,46 @@ function AssessmentDetailDrawer({
                             </button>
                         )}
                 </>
+                )
             }
         >
-            <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge value={assessment.status} />
-                <span className="text-xs text-slate-400">
-                    Due {formatDate(assessment.dueDate)} ·{" "}
-                    {assessmentProgress(assessment)}% officially rated
-                </span>
-            </div>
             {person && (
-                <div className="mt-4 rounded-xl border border-slate-200 p-4">
-                    <PersonCell
-                        person={person}
-                        subtitle={`${person.personType} · ${person.position} · ${person.department}`}
-                    />
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-center gap-4">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#F4B400] text-lg font-extrabold text-slate-950 shadow-sm">
+                            {initialsFor(person.fullName)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <h3 className="truncate text-base font-extrabold text-slate-950">
+                                {person.fullName}
+                            </h3>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                                {person.position} · {person.department}
+                            </p>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <StatusBadge value={assessment.status} />
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                                    Due {formatDate(assessment.dueDate)}
+                                </span>
+                                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">
+                                    {assessmentProgress(assessment)}% officially rated
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {contextChanged && (
+                <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-800">
+                    <strong>Organizational context changed:</strong> the employee’s current Position, Department, or active Role Profile no longer matches this open assignment snapshot. Official rating and submission are locked. Admin/HR must reissue under the current governed context.
+                </div>
+            )}
+            {overviewPreview && (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-xs font-bold text-amber-900">Read-only Overview preview</p>
+                    <p className="mt-1 text-xs leading-5 text-amber-800">
+                        Review the assessment here, then open the Assessments workspace to finalize, return, reassign, cancel, or make other official record changes.
+                    </p>
                 </div>
             )}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -3704,6 +3836,15 @@ function AssessmentDetailDrawer({
                     ]}
                 />
                 <InfoBlock
+                    label="Assessment Scope"
+                    values={[
+                        assessment.scope ?? "Full Role Profile",
+                        assessment.scope === "Targeted Competencies"
+                            ? `${assessment.targetCompetencyIds?.length ?? assessment.roleProfileSnapshot.requirements.length} targeted requirement(s)`
+                            : `${assessment.roleProfileSnapshot.requirements.length} role requirement(s)`,
+                    ]}
+                />
+                <InfoBlock
                     label="Employee Acknowledgment"
                     values={[
                         acknowledgmentEvent && latestSnapshot
@@ -3714,7 +3855,8 @@ function AssessmentDetailDrawer({
                     ]}
                 />
             </div>
-            {!editable &&
+            {!overviewPreview &&
+                !editable &&
                 !["Submitted", "Pending Validation", "Finalized"].includes(
                     assessment.status,
                 ) && (
@@ -3725,7 +3867,7 @@ function AssessmentDetailDrawer({
                         submit.
                     </div>
                 )}
-            {rules.requireSelfAssessment && (
+            {!overviewPreview && rules.requireSelfAssessment && (
                 <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-800">
                     <strong>Self-assessment boundary:</strong> Every requirement
                     needs subject input before assessor submission. Self-levels
@@ -3738,12 +3880,26 @@ function AssessmentDetailDrawer({
             {!editable && openStatus && (
                 <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-slate-600">
                     <strong>Read-only:</strong>{" "}
-                    {cycle?.status !== "Active"
-                        ? `The current cycle is ${cycle?.status ?? "unavailable"}; assessment input is locked.`
+                    {overviewPreview
+                        ? "Overview previews are read-only. Open this record in Assessments to perform governed actions."
+                        : cycle?.status !== "Active"
+                          ? `The current cycle is ${cycle?.status ?? "unavailable"}; assessment input is locked.`
                         : assessment.assessorId !== actorId
                           ? "Only the assigned assessor can edit official ratings."
                           : "Active assessor authorization is required for this person and role profile."}
                 </div>
+            )}
+            {(state.developmentEvidence ?? []).some(e => e.personId === assessment.personId && assessment.roleProfileSnapshot.requirements.some(q => q.competencyId === e.competencyId)) && (
+                <SectionCard title="Development Evidence" description="Completed Learning and Training support assessor review. Only a finalized Competency assessment establishes proficiency." className="mt-4">
+                    <div className="divide-y divide-slate-100">
+                        {(state.developmentEvidence ?? []).filter(e => e.personId === assessment.personId && assessment.roleProfileSnapshot.requirements.some(q => q.competencyId === e.competencyId)).map(e => (
+                            <div key={e.id} className="px-4 py-3 text-xs">
+                                <p className="font-semibold text-slate-800">{e.type} · {e.title}</p>
+                                <p className="mt-1 text-slate-500">Completed {formatDate(e.completedAt)} · {e.reference}</p>
+                            </div>
+                        ))}
+                    </div>
+                </SectionCard>
             )}
             <SectionCard
                 title="Required Competencies"
@@ -3797,7 +3953,7 @@ function AssessmentDetailDrawer({
                                     </p>
                                     <div className="mt-3 grid gap-3 md:grid-cols-2">
                                         <Field label="Official Selected Level">
-                                            <select
+                                            <SystemSelect
                                                 value={
                                                     rating?.selectedLevel ?? ""
                                                 }
@@ -3834,14 +3990,14 @@ function AssessmentDetailDrawer({
                                                         </option>
                                                     ),
                                                 )}
-                                            </select>
+                                            </SystemSelect>
                                         </Field>
                                         <Field
                                             label="Self-assessment"
                                             hint="Subject context only; never copied into the official level."
                                         >
                                             {rules.requireSelfAssessment ? (
-                                                <select
+                                                <SystemSelect
                                                     value={
                                                         rating?.selfLevel ?? ""
                                                     }
@@ -3883,7 +4039,7 @@ function AssessmentDetailDrawer({
                                                             </option>
                                                         ),
                                                     )}
-                                                </select>
+                                                </SystemSelect>
                                             ) : (
                                                 <input
                                                     value="Not enabled"
@@ -4066,7 +4222,7 @@ function AssessmentDetailDrawer({
                     )}
                 </div>
             </SectionCard>
-            {canValidate &&
+            {effectiveCanValidate &&
                 ["Submitted", "Pending Validation"].includes(
                     assessment.status,
                 ) && (
@@ -4107,7 +4263,7 @@ function AssessmentDetailDrawer({
                 </div>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
-                {canValidate &&
+                {effectiveCanValidate &&
                     !["Finalized", "Cancelled"].includes(assessment.status) && (
                         <button
                             type="button"
@@ -4118,7 +4274,7 @@ function AssessmentDetailDrawer({
                             Assessor
                         </button>
                     )}
-                {assessment.status === "Finalized" && canValidate && (
+                {assessment.status === "Finalized" && effectiveCanValidate && (
                     <button
                         type="button"
                         onClick={() => onReopen(assessment)}
@@ -4127,7 +4283,7 @@ function AssessmentDetailDrawer({
                         <RotateCcw className="h-3.5 w-3.5" /> Reopen / Reassess
                     </button>
                 )}
-                {canValidate &&
+                {effectiveCanValidate &&
                     !["Finalized", "Cancelled"].includes(assessment.status) && (
                         <button
                             type="button"
@@ -4273,7 +4429,7 @@ function HistorySections({ assessment }: { assessment: CompetencyAssessment }) {
         </div>
     );
 }
-function PersonProfileDetailDrawer({
+function PersonProfileInlineDetails({
     row,
     onClose,
 }: {
@@ -4281,119 +4437,254 @@ function PersonProfileDetailDrawer({
     onClose: () => void;
 }) {
     if (!row) return null;
+    const assessedRequirements = row.requirements.filter(
+        (detail) => typeof detail.currentLevel === "number",
+    ).length;
+
     return (
         <AppDrawer
             show
             title={`${row.person.fullName} · Competency Profile`}
-            description={`${row.person.personType} · ${row.person.position} · ${row.person.department}`}
+            description={`${row.person.position} · ${row.person.department}`}
+            eyebrow="People · Competency Profile"
+            presentation="modal"
+            maxWidthClassName="!max-w-[1040px]"
             onClose={onClose}
         >
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
-                <PersonCell
-                    person={row.person}
-                    subtitle={
-                        row.profile
-                            ? `${row.profile.name} · v${row.profile.version}`
-                            : "No active role profile"
-                    }
-                />
-                <StatusBadge value={row.status} />
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                <MiniMetric label="Coverage" value={`${row.coverage}%`} />
-                <MiniMetric
-                    label="Meets / Exceeds"
-                    value={row.meetsOrExceeds.toString()}
-                />
-                <MiniMetric label="Open Gaps" value={row.openGaps.toString()} />
-                <MiniMetric
-                    label="Not Assessed"
-                    value={row.notAssessed.toString()}
-                />
-            </div>
-            {!row.profile ? (
-                <div className="mt-4">
-                    <EmptyState
-                        icon={FolderKanban}
-                        title="Profile Not Assigned"
-                        description="Create and activate a matching position, department, and person-type Role Profile."
-                    />
-                </div>
-            ) : (
-                <SectionCard
-                    title="Current Requirements"
-                    description="Latest validated levels and source assessments"
-                    className="mt-4"
-                >
-                    <div className="divide-y divide-slate-100">
-                        {row.requirements.map((detail) => (
-                            <div key={detail.requirement.id} className="p-4">
-                                <div className="flex flex-wrap items-start justify-between gap-2">
-                                    <div>
-                                        <p className="text-xs font-bold text-slate-700">
-                                            {detail.competency?.code} ·{" "}
-                                            {detail.competency?.name}
-                                        </p>
-                                        <p className="mt-0.5 text-xs text-slate-400">
-                                            Required L
-                                            {detail.requirement.requiredLevel} ·{" "}
-                                            {proficiencyLabel(
-                                                detail.requirement
-                                                    .requiredLevel,
-                                            )}
-                                            {detail.requirement.critical
-                                                ? " · Critical"
-                                                : ""}
-                                        </p>
-                                    </div>
-                                    <StatusBadge value={detail.result} />
-                                </div>
-                                <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-3">
-                                    <span>
-                                        Validated current:{" "}
-                                        {detail.currentLevel
-                                            ? `L${detail.currentLevel} · ${proficiencyLabel(detail.currentLevel)}`
-                                            : "Not Assessed"}
-                                    </span>
-                                    <span>Gap: {detail.gap ?? "—"}</span>
-                                    <span>
-                                        Evidence: {detail.evidenceCount}
-                                    </span>
-                                    <span>
-                                        Source:{" "}
-                                        {detail.sourceAssessment?.id ?? "—"}
-                                    </span>
-                                    <span>
-                                        Last assessed:{" "}
-                                        {formatDate(detail.lastAssessed)}
-                                    </span>
-                                    <span>
-                                        Valid / reassess:{" "}
-                                        {formatDate(detail.validUntil)}
-                                    </span>
-                                </div>
-                                {detail.recommendations.length > 0 && (
-                                    <div className="mt-3 rounded-lg bg-sky-50 p-3">
-                                        <p className="text-xs font-bold text-sky-800">
-                                            Linked development recommendations
-                                        </p>
-                                        {detail.recommendations.map((item) => (
-                                            <p
-                                                key={item.id}
-                                                className="mt-1 text-xs text-sky-700"
-                                            >
-                                                {item.type} · {item.title} ·{" "}
-                                                {item.status}
-                                            </p>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                        <h2 className="text-lg font-bold text-slate-900">
+                            {row.person.fullName}
+                        </h2>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                            {row.person.position} · {row.person.department}
+                        </p>
+                        <p className="mt-1 text-[10px] text-slate-400">
+                            {row.person.employeeOrTraineeId} · {row.person.personType}
+                        </p>
                     </div>
-                </SectionCard>
-            )}
+                    <StatusBadge value={row.status} />
+                </div>
+                <p className="mt-2 text-[10px] leading-4 text-slate-500">
+                    {row.profile
+                        ? `${row.profile.name} · Version ${row.profile.version}${row.profile.effectiveDate ? ` · Effective ${formatDate(row.profile.effectiveDate)}` : ""}`
+                        : "No active governed Role Profile currently resolves to this workforce role."}
+                </p>
+            </div>
+
+            <div className="mt-4 space-y-4 text-xs text-slate-700">
+                <section>
+                    <h3 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Profile Information
+                    </h3>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                Current Role
+                            </p>
+                            <p className="mt-1 font-semibold text-slate-800">
+                                {row.person.position}
+                            </p>
+                            <p className="mt-1 text-[10px] text-slate-500">
+                                {row.person.department}
+                            </p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                Active Role Profile
+                            </p>
+                            <p className="mt-1 font-semibold text-slate-800">
+                                {row.profile ? row.profile.name : "Not assigned"}
+                            </p>
+                            <p className="mt-1 text-[10px] text-slate-500">
+                                {row.profile ? `Version ${row.profile.version}` : "Governed profile required"}
+                            </p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                Assessment Coverage
+                            </p>
+                            <p className="mt-1 font-semibold text-slate-800">
+                                {row.coverage}%
+                            </p>
+                            <p className="mt-1 text-[10px] text-slate-500">
+                                {assessedRequirements} of {row.requirements.length} requirements finalized
+                            </p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                Capability Status
+                            </p>
+                            <div className="mt-1">
+                                <StatusBadge value={row.status} />
+                            </div>
+                            <p className="mt-1 text-[10px] text-slate-500">
+                                Official proficiency comes only from finalized Competency assessments.
+                            </p>
+                        </div>
+                    </div>
+                    {row.resolutionReason && (
+                        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[10px] leading-4 text-amber-900">
+                            <span className="font-bold">Profile resolution:</span>{" "}
+                            {row.resolutionReason}
+                        </p>
+                    )}
+                </section>
+
+                <section className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h3 className="font-bold text-slate-900">
+                                Competency Summary
+                            </h3>
+                            <p className="mt-1 text-[10px] text-slate-500">
+                                Current governed capability position for this person.
+                            </p>
+                        </div>
+                        <span className="text-[10px] font-semibold text-slate-400">
+                            {assessedRequirements}/{row.requirements.length} assessed
+                        </span>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                        <ProfileMetric label="Coverage" value={`${row.coverage}%`} />
+                        <ProfileMetric
+                            label="Meets / Exceeds"
+                            value={row.meetsOrExceeds.toString()}
+                        />
+                        <ProfileMetric
+                            label="Open Gaps"
+                            value={row.openGaps.toString()}
+                            attention={row.openGaps > 0}
+                        />
+                        <ProfileMetric
+                            label="Not Assessed"
+                            value={row.notAssessed.toString()}
+                            attention={row.notAssessed > 0}
+                        />
+                    </div>
+                </section>
+
+                {!row.profile ? (
+                    <section className="rounded-xl border border-slate-200 p-4">
+                        <h3 className="font-bold text-slate-900">Current Requirements</h3>
+                        <p className="mt-2 leading-5 text-slate-500">
+                            No active Role Profile is available for this canonical workforce role. Requirements cannot be calculated until an approved profile resolves to this role context.
+                        </p>
+                    </section>
+                ) : (
+                    <section className="overflow-hidden rounded-xl border border-slate-200">
+                        <div className="border-b border-slate-200 px-4 py-3">
+                            <h3 className="font-bold text-slate-900">Current Requirements</h3>
+                            <p className="mt-1 text-[10px] leading-4 text-slate-500">
+                                Required levels come from the active Role Profile. Validated levels come only from finalized Competency assessments.
+                            </p>
+                        </div>
+                        <div className="divide-y divide-slate-100">
+                            {row.requirements.map((detail) => (
+                                <div key={detail.requirement.id} className="p-4">
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                <p className="font-bold text-slate-900">
+                                                    {detail.competency?.name}
+                                                </p>
+                                                {detail.requirement.critical && (
+                                                    <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-700">
+                                                        Critical
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                                {detail.competency?.code}
+                                            </p>
+                                        </div>
+                                        <StatusBadge value={detail.result} />
+                                    </div>
+
+                                    <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+                                        <div>
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Required</p>
+                                            <p className="mt-1 font-semibold text-slate-800">
+                                                L{detail.requirement.requiredLevel} · {proficiencyLabel(detail.requirement.requiredLevel)}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Validated</p>
+                                            <p className="mt-1 font-semibold text-slate-800">
+                                                {detail.currentLevel
+                                                    ? `L${detail.currentLevel} · ${proficiencyLabel(detail.currentLevel)}`
+                                                    : "Not Assessed"}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Gap</p>
+                                            <p className="mt-1 font-semibold tabular-nums text-slate-800">
+                                                {detail.gap ?? "—"}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Evidence</p>
+                                            <p className="mt-1 font-semibold text-slate-800">
+                                                {detail.evidenceCount} item{detail.evidenceCount === 1 ? "" : "s"}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[10px] leading-4 text-slate-500">
+                                        Last assessed {formatDate(detail.lastAssessed)} · Reassess {formatDate(detail.validUntil)}
+                                        {detail.recommendations.length
+                                            ? ` · ${detail.recommendations.length} linked development action${detail.recommendations.length === 1 ? "" : "s"}`
+                                            : " · No development action linked"}
+                                    </div>
+                                    {detail.recommendations.length > 0 && (
+                                        <div className="mt-2 space-y-1">
+                                            {detail.recommendations.slice(0, 2).map((item) => (
+                                                <p key={item.id} className="truncate text-[10px] text-sky-700">
+                                                    {item.type} · {item.title} · {item.status}
+                                                </p>
+                                            ))}
+                                            {detail.recommendations.length > 2 && (
+                                                <p className="text-[10px] text-slate-400">
+                                                    +{detail.recommendations.length - 2} more development actions
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
+            </div>
         </AppDrawer>
+    );
+}
+
+function ProfileMetric({
+    label,
+    value,
+    attention = false,
+}: {
+    label: string;
+    value: string;
+    attention?: boolean;
+}) {
+    return (
+        <div
+            className={`rounded-xl border p-3 ${
+                attention
+                    ? "border-amber-200 bg-amber-50/60"
+                    : "border-slate-200 bg-white"
+            }`}
+        >
+            <p className="text-lg font-extrabold tabular-nums text-slate-900">
+                {value}
+            </p>
+            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                {label}
+            </p>
+        </div>
     );
 }
 function MiniMetric({ label, value }: { label: string; value: string }) {
@@ -4416,7 +4707,7 @@ function GapDetailDrawer({
     onStatus,
 }: {
     gap: GapRow | null;
-    state: ReturnType<typeof useCompetencyStore>["state"];
+    state: ReturnType<typeof useCompetencyServerStore>["state"];
     blocked: boolean;
     onClose: () => void;
     onRecommend: (gapId: string, type: RecommendationType) => void;
@@ -4439,10 +4730,12 @@ function GapDetailDrawer({
         <AppDrawer
             show
             blocked={blocked}
-            title={`${gap.competency?.name} · Competency Gap`}
+            title={`${gap.competency?.name} · Development Details`}
             description={`${gap.person.fullName} · ${gap.profile.name}`}
+            presentation="modal"
+            maxWidthClassName="!max-w-[1040px]"
             onClose={onClose}
-            footer={
+            footer={state.governanceAllowed !== false && (gap.gap ?? 0) > 0 && (
                 <>
                     <button
                         type="button"
@@ -4459,7 +4752,7 @@ function GapDetailDrawer({
                         Recommend Training
                     </button>
                 </>
-            }
+            )}
         >
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -4469,9 +4762,7 @@ function GapDetailDrawer({
                     />
                     <StatusBadge
                         value={
-                            gap.requirement.critical
-                                ? "Critical"
-                                : "Below Requirement"
+                            gap.gap === 0 ? "Meets Requirement" : gap.requirement.critical ? "Critical" : "Below Requirement"
                         }
                     />
                 </div>
@@ -4529,8 +4820,9 @@ function GapDetailDrawer({
                                         {item.note}
                                     </p>
                                 </div>
-                                <StatusBadge value={item.status} />
+                                <StatusBadge value={item.outcome ?? item.status} />
                             </div>
+                            {item.integration && <p className="mt-2 text-xs font-medium text-slate-600">{item.type}: {item.integration.status}{item.integration.completedAt ? ` · Completed ${formatDate(item.integration.completedAt)} · Reassessment required` : ""}</p>}
                             <p className="mt-2 text-xs text-slate-400">
                                 Created {formatDate(item.createdAt)} · Reassess{" "}
                                 {formatDate(item.reassessmentDue)}
@@ -4539,14 +4831,8 @@ function GapDetailDrawer({
                                     : ""}
                             </p>
                             <div className="mt-3 flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => onEditNote(gap.id, item)}
-                                    className={secondaryButtonClass}
-                                >
-                                    Add / Edit Development Note
-                                </button>
-                                {item.status === "Recommended" && (
+
+                                {state.governanceAllowed !== false && item.status === "Recommended" && (
                                     <button
                                         type="button"
                                         onClick={() =>
@@ -4557,7 +4843,7 @@ function GapDetailDrawer({
                                         Mark Recommendation Reviewed
                                     </button>
                                 )}
-                                {["Recommended", "Reviewed"].includes(
+                                {state.governanceAllowed !== false && ["Recommended", "Reviewed"].includes(
                                     item.status,
                                 ) && (
                                     <button
@@ -4583,6 +4869,13 @@ function GapDetailDrawer({
                             description="Recommend Learning or Training first. The receiving module owns enrollment or scheduling."
                         />
                     )}
+                </div>
+            </SectionCard>
+            <SectionCard title="Relevant Learning and Training" description="Published content mapped to this competency; completion provides evidence for reassessment." className="mt-4">
+                <div className="divide-y divide-slate-100">
+                    {(state.learningReferences ?? []).filter(item => item.competencyId === gap.requirement.competencyId && item.targetLevel >= (gap.currentLevel ?? 1)).map(item => <div key={item.versionId} className="px-4 py-3 text-xs"><span className="font-semibold text-slate-800">{item.title}</span><p className="mt-1 text-slate-500">Learning · Target L{item.targetLevel}</p></div>)}
+                    {(state.trainingReferences ?? []).filter(item => item.competencyId === gap.requirement.competencyId && item.targetLevel >= (gap.currentLevel ?? 1)).map(item => <div key={item.programId} className="px-4 py-3 text-xs"><span className="font-semibold text-slate-800">{item.title}</span><p className="mt-1 text-slate-500">Training · Target L{item.targetLevel}</p></div>)}
+                    {!(state.learningReferences ?? []).some(item => item.competencyId === gap.requirement.competencyId) && !(state.trainingReferences ?? []).some(item => item.competencyId === gap.requirement.competencyId) && <p className="px-4 py-3 text-xs text-slate-500">No mapped published course or active training program is available. A recommendation can request an appropriate intervention.</p>}
                 </div>
             </SectionCard>
             <SectionCard
@@ -4633,7 +4926,7 @@ function ReopenAssessmentModal({
     onCreateRevision,
 }: {
     assessment: CompetencyAssessment | null;
-    state: ReturnType<typeof useCompetencyStore>["state"];
+    state: ReturnType<typeof useCompetencyServerStore>["state"];
     actorId: string;
     actorName: string;
     onClose: () => void;
@@ -4771,7 +5064,7 @@ function ReopenAssessmentModal({
                                     : "No compatible active cycle is available, or an assignment already exists there."
                             }
                         >
-                            <select
+                            <SystemSelect
                                 value={cycleId}
                                 onChange={(event) => {
                                     setCycleId(event.target.value);
@@ -4785,7 +5078,7 @@ function ReopenAssessmentModal({
                                         {cycle.name}
                                     </option>
                                 ))}
-                            </select>
+                            </SystemSelect>
                         </Field>
                         {selectedRevisionCycle?.assignmentMethod ===
                         "Manual Authorized Assignment" ? (
@@ -4794,7 +5087,7 @@ function ReopenAssessmentModal({
                                 required
                                 hint="Manual reassessment requires an explicit selection; no assessor is preselected."
                             >
-                                <select
+                                <SystemSelect
                                     value={assessorId}
                                     onChange={(event) =>
                                         setAssessorId(event.target.value)
@@ -4809,7 +5102,7 @@ function ReopenAssessmentModal({
                                             {item.fullName} · {item.position}
                                         </option>
                                     ))}
-                                </select>
+                                </SystemSelect>
                             </Field>
                         ) : (
                             <Field
@@ -4859,7 +5152,7 @@ function ReassignAssessmentModal({
     onSave,
 }: {
     assessment: CompetencyAssessment | null;
-    state: ReturnType<typeof useCompetencyStore>["state"];
+    state: ReturnType<typeof useCompetencyServerStore>["state"];
     actorId: string;
     actorName: string;
     onClose: () => void;
@@ -4935,7 +5228,7 @@ function ReassignAssessmentModal({
                     />
                 </Field>
                 <Field label="New Authorized Assessor" required>
-                    <select
+                    <SystemSelect
                         value={assessorId}
                         onChange={(event) => setAssessorId(event.target.value)}
                         className={controlClass}
@@ -4946,7 +5239,7 @@ function ReassignAssessmentModal({
                                 {item.fullName} · {item.position}
                             </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field label="Reason" required>
                     <textarea

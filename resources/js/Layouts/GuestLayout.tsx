@@ -1,59 +1,71 @@
 import loginBg from '@/assets/loginbg.png';
-import { PropsWithChildren, useEffect, useState } from 'react';
+import { PropsWithChildren, useLayoutEffect } from 'react';
+
 interface GuestLayoutProps extends PropsWithChildren {
     isMfaStep?: boolean;
+    surface?: boolean;
 }
-export default function Guest({ children, isMfaStep = false }: GuestLayoutProps) {
-    const [isTransitioning, setIsTransitioning] = useState(false);
-    useEffect(() => {
-        setIsTransitioning(true);
-        const timer = setTimeout(() => {
-            setIsTransitioning(false);
-        }, 500);
-        return () => clearTimeout(timer);
-    }, [isMfaStep]);
+
+export default function Guest({
+    children,
+    surface = true,
+}: GuestLayoutProps) {
+    useLayoutEffect(() => {
+        const root = document.documentElement;
+
+        const forceAuthLightTheme = () => {
+            root.classList.remove('dark');
+            root.dataset.theme = 'light';
+            root.style.colorScheme = 'light';
+        };
+
+        // Public/auth screens intentionally keep their own light glass design.
+        // Do not change the saved authenticated preference in localStorage.
+        forceAuthLightTheme();
+
+        // If a stale authenticated-layout effect or SPA transition tries to
+        // restore `.dark` while an auth screen is mounted, immediately remove it.
+        const observer = new MutationObserver(() => {
+            if (root.classList.contains('dark') || root.dataset.theme !== 'light') {
+                forceAuthLightTheme();
+            }
+        });
+
+        observer.observe(root, {
+            attributes: true,
+            attributeFilter: ['class', 'data-theme'],
+        });
+
+        return () => observer.disconnect();
+    }, []);
 
     return (
-        <div className="relative min-h-screen w-full overflow-hidden bg-slate-900">
-            <div 
-                className={`absolute bottom-0 left-0 top-0 z-10 hidden lg:block w-full lg:w-[60vw] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none ${
-                    isMfaStep ? 'lg:translate-x-[40vw]' : 'translate-x-0'
-                } ${isTransitioning ? 'motion-reduce:blur-0 motion-reduce:scale-100 blur-[2px] scale-[1.005]' : 'blur-0 scale-100'}`}
-            >
-                <img
-                    src={loginBg}
-                    alt="Alibaton Construction workplace"
-                    className="h-full w-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/30 to-slate-950/10" />
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-slate-950/20" />
-                <div className="absolute bottom-6 left-6 right-6 sm:bottom-10 sm:left-10 sm:right-10">
-                    <p className="text-xs font-semibold uppercase tracking-[0.20em] sm:tracking-[0.24em] text-[#F4B400]">
-                        Alibaton Construction Inc.
-                    </p>
-                    <h2 className="mt-2 text-2xl sm:text-3xl font-bold leading-tight text-white">
-                        YOUR LIFTING EQUIPMENT EXPERT
-                    </h2>
-                    <p className="mt-2 sm:mt-3 max-w-md text-xs sm:text-sm leading-relaxed text-white/60">
-                        Empowering our workforce through performance tracking,
-                        training, and development.
-                    </p>
+        <div data-pd-auth-shell="true" className="relative min-h-screen overflow-hidden bg-slate-100 [color-scheme:light]">
+            <div className="absolute inset-0">
+                <div className="absolute inset-[-4%] [perspective:1800px]">
+                    <img
+                        src={loginBg}
+                        alt="Alibaton Construction workplace"
+                        className="h-[108%] w-[108%] max-w-none object-cover object-center [transform:rotateX(1.5deg)_rotateY(-7deg)_scale(1.06)_translate3d(-1.5%,0,0)]"
+                    />
                 </div>
+                <div className="absolute inset-0 bg-black/10" />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(255,255,255,0.36),transparent_32%),radial-gradient(circle_at_82%_18%,rgba(255,255,255,0.16),transparent_24%)]" />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_82%,rgba(245,158,11,0.14),transparent_30%),radial-gradient(circle_at_22%_78%,rgba(249,115,22,0.10),transparent_24%)]" />
+                <div className="absolute inset-0 bg-[linear-gradient(118deg,rgba(255,255,255,0.14)_0%,transparent_34%,transparent_66%,rgba(17,24,39,0.08)_100%)]" />
             </div>
-            <div 
-                className={`absolute bottom-0 right-0 top-0 z-20 flex w-full lg:w-[40vw] items-center justify-center bg-gradient-to-br from-slate-50 via-white to-amber-50/30 px-4 py-8 sm:px-6 sm:py-10 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none ${
-                    isMfaStep ? 'lg:-translate-x-[60vw]' : 'translate-x-0'
-                }`}
-            >
-                <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                    <div className="absolute -right-20 -top-20 h-48 w-48 sm:h-64 sm:w-64 rounded-full bg-[#F4B400]/5 blur-3xl" />
-                    <div className="absolute -bottom-16 -left-16 h-32 w-32 sm:h-48 sm:w-48 rounded-full bg-orange-500/5 blur-3xl" />
+
+            <main className="relative flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 lg:px-8">
+                <div className="w-full max-w-[480px]">
+                    {surface ? (
+                        <div className="rounded-[28px] border border-white/65 bg-white/86 p-6 shadow-[0_28px_80px_-38px_rgba(15,23,42,0.52)] backdrop-blur-xl sm:p-8">
+                            {children}
+                        </div>
+                    ) : (
+                        children
+                    )}
                 </div>
-                
-                <div className="relative w-full max-w-md">
-                    {children}
-                </div>
-            </div>
+            </main>
         </div>
     );
 }

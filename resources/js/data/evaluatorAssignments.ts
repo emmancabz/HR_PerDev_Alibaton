@@ -102,10 +102,15 @@ export type AssignmentScopeType =
   "Reporting Relationship" | "Specific Person" | "Department";
 export type AssignmentBasis =
   "Reporting Relationship" | "Cycle Assignment" | "Exception";
+export type EvaluatorAssignmentScope =
+  "Entire Performance Cycle" | "Formal Review Only";
 
 export type EvaluatorAssignment = {
   id: string;
   evaluatorId: string;
+  reviewEvaluatorId?: string;
+  goalEvaluatorId?: string;
+  assignmentScope?: EvaluatorAssignmentScope;
   scopeType: AssignmentScopeType;
   department?: string;
   personId?: string;

@@ -24,6 +24,7 @@ class LearningCourseVersion extends Model
             'submitted_at' => 'immutable_datetime',
             'approved_at' => 'immutable_datetime',
             'published_at' => 'immutable_datetime',
+            'is_untouched_initial_draft' => 'boolean',
         ];
     }
 

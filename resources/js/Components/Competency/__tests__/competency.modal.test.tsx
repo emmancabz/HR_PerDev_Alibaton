@@ -189,7 +189,10 @@ describe("Competency modal overlay regression", () => {
         );
         const user = userEvent.setup();
         await user.type(screen.getByLabelText(/Competency Name/), "Overlay Interaction Safety");
-        await user.selectOptions(screen.getByLabelText(/Category/), COMPETENCY_CATEGORIES[1]);
+        await user.selectOptions(
+            screen.getByRole("combobox", { name: /Category/ }),
+            COMPETENCY_CATEGORIES[1],
+        );
         await user.type(screen.getByLabelText(/Definition/), "Confirms the complete modal body remains usable.");
         for (let level = 1; level <= 5; level += 1) {
             await user.type(screen.getByLabelText(new RegExp(`Level ${level}`)), `Observable behavior level ${level}`);
@@ -214,11 +217,25 @@ describe("Competency modal overlay regression", () => {
             />,
         );
         const user = userEvent.setup();
-        await user.type(screen.getByLabelText(/Profile Name/), "Overlay-safe Role Profile");
-        await user.selectOptions(screen.getByLabelText(/Applies To/), "Trainee");
+        await user.selectOptions(
+            screen.getByRole("combobox", { name: /Organizational Role/ }),
+            "Operations::Graduate Trainee",
+        );
+        const profileName = screen.getByLabelText(/Profile Name/);
+        const appliesTo = screen.getByLabelText(/Applies To/);
+        expect(profileName).toHaveAttribute("readonly");
+        expect(profileName).toHaveValue("Graduate Trainee Competency Profile");
+        expect(appliesTo).toHaveAttribute("readonly");
+        expect(appliesTo).toHaveValue("Trainee");
         await user.click(screen.getByRole("button", { name: "Add Requirement" }));
-        await user.selectOptions(screen.getByLabelText(/Required Level/), "4");
-        await user.selectOptions(screen.getByLabelText(/^Evidence$/), "Required");
+        await user.selectOptions(
+            screen.getByRole("combobox", { name: /Required Level/ }),
+            "4",
+        );
+        await user.selectOptions(
+            screen.getByRole("combobox", { name: /^Evidence\b/ }),
+            "Required",
+        );
         await user.click(screen.getByLabelText("Critical"));
         await user.type(screen.getByLabelText("Notes"), "Evidence-based requirement note.");
         await user.click(screen.getByRole("button", { name: "Save Draft" }));
@@ -243,7 +260,10 @@ describe("Competency modal overlay regression", () => {
         const user = userEvent.setup();
         await user.type(screen.getByLabelText(/Cycle Name/), "Overlay-safe Assessment Cycle");
         await user.type(screen.getByLabelText(/Assessment Window End/), "2026-12-31");
-        await user.selectOptions(screen.getByLabelText(/Assignment Method/), "Reporting Relationship");
+        await user.selectOptions(
+            screen.getByRole("combobox", { name: /Assignment Method/ }),
+            "Reporting Relationship",
+        );
         await user.click(screen.getByLabelText(activeProfile.name));
         const selfAssessment = screen.getByRole("checkbox", {
             name: /Require self-assessment/,

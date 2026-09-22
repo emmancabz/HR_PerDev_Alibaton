@@ -5,22 +5,24 @@ import {
     type PersonnelIdentity,
 } from "@/data/personnel";
 import { AlertTriangle, Info, X, type LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export const COMPETENCY_OVERLAY_LEVELS = {
     drawer: "z-[40]",
+    detail: "z-[60]",
     modal: "z-[70]",
     confirmation: "z-[90]",
 } as const;
 
 export const controlClass =
-    "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition [color-scheme:light] placeholder:text-slate-400 focus:border-[#F4B400] focus:ring-2 focus:ring-[#F4B400]/20 read-only:border-slate-200 read-only:bg-slate-50 read-only:text-slate-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500 disabled:opacity-100 disabled:shadow-none disabled:ring-0 disabled:[-webkit-text-fill-color:#64748b]";
+    "app-control [color-scheme:light] read-only:bg-slate-50 read-only:text-slate-600 disabled:bg-slate-50 disabled:text-slate-500 disabled:opacity-100 disabled:[-webkit-text-fill-color:#64748b]";
 export const primaryButtonClass =
-    "inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#F4B400] px-3 py-2 text-xs font-bold text-black transition hover:bg-[#dba300] disabled:cursor-not-allowed disabled:bg-amber-200 disabled:text-amber-700 disabled:opacity-100";
+    "app-button app-button-primary disabled:bg-amber-200 disabled:text-amber-700 disabled:opacity-100";
 export const secondaryButtonClass =
-    "inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:opacity-100";
+    "app-button disabled:bg-slate-100 disabled:text-slate-400 disabled:opacity-100";
 export const dangerButtonClass =
-    "inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50";
+    "app-button app-button-danger";
 
 export function Field({
     label,
@@ -126,7 +128,7 @@ const statusStyles: Record<string, string> = {
 export function StatusBadge({ value }: { value: string }) {
     return (
         <span
-            className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${statusStyles[value] ?? "bg-slate-100 text-slate-600"}`}
+            className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-[9px] font-bold ${statusStyles[value] ?? "bg-slate-100 text-slate-600"}`}
         >
             {value}
         </span>
@@ -148,7 +150,7 @@ export function ProgressBar({
                     style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
                 />
             </div>
-            <span className="w-10 text-right text-xs font-bold tabular-nums text-slate-600">
+            <span className="w-10 text-right text-[10px] font-bold tabular-nums text-slate-600">
                 {label ?? `${value}%`}
             </span>
         </div>
@@ -163,18 +165,18 @@ export function PersonCell({
     subtitle?: string;
 }) {
     return (
-        <div className="flex min-w-44 items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
             <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white"
                 style={{ backgroundColor: colorForId(person.id) }}
             >
                 {initialsFor(person.fullName)}
             </div>
             <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-slate-800">
+                <p className="truncate text-[11px] font-semibold text-slate-800">
                     {person.fullName}
                 </p>
-                <p className="truncate text-xs text-slate-400">
+                <p className="truncate text-[9px] text-slate-400">
                     {subtitle ?? person.employeeOrTraineeId}
                 </p>
             </div>
@@ -199,15 +201,15 @@ export function SectionCard({
 }) {
     return (
         <section
-            className={`flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${className}`}
+            className={`app-card flex h-full min-w-0 flex-col ${className}`}
         >
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-3.5 py-2.5 sm:px-4">
+            <div className="app-card-header items-start">
                 <div>
                     <h2 className="text-sm font-bold text-slate-900">
                         {title}
                     </h2>
                     {description && (
-                        <p className="mt-0.5 text-xs leading-4 text-slate-400">
+                        <p className="mt-0.5 text-[10px] leading-4 text-slate-500">
                             {description}
                         </p>
                     )}
@@ -233,11 +235,11 @@ export function EmptyState({
     action?: ReactNode;
 }) {
     return (
-        <div className="flex flex-1 flex-col justify-center px-4 py-4 text-center sm:py-5">
+        <div className="flex min-h-44 flex-1 flex-col justify-center px-4 py-8 text-center">
             <Icon className="mx-auto h-7 w-7 text-slate-300" />
-            <p className="mt-2 text-xs font-bold text-slate-600">{title}</p>
+            <p className="mt-2 text-sm font-bold text-slate-700">{title}</p>
             {description && (
-                <p className="mx-auto mt-1 max-w-lg text-xs leading-4 text-slate-400">
+                <p className="mx-auto mt-1 max-w-lg text-xs leading-5 text-slate-500">
                     {description}
                 </p>
             )}
@@ -271,21 +273,21 @@ export function AppModal({
             onClose={onClose}
             maxWidth={maxWidth}
             overlayClassName="bg-slate-950/45 backdrop-blur-[1px]"
-            panelClassName="!bg-white dark:!bg-white [color-scheme:light]"
+            panelClassName="!bg-white dark:!bg-slate-900 [color-scheme:light] dark:[color-scheme:dark]"
             rootClassName={COMPETENCY_OVERLAY_LEVELS[layer]}
             ariaLabel={title}
         >
             <div
                 data-overlay-part="scroll-body"
-                className="max-h-[calc(100dvh-3rem)] touch-pan-y overflow-y-auto overscroll-contain bg-white text-slate-900 [color-scheme:light] dark:bg-white dark:text-slate-900"
+                className="max-h-[calc(100dvh-3rem)] touch-pan-y overflow-y-auto overscroll-contain bg-white text-slate-900 [color-scheme:light] dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
             >
-                <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4">
+                <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-700 dark:bg-slate-900">
                     <div>
-                        <h2 className="text-base font-bold text-slate-900">
+                        <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
                             {title}
                         </h2>
                         {description && (
-                            <p className="mt-1 text-xs leading-5 text-slate-500">
+                            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                                 {description}
                             </p>
                         )}
@@ -318,7 +320,11 @@ export function AppDrawer({
     children,
     footer,
     eyebrow = "Competency Management",
+    headerContent,
     blocked = false,
+    variant = "light",
+    maxWidthClassName = "sm:max-w-[800px]",
+    presentation = "drawer",
 }: {
     show: boolean;
     title: string;
@@ -327,63 +333,113 @@ export function AppDrawer({
     children: ReactNode;
     footer?: ReactNode;
     eyebrow?: string;
+    headerContent?: ReactNode;
     blocked?: boolean;
+    variant?: "dark" | "light";
+    maxWidthClassName?: string;
+    presentation?: "drawer" | "modal";
 }) {
+    const drawerRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!show || blocked) return;
+        const previous = document.activeElement as HTMLElement | null;
+        const overflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        const root = drawerRef.current;
+        root?.querySelector<HTMLElement>('button')?.focus();
+        const handleKey = (event: globalThis.KeyboardEvent) => {
+            if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+            if (event.key !== 'Tab' || !root) return;
+            const controls = [...root.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]')].filter(element => element.getAttribute('aria-hidden') !== 'true');
+            const first = controls[0], last = controls.at(-1);
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        };
+        document.addEventListener('keydown', handleKey);
+        return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', handleKey); previous?.focus(); };
+    }, [show, blocked]);
     if (!show) return null;
-    return (
+    const centered = presentation === "modal";
+    return createPortal(
         <div
-            data-overlay-root="drawer"
-            className={`pointer-events-none fixed inset-0 ${COMPETENCY_OVERLAY_LEVELS.drawer}`}
+            ref={drawerRef}
+            data-overlay-root={centered ? "modal" : "drawer"}
+            className={`pointer-events-none fixed inset-0 ${centered ? COMPETENCY_OVERLAY_LEVELS.detail : COMPETENCY_OVERLAY_LEVELS.drawer} ${centered ? "flex items-center justify-center p-4 sm:p-6 lg:p-8" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-label={title}
             inert={blocked}
             aria-hidden={blocked || undefined}
         >
-            <button
-                type="button"
-                data-overlay-part="drawer-backdrop"
+            <div
+                data-overlay-part={centered ? "backdrop" : "drawer-backdrop"}
                 className="pointer-events-auto absolute inset-0 z-0 cursor-default bg-slate-950/55 backdrop-blur-[1px]"
                 onClick={onClose}
-                aria-label="Close details"
+                aria-hidden="true"
             />
             <div
-                data-overlay-part="drawer-panel"
-                className="pointer-events-auto absolute inset-y-0 right-0 z-10 flex w-full max-w-full flex-col bg-white text-slate-900 shadow-2xl [color-scheme:light] animate-in slide-in-from-right-full duration-200 sm:max-w-[800px]"
+                data-overlay-part={centered ? "panel" : "drawer-panel"}
+                className={`pointer-events-auto z-10 flex w-full max-w-full flex-col bg-white text-slate-900 shadow-2xl [color-scheme:light] dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark] ${maxWidthClassName} ${centered ? "relative max-h-[90vh] overflow-hidden rounded-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200" : "absolute inset-y-0 right-0 animate-in slide-in-from-right-full duration-200"}`}
             >
-                <div className="relative shrink-0 border-b border-white/10 bg-[#1a1d21] px-5 pb-4 pt-5 text-white sm:px-6 sm:pt-6">
+                <div
+                    className={`relative shrink-0 border-b px-5 pb-4 pt-5 sm:px-6 sm:pt-6 ${
+                        variant === "light"
+                            ? "border-slate-200 bg-white text-slate-900"
+                            : "border-white/10 bg-[#1a1d21] text-white"
+                    }`}
+                >
                     <div className="flex items-center justify-between gap-3">
-                        <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#F4B400]">
+                        <p
+                            className={`text-[10px] font-bold uppercase tracking-[0.18em] ${
+                                variant === "light" ? "text-slate-500" : "text-[#F4B400]"
+                            }`}
+                        >
                             {eyebrow}
                         </p>
                         <button
                             type="button"
                             onClick={onClose}
-                            className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F4B400]"
+                            className={`shrink-0 rounded-lg border border-transparent p-1.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F4B400] ${
+                                variant === "light"
+                                    ? "text-slate-400 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-700"
+                                    : "text-slate-400 hover:bg-white/10 hover:text-white"
+                            }`}
                             aria-label="Close details"
                         >
                             <X className="h-5 w-5" />
                         </button>
                     </div>
-                    <h2 className="mt-3 text-lg font-extrabold leading-tight text-white">
-                        {title}
-                    </h2>
-                    {description && (
-                        <p className="mt-1.5 max-w-2xl text-xs leading-5 text-slate-400">
-                            {description}
-                        </p>
+                    {headerContent ? (
+                        headerContent
+                    ) : (
+                        <>
+                            <h2
+                                className={`mt-3 text-lg font-extrabold leading-tight ${
+                                    variant === "light" ? "text-slate-950" : "text-white"
+                                }`}
+                            >
+                                {title}
+                            </h2>
+                            {description && (
+                                <p
+                                    className={`mt-1.5 max-w-2xl text-xs leading-5 ${
+                                        variant === "light" ? "text-slate-500" : "text-slate-400"
+                                    }`}
+                                >
+                                    {description}
+                                </p>
+                            )}
+                        </>
                     )}
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6">
+                {!centered && footer && <div className="flex shrink-0 flex-wrap justify-end gap-2 border-b border-slate-200 bg-white px-5 py-3 sm:px-6">{footer}</div>}
+                <div className={`min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 ${centered ? "bg-white" : "bg-slate-50"}`}>
                     {children}
                 </div>
-                {footer && (
-                    <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3 shadow-[0_-6px_18px_rgba(15,23,42,0.04)] sm:px-6">
-                        {footer}
-                    </div>
-                )}
+                {centered && footer && <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3 sm:px-6">{footer}</div>}
+
             </div>
-        </div>
+        </div>, document.body
     );
 }
 

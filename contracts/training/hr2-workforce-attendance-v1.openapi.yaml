@@ -1,0 +1,153 @@
+openapi: 3.1.0
+info:
+  title: HR2 Workforce Attendance Evidence for Training
+  version: 1.0.0
+  description: >-
+    Read-only evidence contract used by Training Management. A successful HR2
+    response never finalizes Training attendance; HR/Training Officer remains
+    the final authority in the Performance & Development system.
+servers:
+  - url: https://hr2.example.internal
+    description: Supplied by the HR2 Workforce Management team
+paths:
+  /api/v1/training-attendance/evidence/query:
+    post:
+      operationId: queryTrainingAttendanceEvidence
+      summary: Return workforce attendance evidence for one participant and Training session
+      security:
+        - serviceBearer: []
+      parameters:
+        - in: header
+          name: X-Correlation-ID
+          required: true
+          schema:
+            type: string
+            maxLength: 160
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            maxLength: 160
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvidenceQuery'
+      responses:
+        '200':
+          description: Evidence query completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceResult'
+        '401':
+          description: Service authentication failed
+        '404':
+          description: Canonical personnel or attendance evidence was not found
+        '409':
+          description: Idempotency key was reused with a different request
+        '422':
+          description: Contract validation failed
+        '429':
+          description: Request rate exceeded
+        '500':
+          description: HR2 could not complete the evidence query
+components:
+  securitySchemes:
+    serviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: service-token
+  schemas:
+    EvidenceQuery:
+      type: object
+      additionalProperties: false
+      required:
+        - contractVersion
+        - personnelKey
+        - trainingSessionId
+        - sessionStartsAt
+        - sessionEndsAt
+      properties:
+        contractVersion:
+          type: string
+          const: '1.0'
+        personnelKey:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Canonical personnel_key shared by HR systems
+        trainingSessionId:
+          type: string
+          format: uuid
+        sessionStartsAt:
+          type: string
+          format: date-time
+        sessionEndsAt:
+          type: string
+          format: date-time
+    EvidenceResult:
+      type: object
+      additionalProperties: false
+      required:
+        - contractVersion
+        - status
+        - externalId
+        - snapshot
+        - error
+      properties:
+        contractVersion:
+          type: string
+          const: '1.0'
+        status:
+          type: string
+          enum:
+            - Synced
+            - Not Found
+            - Sync Failed
+        externalId:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+        snapshot:
+          oneOf:
+            - $ref: '#/components/schemas/WorkforceEvidenceSnapshot'
+            - type: object
+              maxProperties: 0
+        error:
+          type:
+            - string
+            - 'null'
+          maxLength: 5000
+    WorkforceEvidenceSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceUpdatedAt
+      properties:
+        firstIn:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        lastOut:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        scheduledShift:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+        sourceUpdatedAt:
+          type: string
+          format: date-time
+        sourceStatus:
+          type:
+            - string
+            - 'null'
+          maxLength: 120

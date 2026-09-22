@@ -1,3 +1,4 @@
+import SystemSelect from '@/Components/SystemSelect';
 import {
     AppModal,
     controlClass,
@@ -31,23 +32,19 @@ import {
     saveRoleProfileRevision,
 } from "@/data/competencyLifecycle";
 import {
+    assignmentDueDate,
     cyclePopulationMatches,
     getAuthorizedAssessors,
     resolveAssessmentAssessor,
     roleProfileIdentityKey,
 } from "@/data/competencyCalculations";
 import { SHARED_PERSONNEL } from "@/data/personnel";
+import { competencyReferenceIds } from "@/data/competencyReferenceBasis";
 import { Plus, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 function currentDate(): string {
     return localDateValue();
-}
-
-function dateAfterDays(days: number): string {
-    const date = new Date();
-    date.setDate(date.getDate() + days);
-    return localDateValue(date);
 }
 
 export function CompetencyForm({
@@ -214,7 +211,7 @@ export function CompetencyForm({
                     />
                 </Field>
                 <Field label="Category" required>
-                    <select
+                    <SystemSelect
                         value={category}
                         onChange={(event) =>
                             setCategory(event.target.value as typeof category)
@@ -224,7 +221,7 @@ export function CompetencyForm({
                         {COMPETENCY_CATEGORIES.map((item) => (
                             <option key={item}>{item}</option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <div className="sm:col-span-2">
                     <Field label="Definition" required>
@@ -350,22 +347,40 @@ export function RoleProfileForm({
     onClose: () => void;
     onSave: (profile: RoleProfile) => void;
 }) {
-    const departments = [
-        ...new Set(SHARED_PERSONNEL.map((person) => person.department)),
-    ].sort();
-    const positions = [
-        ...new Set(SHARED_PERSONNEL.map((person) => person.position)),
-    ].sort();
-    const [name, setName] = useState(existing?.name ?? "");
-    const [position, setPosition] = useState(
-        existing?.position ?? positions[0] ?? "",
+    const roleContexts = useMemo(() => {
+        const seen = new Map<string, { department: string; position: string; personTypes: Set<string> }>();
+        SHARED_PERSONNEL.forEach((person) => {
+            const key = `${person.department}::${person.position}`;
+            const current = seen.get(key) ?? {
+                department: person.department,
+                position: person.position,
+                personTypes: new Set<string>(),
+            };
+            current.personTypes.add(person.personType);
+            seen.set(key, current);
+        });
+        return [...seen.values()].sort((a, b) =>
+            a.department.localeCompare(b.department) || a.position.localeCompare(b.position),
+        );
+    }, []);
+    const initialContext =
+        roleContexts.find(
+            (item) =>
+                item.department === existing?.department &&
+                item.position === existing?.position,
+        ) ?? roleContexts[0];
+    const [position, setPosition] = useState(existing?.position ?? initialContext?.position ?? "");
+    const [department, setDepartment] = useState(existing?.department ?? initialContext?.department ?? "");
+    const selectedContext = roleContexts.find(
+        (item) => item.department === department && item.position === position,
     );
-    const [department, setDepartment] = useState(
-        existing?.department ?? departments[0] ?? "",
-    );
-    const [appliesTo, setAppliesTo] = useState(
-        existing?.appliesTo ?? "Employee",
-    );
+    const appliesTo = existing?.appliesTo ??
+        (selectedContext?.personTypes.size === 1 && selectedContext.personTypes.has("Trainee")
+            ? "Trainee"
+            : selectedContext?.personTypes.has("Trainee") && selectedContext.personTypes.size > 1
+              ? "Both"
+              : "Employee");
+    const generatedName = existing?.name ?? `${position} Competency Profile`;
     const [effectiveDate, setEffectiveDate] = useState(
         existing?.effectiveDate ?? currentDate(),
     );
@@ -399,16 +414,24 @@ export function RoleProfileForm({
 
     function updateRequirement(id: string, patch: Partial<RoleRequirement>) {
         setRequirements((items) =>
-            items.map((item) =>
-                item.id === id ? { ...item, ...patch } : item,
-            ),
+            items.map((item) => {
+                if (item.id !== id) return item;
+                const next = { ...item, ...patch };
+                if (patch.competencyId) {
+                    const competency = state.competencies.find(
+                        (candidate) => candidate.id === patch.competencyId,
+                    );
+                    next.reassessmentIntervalMonths = competency?.reassessmentIntervalMonths ?? null;
+                }
+                return next;
+            }),
         );
     }
 
     function submit() {
-        if (!name.trim() || !position || !department || !effectiveDate) {
+        if (!position || !department || !effectiveDate) {
             setError(
-                "Profile name, position, department, and effective date are required.",
+                "Position, department, and effective date are required.",
             );
             return;
         }
@@ -442,7 +465,7 @@ export function RoleProfileForm({
             return;
         }
         onSave(saveRoleProfileRevision(existing, {
-            name: name.trim(),
+            name: generatedName,
             position,
             department,
             appliesTo,
@@ -459,8 +482,8 @@ export function RoleProfileForm({
         <AppModal
             show={show}
             onClose={onClose}
-            title={existing ? "Edit Role Profile" : "Create Role Profile"}
-            description="Required levels and position applicability are owned here. Existing finalized assessments keep their original profile snapshot."
+            title={existing ? "Edit Role Profile Draft" : "New Role Profile"}
+            description="Role applicability is resolved from the canonical workforce source. Admin/HR governs requirements; employees are matched automatically by position, department, and person type."
             footer={
                 <>
                     <button
@@ -489,50 +512,42 @@ export function RoleProfileForm({
                 </div>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Profile Name" required>
-                    <input
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
-                        className={controlClass}
-                    />
+                <Field label="Profile Name" hint="System-generated from the canonical position; not assigned per employee.">
+                    <input value={generatedName} readOnly className={controlClass} />
                 </Field>
                 <Field label="Status" hint="Publishing is a separate explicit action after the Draft is saved.">
                     <input value="Draft" readOnly className={controlClass} />
                 </Field>
-                <Field label="Position" required>
-                    <select
-                        value={position}
-                        onChange={(event) => setPosition(event.target.value)}
+                <Field
+                    label="Organizational Role"
+                    required
+                    hint="Only position + department combinations that exist in the canonical workforce source are available."
+                >
+                    <SystemSelect
+                        disabled={Boolean(existing)}
+                        value={`${department}::${position}`}
+                        onChange={(event) => {
+                            const [nextDepartment, nextPosition] = event.target.value.split("::");
+                            setDepartment(nextDepartment);
+                            setPosition(nextPosition);
+                        }}
                         className={controlClass}
                     >
-                        {positions.map((item) => (
-                            <option key={item}>{item}</option>
+                        {roleContexts.map((item) => (
+                            <option
+                                key={`${item.department}::${item.position}`}
+                                value={`${item.department}::${item.position}`}
+                            >
+                                {item.position} · {item.department}
+                            </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
-                <Field label="Department" required>
-                    <select
-                        value={department}
-                        onChange={(event) => setDepartment(event.target.value)}
-                        className={controlClass}
-                    >
-                        {departments.map((item) => (
-                            <option key={item}>{item}</option>
-                        ))}
-                    </select>
+                <Field label="Department" hint="Derived from the selected canonical organizational role.">
+                    <input value={department} readOnly className={controlClass} />
                 </Field>
-                <Field label="Applies To" required>
-                    <select
-                        value={appliesTo}
-                        onChange={(event) =>
-                            setAppliesTo(event.target.value as typeof appliesTo)
-                        }
-                        className={controlClass}
-                    >
-                        <option>Employee</option>
-                        <option>Trainee</option>
-                        <option>Both</option>
-                    </select>
+                <Field label="Applies To" hint="Derived from the canonical workforce person type.">
+                    <input value={appliesTo} readOnly className={controlClass} />
                 </Field>
                 <Field label="Effective Date" required>
                     <input
@@ -545,6 +560,33 @@ export function RoleProfileForm({
                     />
                 </Field>
             </div>
+            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-bold text-slate-700">Governance / Reference Basis</p>
+                <p className="mt-1 text-xs text-slate-500">
+                    Data A governs the interim Competency Framework and Role Profile baseline through ALB-PND-GDL-014 and ALB-PND-REF-015.
+                    Data B remains the canonical workforce source for position, department, and person type.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                    {[
+                        "ALB-PND-GDL-014",
+                        "ALB-PND-REF-015",
+                        ...new Set(
+                            requirements.flatMap((requirement) => {
+                                const competency = state.competencies.find((item) => item.id === requirement.competencyId);
+                                return competency ? competencyReferenceIds[competency.code] ?? [] : [];
+                            }),
+                        ),
+                    ].map((reference) => (
+                        <span
+                            key={reference}
+                            className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600"
+                        >
+                            {reference}
+                        </span>
+                    ))}
+                </div>
+            </div>
+
             <div className="mt-5 flex items-center justify-between gap-3">
                 <div>
                     <h3 className="text-xs font-bold text-slate-800">
@@ -572,7 +614,7 @@ export function RoleProfileForm({
                         <div className="grid gap-3 md:grid-cols-12">
                             <div className="md:col-span-4">
                                 <Field label="Competency" required>
-                                    <select
+                                    <SystemSelect
                                         value={item.competencyId}
                                         onChange={(event) =>
                                             updateRequirement(item.id, {
@@ -601,12 +643,12 @@ export function RoleProfileForm({
                                                     {comp.code} · {comp.name}
                                                 </option>
                                             ))}
-                                    </select>
+                                    </SystemSelect>
                                 </Field>
                             </div>
                             <div className="md:col-span-2">
                                 <Field label="Required Level" required>
-                                    <select
+                                    <SystemSelect
                                         value={item.requiredLevel}
                                         onChange={(event) =>
                                             updateRequirement(item.id, {
@@ -625,12 +667,12 @@ export function RoleProfileForm({
                                                 {level.value} — {level.label}
                                             </option>
                                         ))}
-                                    </select>
+                                    </SystemSelect>
                                 </Field>
                             </div>
                             <div className="md:col-span-2">
                                 <Field label="Evidence">
-                                    <select
+                                    <SystemSelect
                                         value={item.evidenceRequirement}
                                         onChange={(event) =>
                                             updateRequirement(item.id, {
@@ -644,29 +686,17 @@ export function RoleProfileForm({
                                         <option>None</option>
                                         <option>Optional</option>
                                         <option>Required</option>
-                                    </select>
+                                    </SystemSelect>
                                 </Field>
                             </div>
                             <div className="md:col-span-2">
-                                <Field label="Reassess (months)">
+                                <Field
+                                    label="Reassess (months)"
+                                    hint="Inherited automatically from the governed Competency Library definition."
+                                >
                                     <input
-                                        type="number"
-                                        min={1}
-                                        value={
-                                            item.reassessmentIntervalMonths ??
-                                            ""
-                                        }
-                                        onChange={(event) =>
-                                            updateRequirement(item.id, {
-                                                reassessmentIntervalMonths:
-                                                    event.target.value
-                                                        ? Number(
-                                                              event.target
-                                                                  .value,
-                                                          )
-                                                        : null,
-                                            })
-                                        }
+                                        value={item.reassessmentIntervalMonths ?? "Not scheduled"}
+                                        readOnly
                                         className={controlClass}
                                     />
                                 </Field>
@@ -786,10 +816,9 @@ export function CycleForm({
     const [dueDays, setDueDays] = useState(
         existing?.dueDaysAfterAssignment ?? 30,
     );
-    const [reassessmentRule, setReassessmentRule] = useState(
+    const reassessmentRule =
         existing?.reassessmentRule ??
-            "Follow the role-profile reassessment interval.",
-    );
+        "Follow the active role-profile/competency reassessment interval; Learning or Training completion does not close a competency gap without finalized reassessment.";
     const [status, setStatus] = useState(existing?.status ?? "Draft");
     const [error, setError] = useState("");
     const hasAssignments = Boolean(
@@ -877,6 +906,9 @@ export function CycleForm({
             dueDaysAfterAssignment: locked?.dueDaysAfterAssignment ?? dueDays,
             reassessmentRule:
                 locked?.reassessmentRule ?? reassessmentRule.trim(),
+            autoAssign:
+                locked?.autoAssign ??
+                assignmentMethod !== "Manual Authorized Assignment",
             status,
             createdAt: existing?.createdAt ?? now,
             createdBy: existing?.createdBy ?? actorName,
@@ -894,7 +926,7 @@ export function CycleForm({
             title={
                 existing ? "Edit Assessment Cycle" : "Create Assessment Cycle"
             }
-            description="Configure one complete role-profile assessment assignment per person."
+            description="Configure the governed window. Scheduled cycles activate automatically on the start date, and eligible assignments are system-generated when an authorized assessor can be resolved."
             footer={
                 <>
                     <button
@@ -939,7 +971,7 @@ export function CycleForm({
                     />
                 </Field>
                 <Field label="Assessment Type" required>
-                    <select
+                    <SystemSelect
                         disabled={criticalLocked}
                         value={type}
                         onChange={(event) =>
@@ -950,7 +982,7 @@ export function CycleForm({
                         {ASSESSMENT_TYPES.map((item) => (
                             <option key={item}>{item}</option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field label="Assessment Window Start" required>
                     <input
@@ -980,7 +1012,7 @@ export function CycleForm({
                     />
                 </Field>
                 <Field label="Applies To" required>
-                    <select
+                    <SystemSelect
                         disabled={criticalLocked}
                         value={appliesTo}
                         onChange={(event) =>
@@ -991,10 +1023,10 @@ export function CycleForm({
                         <option>Employee</option>
                         <option>Trainee</option>
                         <option>Both</option>
-                    </select>
+                    </SystemSelect>
                 </Field>
-                <Field label="Assignment Method" required>
-                    <select
+                <Field label="Assignment Method" required hint="Use deterministic reporting/role-based assignment normally. Exceptional authorized assignment is only for cases where the canonical workforce source has no valid automatic assessor path.">
+                    <SystemSelect
                         disabled={criticalLocked}
                         value={assignmentMethod}
                         onChange={(event) =>
@@ -1006,10 +1038,10 @@ export function CycleForm({
                     >
                         <option>Reporting Relationship</option>
                         <option>Role-based Assessor</option>
-                        <option>Manual Authorized Assignment</option>
-                    </select>
+                        <option value="Manual Authorized Assignment">Exceptional Authorized Assignment</option>
+                    </SystemSelect>
                 </Field>
-                <Field label="Due days after assignment" required>
+                <Field label="Due days after assignment" required hint="The system caps each assignment due date at the cycle end date.">
                     <input
                         disabled={criticalLocked}
                         type="number"
@@ -1029,7 +1061,7 @@ export function CycleForm({
                             className={controlClass}
                         />
                     ) : (
-                        <select
+                        <SystemSelect
                             value={status}
                             onChange={(event) =>
                                 setStatus(event.target.value as typeof status)
@@ -1038,7 +1070,7 @@ export function CycleForm({
                         >
                             <option>Draft</option>
                             <option>Scheduled</option>
-                        </select>
+                        </SystemSelect>
                     )}
                 </Field>
             </div>
@@ -1090,7 +1122,7 @@ export function CycleForm({
                         required
                         hint="The authorization must match this exact scope for the assessed person/profile."
                     >
-                        <select
+                        <SystemSelect
                             disabled={criticalLocked}
                             value={roleBasedAssessorScope ?? ""}
                             onChange={(event) =>
@@ -1105,7 +1137,7 @@ export function CycleForm({
                             <option value="Department">Department</option>
                             <option value="Position">Position</option>
                             <option value="Role Profile">Role Profile</option>
-                        </select>
+                        </SystemSelect>
                     </Field>
                     <CheckboxGroup
                         disabled={criticalLocked}
@@ -1142,7 +1174,7 @@ export function CycleForm({
                     checked={requireHrValidation}
                     onChange={setRequireHrValidation}
                     label="Require HR validation"
-                    description="Submitted records wait for authorized validation before finalization."
+                    description="Submitted records wait for authorized validation when enabled. Critical competencies always require Admin/HR validation even if this toggle is off."
                 />
                 <Toggle
                     disabled={criticalLocked}
@@ -1153,14 +1185,14 @@ export function CycleForm({
                 />
             </div>
             <div className="mt-4">
-                <Field label="Reassessment Rules" required>
+                <Field
+                    label="Reassessment Rules"
+                    hint="System-governed from the active Role Profile and Competency Library intervals."
+                >
                     <textarea
-                        disabled={criticalLocked}
                         rows={3}
                         value={reassessmentRule}
-                        onChange={(event) =>
-                            setReassessmentRule(event.target.value)
-                        }
+                        readOnly
                         className={controlClass}
                     />
                 </Field>
@@ -1251,7 +1283,7 @@ export function AssessmentAssignmentForm({
     const [profileId, setProfileId] = useState("");
     const [assessorId, setAssessorId] = useState("");
     const [dueDate, setDueDate] = useState(
-        initialCycle ? dateAfterDays(initialCycle.dueDaysAfterAssignment) : "",
+        initialCycle ? assignmentDueDate(initialCycle) : "",
     );
     const [error, setError] = useState("");
     const cycle = state.cycles.find((item) => item.id === cycleId) ?? null;
@@ -1323,8 +1355,8 @@ export function AssessmentAssignmentForm({
         <AppModal
             show={show}
             onClose={onClose}
-            title="Create Assessment Assignment"
-            description={`Governance action by ${actorName}. The assessor must come from an active authorization, never free text.`}
+            title="Create Exception Assessment Assignment"
+            description={`Exception-only governance action by ${actorName}. Normal cycle assignments are generated automatically; use this only when an authorized manual path is required.`}
             footer={
                 <>
                     <button
@@ -1339,7 +1371,7 @@ export function AssessmentAssignmentForm({
                         onClick={submit}
                         className={primaryButtonClass}
                     >
-                        Create Assignment
+                        Create Exception Assignment
                     </button>
                 </>
             }
@@ -1363,7 +1395,7 @@ export function AssessmentAssignmentForm({
                             : "No Scheduled or Active cycle is available."
                     }
                 >
-                    <select
+                    <SystemSelect
                         value={cycleId}
                         onChange={(event) => {
                             const nextCycle = state.cycles.find(
@@ -1375,9 +1407,7 @@ export function AssessmentAssignmentForm({
                             setAssessorId("");
                             setDueDate(
                                 nextCycle
-                                    ? dateAfterDays(
-                                          nextCycle.dueDaysAfterAssignment,
-                                      )
+                                    ? assignmentDueDate(nextCycle)
                                     : "",
                             );
                             setError("");
@@ -1390,7 +1420,7 @@ export function AssessmentAssignmentForm({
                                 {item.name} · {item.status}
                             </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field
                     label="Person"
@@ -1401,7 +1431,7 @@ export function AssessmentAssignmentForm({
                             : undefined
                     }
                 >
-                    <select
+                    <SystemSelect
                         value={personId}
                         onChange={(event) => {
                             setPersonId(event.target.value);
@@ -1418,7 +1448,7 @@ export function AssessmentAssignmentForm({
                                 {item.position}
                             </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field
                     label="Role Profile"
@@ -1429,7 +1459,7 @@ export function AssessmentAssignmentForm({
                             : undefined
                     }
                 >
-                    <select
+                    <SystemSelect
                         value={profileId}
                         onChange={(event) => {
                             setProfileId(event.target.value);
@@ -1443,7 +1473,7 @@ export function AssessmentAssignmentForm({
                                 {item.name} · v{item.version}
                             </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 {cycle?.assignmentMethod === "Manual Authorized Assignment" ? (
                     <Field
@@ -1455,7 +1485,7 @@ export function AssessmentAssignmentForm({
                                 : "Manual assignment requires an explicit selection; no assessor is preselected."
                         }
                     >
-                        <select
+                        <SystemSelect
                             value={assessorId}
                             onChange={(event) =>
                                 setAssessorId(event.target.value)
@@ -1468,7 +1498,7 @@ export function AssessmentAssignmentForm({
                                     {item.fullName} · {item.position}
                                 </option>
                             ))}
-                        </select>
+                        </SystemSelect>
                     </Field>
                 ) : (
                     <Field
@@ -1492,11 +1522,15 @@ export function AssessmentAssignmentForm({
                         />
                     </Field>
                 )}
-                <Field label="Due Date" required>
+                <Field
+                    label="Due Date"
+                    required
+                    hint="System-owned: calculated from the cycle due rule and never later than the cycle end date."
+                >
                     <input
                         type="date"
                         value={dueDate}
-                        onChange={(event) => setDueDate(event.target.value)}
+                        readOnly
                         className={controlClass}
                     />
                 </Field>
@@ -1605,7 +1639,7 @@ export function EvidenceForm({
                     required
                     hint="Options come from the competency definition captured for this assessment."
                 >
-                    <select
+                    <SystemSelect
                         value={type}
                         onChange={(event) =>
                             setType(event.target.value as typeof type)
@@ -1615,7 +1649,7 @@ export function EvidenceForm({
                         {allowedTypes.map((item) => (
                             <option key={item}>{item}</option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field label="Evidence Title" required>
                     <input
@@ -1649,7 +1683,7 @@ export function EvidenceForm({
                     label="Verification State"
                     hint="This is a recorded review state, not automatic verification."
                 >
-                    <select
+                    <SystemSelect
                         value={verificationState}
                         onChange={(event) =>
                             setVerificationState(
@@ -1662,7 +1696,7 @@ export function EvidenceForm({
                         <option>Unverified</option>
                         <option>Reviewed</option>
                         <option>Verified</option>
-                    </select>
+                    </SystemSelect>
                 </Field>
             </div>
         </AppModal>
@@ -1692,7 +1726,6 @@ export function RecommendationForm({
 }) {
     const [title, setTitle] = useState(existing?.title ?? "");
     const [note, setNote] = useState(existing?.note ?? "");
-    const [dueDate, setDueDate] = useState(existing?.reassessmentDue ?? "");
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const submissionInFlight = useRef(false);
@@ -1705,7 +1738,7 @@ export function RecommendationForm({
         submissionInFlight.current = true;
         setSubmitting(true);
         setError("");
-        const result = onSave(title.trim(), note.trim(), dueDate || null);
+        const result = onSave(title.trim(), note.trim(), existing?.reassessmentDue ?? null);
         if (!result.ok) {
             submissionInFlight.current = false;
             setSubmitting(false);
@@ -1764,13 +1797,12 @@ export function RecommendationForm({
                     />
                 </Field>
                 <Field
-                    label="Target Reassessment Date"
-                    hint="The gap closes only after a new finalized competency assessment."
+                    label="Reassessment Timing"
+                    hint="System-owned. After Learning/Training completion, the target date is calculated from the governed competency/profile reassessment interval. The gap closes only after finalized reassessment."
                 >
                     <input
-                        type="date"
-                        value={dueDate}
-                        onChange={(event) => setDueDate(event.target.value)}
+                        value={existing?.reassessmentDue ?? "Calculated after completion"}
+                        readOnly
                         className={controlClass}
                     />
                 </Field>
@@ -1886,7 +1918,7 @@ export function AssessorAuthorizationForm({
             )}
             <div className="space-y-4">
                 <Field label="Assessor" required>
-                    <select
+                    <SystemSelect
                         value={assessorId}
                         onChange={(event) => setAssessorId(event.target.value)}
                         className={controlClass}
@@ -1900,10 +1932,10 @@ export function AssessorAuthorizationForm({
                                 {item.accessRole}
                             </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field label="Authorization Scope" required>
-                    <select
+                    <SystemSelect
                         value={scope}
                         onChange={(event) => {
                             setScope(event.target.value as typeof scope);
@@ -1915,10 +1947,10 @@ export function AssessorAuthorizationForm({
                         <option>Position</option>
                         <option>Role Profile</option>
                         <option>Specific Person</option>
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field label="Scope Value" required>
-                    <select
+                    <SystemSelect
                         value={scopeValue}
                         onChange={(event) => setScopeValue(event.target.value)}
                         className={controlClass}
@@ -1929,7 +1961,7 @@ export function AssessorAuthorizationForm({
                                 {labelFor(item)}
                             </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field label="Authorization Reason" required>
                     <textarea

@@ -18,7 +18,7 @@ class LearningAssignmentService
     private const ACTIVE = ['Not Started', 'In Progress', 'Failed/Attempts Exhausted'];
     private const SOURCES = ['Manual Assignment', 'Role/Position Requirement', 'Competency Recommendation', 'Reassignment/Renewal', 'Self-enrollment'];
 
-    public function __construct(private readonly LearningAuditService $audit, private readonly LearningCatalogService $catalog) {}
+    public function __construct(private readonly LearningAuditService $audit, private readonly LearningEligibilityService $eligibility) {}
 
     public function preview(User $actor, LearningCourseVersion $version, array $learnerIds): array
     {
@@ -80,6 +80,8 @@ class LearningAssignmentService
         return DB::transaction(function () use ($actor, $version) {
             LearningCourse::query()->lockForUpdate()->findOrFail($version->course_id); User::query()->lockForUpdate()->findOrFail($actor->id);
             $locked=LearningCourseVersion::query()->lockForUpdate()->findOrFail($version->id); $this->assertAssignable($locked); if (! $this->availableNow($locked)) throw ValidationException::withMessages(['course' => 'This course is outside its self-enrollment window.']);
+            $freshActor = User::query()->findOrFail($actor->id);
+            if (($locked->audience_rules['catalogVisibility'] ?? '') !== 'Eligible users may self-enroll' || ! $this->eligible($freshActor, $locked)) throw new AuthorizationException('This course is not available for self-enrollment.');
             if ($this->duplicateExists($actor->id,$locked->course_id)) throw ValidationException::withMessages(['course'=>'You already have active work for this course.']);
             $assignment = LearningAssignment::create(['learner_id' => $actor->id, 'course_id' => $locked->course_id, 'course_version_id' => $locked->id, 'source' => 'Self-enrollment', 'assigned_by' => $actor->id, 'assigned_at' => now(), 'is_mandatory' => false, 'priority' => 'Normal', 'status' => 'Not Started', 'progress_percent' => 0]);
             $this->audit->record($actor, 'Assignment created', 'LearningAssignment', $assignment->id, ['source' => 'Self-enrollment']);
@@ -127,15 +129,9 @@ class LearningAssignmentService
 
     public function eligible(User $user, LearningCourseVersion $version): bool
     {
-        $rules = $version->audience_rules ?? [];
-        if ($user->employment_status !== 'Active' || ! $user->personnel_key) return false;
-        $personTypes = $rules['personTypes'] ?? [];
-        if ($personTypes && ! in_array($user->person_type, $personTypes, true)) return false;
-        $departments = $rules['departments'] ?? [];
-        if (! ($rules['allDepartments'] ?? false) && $departments && ! in_array($user->department, $departments, true)) return false;
-        $positions = $rules['positions'] ?? [];
-        if ($positions && ! in_array($user->position, $positions, true)) return false;
-        return $this->catalog->userMatchesProfiles($user,$rules['roleProfileIds']??[]);
+        return $user->role === UserRole::User
+            && $user->isActivePersonnel()
+            && $this->eligibility->matchesAudience($user, $version);
     }
 
     private function assertAssignable(LearningCourseVersion $version): void

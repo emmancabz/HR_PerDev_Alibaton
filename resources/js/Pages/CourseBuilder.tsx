@@ -1,3 +1,4 @@
+import SystemSelect from '@/Components/SystemSelect';
 import { AppModal, Field } from "@/Components/Competency/CompetencyUI";
 import {
     BUILDER_STAGES,
@@ -25,6 +26,7 @@ import {
     CheckCircle2,
     Plus,
     Save,
+    Send,
     Sparkles,
     Trash2,
     X,
@@ -32,11 +34,11 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const input =
-    "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-[#F4B400] focus:ring-2 focus:ring-[#F4B400]/25";
+    "app-control";
 const textarea = `${input} h-auto min-h-24 py-2`;
 const button =
-    "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F4B400] disabled:cursor-not-allowed disabled:opacity-50";
-const primary = `${button} border-[#F4B400] bg-[#F4B400] text-slate-950 hover:bg-amber-400`;
+    "app-button";
+const primary = `${button} app-button-primary`;
 const newModule = (): ModuleDraft => ({
     clientId: crypto.randomUUID(),
     title: "",
@@ -63,10 +65,10 @@ const newQuestion = (): QuestionDraft => ({
         { text: "", correct: false },
     ],
 });
-const newAssessment = (): AssessmentDraft => ({
-    type: "Knowledge Check",
-    title: "Knowledge Check",
-    required: true,
+const newAssessment = (type: AssessmentDraft["type"] = "Knowledge Check"): AssessmentDraft => ({
+    type,
+    title: type === "Pre-Test" ? "Pre-Test" : type === "Post-Test" ? "Post-Test" : type === "Final Assessment" ? "Final Assessment" : "Knowledge Check",
+    required: type !== "Pre-Test",
     passingScore: 80,
     attemptsAllowed: 3,
     shuffleQuestions: false,
@@ -100,7 +102,15 @@ export default function CourseBuilder({
         ).values;
         return clone;
     });
-    const [stage, setStage] = useState(0);
+    const [stage, setStage] = useState(() =>
+        Math.max(
+            0,
+            Math.min(
+                BUILDER_STAGES.length - 1,
+                Number(initialDraft.workingStage ?? 0),
+            ),
+        ),
+    );
     const [stageDirection, setStageDirection] = useState<
         "forward" | "backward"
     >("forward");
@@ -110,7 +120,6 @@ export default function CourseBuilder({
     const [message, setMessage] = useState("");
     const [busy, setBusy] = useState(false);
     const [confirmExit, setConfirmExit] = useState(false);
-    const [reviewComment, setReviewComment] = useState("");
     const [ai, setAi] = useState<any>(null);
     const dirty = useRef(false);
     const revision = useRef(0);
@@ -129,86 +138,66 @@ export default function CourseBuilder({
         [availablePersonTypes, draft.audience.personTypes],
     );
     const stageIssues = useMemo(() => {
-        const details = Object.values(detailIssues);
-        const audience = [
-            !availablePersonTypes.length
-                ? "Canonical personnel Person Types are unavailable. Add or activate personnel in User Management, then refresh Learning."
-                : "",
-            availablePersonTypes.length && !draft.audience.personTypes.length
-                ? "Select a canonical person type."
-                : "",
-            invalidAudiencePersonTypes.length
-                ? `Unsupported Person Type: ${invalidAudiencePersonTypes.join(", ")}. Select values provided by canonical personnel.`
-                : "",
-            draft.audience.allDepartments && draft.audience.departments.length
-                ? "All Departments cannot be combined with department selections."
+        const details = [
+            ...Object.values(detailIssues),
+            !draft.audience.allDepartments && !draft.audience.departments.length
+                ? "Select a target department or choose Company-wide."
                 : "",
         ].filter(Boolean);
-        const governance = [
-            !draft.reviewerIds.length ? "Assign an authorized reviewer." : "",
-            !draft.publisherId ? "Assign an authorized publisher." : "",
-            draft.category === "Safety & Compliance" &&
-            draft.reviewerIds.some(
-                (id) =>
-                    draft.authorIds.includes(id) ||
-                    id === draft.ownerId ||
-                    id === draft.publisherId,
-            )
-                ? "Select an independent Safety reviewer."
+        const sources = !draft.sourceDocumentIds.length
+            ? ["Select at least one source document."]
+            : [];
+        const audience = [
+            !availablePersonTypes.length
+                ? "No active learner person types are available."
+                : "",
+            availablePersonTypes.length && !draft.audience.personTypes.length
+                ? "Select at least one learner type."
+                : "",
+            invalidAudiencePersonTypes.length
+                ? `Unsupported learner type: ${invalidAudiencePersonTypes.join(", ")}.`
+                : "",
+            draft.audience.allDepartments && draft.audience.departments.length
+                ? "Company-wide cannot be combined with individual departments."
                 : "",
         ].filter(Boolean);
         const curriculum = draft.modules.length
-            ? draft.modules
-                  .flatMap((module) => [
-                      !module.title.trim() ? "Every module needs a title." : "",
-                      !module.lessons.length
-                          ? `Module “${module.title || "Untitled"}” needs at least one lesson.`
+            ? draft.modules.flatMap((module) => [
+                  !module.title.trim() ? "Every module needs a title." : "",
+                  !module.lessons.length
+                      ? `Module “${module.title || "Untitled"}” needs at least one lesson.`
+                      : "",
+                  ...module.lessons.flatMap((lesson) => [
+                      !lesson.title.trim() ? "Every lesson needs a title." : "",
+                      lesson.objective.trim().length < 8
+                          ? "Every lesson needs a meaningful objective."
                           : "",
-                      ...module.lessons.flatMap((lesson) => [
-                          !lesson.title.trim()
-                              ? "Every lesson needs a title."
-                              : "",
-                          lesson.objective.trim().length < 8
-                              ? "Every lesson needs a meaningful objective."
-                              : "",
-                      ]),
-                  ])
-                  .filter(Boolean)
+                  ]),
+              ]).filter(Boolean)
             : ["Add at least one module."];
         const assessment = [
             ...draft.assessments.flatMap((value) => assessmentErrors(value)),
-            ...(draft.assessments.filter(
-                (value) => value.type === "Final Assessment",
-            ).length > 1
-                ? ["Only one Final Assessment is allowed."]
+            ...(draft.assessments.filter((value) => value.type === "Pre-Test").length !== 1
+                ? ["Add one Pre-Test."]
+                : []),
+            ...(draft.assessments.filter((value) => value.type === "Post-Test").length !== 1
+                ? ["Add one Post-Test."]
                 : []),
             ...draft.assessments
-                .filter(
-                    (value) =>
-                        value.type === "Knowledge Check" &&
-                        !value.moduleClientId,
-                )
-                .map(
-                    (value) =>
-                        `Knowledge Check “${value.title}” must be linked to a module.`,
-                ),
+                .filter((value) => value.type === "Knowledge Check" && !value.moduleClientId)
+                .map((value) => `Knowledge Check “${value.title}” must be linked to a module.`),
         ];
-        return [
-            details,
-            audience,
-            [],
-            governance,
-            curriculum,
-            assessment,
-            errors,
-        ];
-    }, [
-        availablePersonTypes,
-        detailIssues,
-        draft,
-        errors,
-        invalidAudiencePersonTypes,
-    ]);
+        return [details, sources, audience, curriculum, assessment, [], errors];
+    }, [availablePersonTypes, detailIssues, draft, errors, invalidAudiencePersonTypes]);
+    const maxReachableStage = useMemo(() => {
+        const firstBlockingStage = stageIssues
+            .slice(0, BUILDER_STAGES.length - 1)
+            .findIndex((issues) => issues.length > 0);
+
+        return firstBlockingStage === -1
+            ? BUILDER_STAGES.length - 1
+            : firstBlockingStage;
+    }, [stageIssues]);
     const departments = useMemo(
         () =>
             [
@@ -220,32 +209,29 @@ export default function CourseBuilder({
             ].sort(),
         [state.personnel],
     );
-    const positions = useMemo(
-        () =>
-            [
-                ...new Set(
-                    state.personnel
-                        .filter(
-                            (item) =>
-                                draft.audience.allDepartments ||
-                                draft.audience.departments.includes(
-                                    item.department,
-                                ),
-                        )
-                        .map((item) => item.position)
-                        .filter(Boolean),
-                ),
-            ].sort(),
-        [state.personnel, draft.audience],
-    );
     const goToStage = (nextStage: number) => {
         const boundedStage = Math.max(
             0,
             Math.min(BUILDER_STAGES.length - 1, nextStage),
         );
         if (boundedStage === stage) return;
+        if (boundedStage > stage) {
+            void advanceToStage(boundedStage);
+            return;
+        }
         setStageDirection(boundedStage > stage ? "forward" : "backward");
         setStage(boundedStage);
+        if (draftRef.current.workingStage !== boundedStage) {
+            const next = {
+                ...draftRef.current,
+                workingStage: boundedStage,
+            };
+            draftRef.current = next;
+            dirty.current = true;
+            revision.current += 1;
+            setSaveStatus("Unsaved");
+            setDraft(next);
+        }
     };
     const update = (patch: Partial<CourseDraft>) => {
         dirty.current = true;
@@ -289,6 +275,30 @@ export default function CourseBuilder({
         });
         activeSave.current = operation;
         return operation;
+    }
+
+    async function advanceToStage(destination: number): Promise<void> {
+        if (busy || destination <= stage || destination > maxReachableStage)
+            return;
+        if (activeSave.current) await activeSave.current;
+        const current = draftRef.current;
+        const destinationDraft = {
+            ...structuredClone(current),
+            workingStage: destination,
+        };
+        draftRef.current = destinationDraft;
+        dirty.current = true;
+        revision.current += 1;
+        const persisted = await save(false);
+        if (!persisted) {
+            const restored = { ...draftRef.current, workingStage: stage };
+            draftRef.current = restored;
+            setDraft(restored);
+            dirty.current = true;
+            return;
+        }
+        setStageDirection("forward");
+        setStage(destination);
     }
 
     async function drainSave(silent = false): Promise<boolean> {
@@ -344,7 +354,7 @@ export default function CourseBuilder({
                 setLastSavedAt(new Date());
                 break;
             } while (true);
-            if (!silent) setMessage("Draft saved to Laravel persistence.");
+            if (!silent) setMessage("Draft saved.");
             return true;
         } catch (error) {
             setSaveStatus("Failed");
@@ -355,45 +365,22 @@ export default function CourseBuilder({
             if (!silent) setBusy(false);
         }
     }
-    async function workflow(
-        action: "review" | "approve" | "changes" | "publish",
-    ) {
+    async function workflow(action: "review") {
         if ((!draft.id || dirty.current) && !(await save(false))) return;
         setBusy(true);
         setMessage("");
         try {
-            const next =
-                action === "review"
-                    ? await learningClient.submitReview(
-                          draft.id!,
-                          draft.reviewerIds[0],
-                      )
-                    : action === "approve"
-                      ? await learningClient.decideReview(
-                            draft.id!,
-                            "Approved",
-                            reviewComment,
-                        )
-                      : action === "changes"
-                        ? await learningClient.decideReview(
-                              draft.id!,
-                              "Changes Requested",
-                              reviewComment,
-                          )
-                        : await learningClient.publish(draft.id!);
+            const next = await learningClient.submitReview(draft.id!);
             onState(next);
-            setDraft((current) => ({
-                ...current,
-                status:
-                    action === "review"
-                        ? "In Review"
-                        : action === "approve"
-                          ? "Approved"
-                          : action === "changes"
-                            ? "Changes Requested"
-                            : "Published",
-            }));
-            setMessage("Course lifecycle updated.");
+            const persisted = next.courses.find((course) => course.id === draft.courseId)?.draftDetail;
+            if (persisted) {
+                const clone = structuredClone(persisted);
+                draftRef.current = clone;
+                setDraft(clone);
+            } else {
+                setDraft((current) => ({ ...current, status: "In Review" }));
+            }
+            setMessage("Course submitted to Admin for publication review.");
         } catch (error) {
             setMessage(learningError(error));
         } finally {
@@ -402,19 +389,24 @@ export default function CourseBuilder({
     }
     async function aiDraft() {
         if (!draft.id) {
-            setMessage("Save the Draft before using Groq AI assistance.");
+            setMessage("Save the Draft before using Aevyn Assist.");
             return;
         }
+        const useCase = "Course Outline";
         setBusy(true);
         setMessage("");
         try {
             setAi(
                 await learningClient.aiGenerate(
                     draft.id,
-                    stage === 4 ? "Course Outline" : "Learning Objectives",
+                    useCase,
                     {
                         title: draft.title,
                         objectives: draft.learningObjectives,
+                        targetDepartments: draft.audience.allDepartments
+                            ? ["Company-wide"]
+                            : draft.audience.departments,
+                        sourceDocumentIds: draft.sourceDocumentIds,
                         modules: draft.modules.map((item) => ({
                             title: item.title,
                             lessons: item.lessons.map((lesson) => lesson.title),
@@ -442,7 +434,7 @@ export default function CourseBuilder({
                 draftRef.current = next;
                 return next;
             });
-            setMessage("Thumbnail stored in protected Laravel storage.");
+            setMessage("Thumbnail uploaded.");
         } catch (error) {
             setMessage(learningError(error));
         } finally {
@@ -457,8 +449,7 @@ export default function CourseBuilder({
                 decision === "Accepted" ? ai.draft : undefined,
             );
             if (decision === "Accepted") {
-                const useCase =
-                    stage === 4 ? "Course Outline" : "Learning Objectives";
+                const useCase = "Course Outline";
                 const accepted = applyAcceptedAiDraft(
                     draftRef.current,
                     useCase,
@@ -472,8 +463,8 @@ export default function CourseBuilder({
             }
             setMessage(
                 decision === "Accepted"
-                    ? "AI Draft accepted into editable course fields. Review and save the changes."
-                    : "AI Draft rejected. Existing human content was preserved.",
+                    ? "Aevyn suggestion added to the course. Review the content before continuing."
+                    : "Suggestion discarded. Existing course content was preserved.",
             );
             setAi(null);
         } catch (error) {
@@ -505,9 +496,9 @@ export default function CourseBuilder({
     }
 
     return (
-        <div className="-m-4 min-h-[calc(100dvh-7rem)] min-w-0 overflow-x-hidden bg-[#f3f6fa] sm:-m-5">
+        <div className="-m-4 min-h-[calc(100dvh-7rem)] min-w-0 overflow-x-hidden bg-[#f4f4f3] sm:-m-5 xl:-m-6">
             <div className="relative z-10 border-b border-slate-200/90 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-                <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+                <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
                     <div className="min-w-0">
                         <div className="min-w-0">
                             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">
@@ -539,14 +530,16 @@ export default function CourseBuilder({
                         </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <button
-                            className={button}
-                            onClick={aiDraft}
-                            disabled={busy}
-                        >
-                            <Sparkles className="h-4 w-4" />
-                            Groq AI Draft
-                        </button>
+                        {stage === 3 && (
+                            <button
+                                className={button}
+                                onClick={aiDraft}
+                                disabled={busy}
+                            >
+                                <Sparkles className="h-4 w-4" />
+                                Aevyn Assist
+                            </button>
+                        )}
                         <button
                             className={button}
                             onClick={() => void save(false)}
@@ -570,7 +563,7 @@ export default function CourseBuilder({
                     className="learning-stepper-scroll hidden overflow-x-auto border-t border-slate-100 px-4 pb-4 pt-3 md:block"
                     aria-label="Course builder progress"
                 >
-                    <ol className="mx-auto flex min-w-[940px] max-w-[1400px] items-start px-3">
+                    <ol className="mx-auto flex min-w-[940px] max-w-[1500px] items-start px-3">
                         {BUILDER_STAGES.map((label, index) => {
                             const status = stepState(index, stage);
                             return (
@@ -581,6 +574,7 @@ export default function CourseBuilder({
                                     {index > 0 && (
                                         <span
                                             aria-hidden
+                                            data-testid="learning-step-connector"
                                             className="absolute right-1/2 top-[1.15rem] h-[3px] w-full overflow-hidden bg-slate-200"
                                         >
                                             <span
@@ -591,9 +585,10 @@ export default function CourseBuilder({
                                     <button
                                         type="button"
                                         onClick={() =>
-                                            index <= stage && goToStage(index)
+                                            index <= maxReachableStage &&
+                                            goToStage(index)
                                         }
-                                        disabled={index > stage}
+                                        disabled={index > maxReachableStage}
                                         aria-current={
                                             status === "current"
                                                 ? "step"
@@ -648,8 +643,8 @@ export default function CourseBuilder({
                         />
                     </div>
                     <label className="mt-2 block text-xs text-slate-600">
-                        Completed stage picker
-                        <select
+                        Course Builder stage
+                        <SystemSelect
                             className={`${input} mt-1`}
                             value={stage}
                             onChange={(e) => goToStage(Number(e.target.value))}
@@ -658,16 +653,16 @@ export default function CourseBuilder({
                                 <option
                                     key={label}
                                     value={index}
-                                    disabled={index > stage}
+                                    disabled={index > maxReachableStage}
                                 >
                                     {index + 1}. {label}
                                 </option>
                             ))}
-                        </select>
+                        </SystemSelect>
                     </label>
                 </div>
             </div>
-            <main className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
+            <main className="mx-auto w-full max-w-[1600px] p-4 sm:p-6">
                 {message && (
                     <div
                         role="status"
@@ -687,17 +682,13 @@ export default function CourseBuilder({
                 )}
                 <section
                     id="learning-builder-stage-panel"
-                    className="scroll-mt-52 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_35px_rgba(15,23,42,0.06)] ring-1 ring-slate-900/[0.02]"
+                    className="app-card scroll-mt-52"
                 >
                     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-white via-white to-amber-50/60 px-5 py-4 sm:px-6">
                         <div>
                             <h2 className="text-base font-bold text-slate-950">
                                 {BUILDER_STAGES[stage]}
                             </h2>
-                            <p className="mt-0.5 text-sm text-slate-500">
-                                Complete the required fields, then save and
-                                continue.
-                            </p>
                         </div>
                         {stageIssues[stage].length > 0 && stage !== 6 && (
                             <p
@@ -715,68 +706,55 @@ export default function CourseBuilder({
                         className={`learning-stage-panel learning-stage-panel--${stageDirection} p-5 sm:p-6`}
                     >
                         {stage === 0 && (
-                            <Details
-                                draft={draft}
-                                update={update}
-                                personnel={state.personnel}
-                                issues={detailIssues}
-                                busy={busy}
-                                uploadThumbnail={uploadThumbnail}
-                            />
+                            <div className="space-y-6">
+                                <Details
+                                    draft={draft}
+                                    update={update}
+                                    personnel={state.personnel}
+                                    issues={detailIssues}
+                                    busy={busy}
+                                    uploadThumbnail={uploadThumbnail}
+                                />
+                                <DepartmentScope
+                                    draft={draft}
+                                    update={update}
+                                    departments={departments}
+                                    personnel={state.personnel}
+                                />
+                            </div>
                         )}{" "}
                         {stage === 1 && (
-                            <Audience
-                                draft={draft}
-                                update={update}
-                                personTypes={availablePersonTypes}
-                                invalidPersonTypes={
-                                    invalidAudiencePersonTypes
-                                }
-                                departments={departments}
-                                positions={positions}
-                                roleProfiles={state.roleProfiles}
-                            />
+                            <SourceDocuments draft={draft} update={update} documents={state.sourceLibrary} />
                         )}{" "}
                         {stage === 2 && (
-                            <Competency
-                                draft={draft}
-                                update={update}
-                                catalog={state.competencyCatalog}
-                            />
+                            <div className="space-y-7">
+                                <Audience
+                                    draft={draft}
+                                    update={update}
+                                    personnel={state.personnel}
+                                    invalidPersonTypes={invalidAudiencePersonTypes}
+                                />
+                                <div className="border-t border-slate-200 pt-6">
+                                    <Competency draft={draft} update={update} catalog={state.competencyCatalog} />
+                                </div>
+                            </div>
                         )}{" "}
                         {stage === 3 && (
-                            <Governance
-                                draft={draft}
-                                update={update}
-                                governanceActors={state.governanceActors}
-                            />
+                            <Curriculum draft={draft} update={update} material={material} busy={busy} />
                         )}{" "}
                         {stage === 4 && (
-                            <Curriculum
-                                draft={draft}
-                                update={update}
-                                material={material}
-                                busy={busy}
-                            />
-                        )}{" "}
-                        {stage === 5 && (
                             <Assessment draft={draft} update={update} />
                         )}{" "}
+                        {stage === 5 && (
+                            <Review draft={draft} errors={errors} />
+                        )}{" "}
                         {stage === 6 && (
-                            <Review
-                                draft={draft}
-                                errors={errors}
-                                state={state}
-                                comment={reviewComment}
-                                setComment={setReviewComment}
-                                workflow={workflow}
-                                busy={busy}
-                            />
+                            <SubmitCourse draft={draft} errors={errors} workflow={workflow} busy={busy} />
                         )}
                     </div>
                 </section>
                 {stage !== 6 && (
-                    <div className="sticky bottom-3 z-10 mt-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-[0_12px_35px_rgba(15,23,42,0.12)] backdrop-blur-xl sm:px-4">
+                    <div className="sticky bottom-3 z-10 mt-4 flex items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-lg backdrop-blur-xl sm:px-4">
                         <button
                             className={button}
                             disabled={stage === 0}
@@ -788,10 +766,7 @@ export default function CourseBuilder({
                         <button
                             className={primary}
                             disabled={busy || stageIssues[stage].length > 0}
-                            onClick={async () => {
-                                if (await save(false))
-                                    goToStage(stage + 1);
-                            }}
+                            onClick={() => void advanceToStage(stage + 1)}
                         >
                             Continue
                             <ArrowRight className="h-4 w-4" />
@@ -825,8 +800,8 @@ export default function CourseBuilder({
             </AppModal>
             <AppModal
                 show={Boolean(ai)}
-                title="AI Draft — human review required"
-                description="Groq output is never applied, published, assigned, graded, or competency-changing automatically."
+                title="Aevyn Draft"
+                description="Review the suggested course content before adding it to the Draft."
                 onClose={() => setAi(null)}
                 footer={
                     <>
@@ -834,21 +809,65 @@ export default function CourseBuilder({
                             className={button}
                             onClick={() => decideAi("Rejected")}
                         >
-                            Reject
+                            Discard
                         </button>
                         <button
                             className={primary}
                             onClick={() => decideAi("Accepted")}
                         >
-                            Accept as editable draft
+                            Use suggestion
                         </button>
                     </>
                 }
             >
-                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-4 text-sm text-slate-100">
-                    {ai ? JSON.stringify(ai.draft, null, 2) : ""}
-                </pre>
+                {ai && <AevynDraftPreview value={ai.draft} />}
             </AppModal>
+        </div>
+    );
+}
+
+function AevynDraftPreview({ value }: { value: any }) {
+    const items = Array.isArray(value?.items) ? value.items : [];
+    return (
+        <div className="space-y-4">
+            {(value?.title || value?.rationale) && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    {value?.title && (
+                        <p className="text-sm font-bold text-slate-950">{String(value.title)}</p>
+                    )}
+                    {value?.rationale && (
+                        <p className="mt-1 text-sm text-slate-700">{String(value.rationale)}</p>
+                    )}
+                </div>
+            )}
+            <div className="space-y-3">
+                {items.map((item: any, index: number) => {
+                    const title = typeof item === "string"
+                        ? item
+                        : String(item?.title ?? item?.objective ?? item?.text ?? `Suggestion ${index + 1}`);
+                    const lessons = Array.isArray(item?.lessons) ? item.lessons : [];
+                    return (
+                        <div key={`${title}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                            <p className="text-sm font-bold text-slate-900">{title}</p>
+                            {lessons.length > 0 && (
+                                <ul className="mt-2 space-y-1.5 text-sm text-slate-600">
+                                    {lessons.map((lesson: any, lessonIndex: number) => (
+                                        <li key={`${lessonIndex}-${String(lesson?.title ?? lesson)}`} className="flex items-start gap-2">
+                                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                                            <span>{String(lesson?.title ?? lesson?.text ?? lesson)}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    );
+                })}
+                {!items.length && (
+                    <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                        No suggested content was returned.
+                    </p>
+                )}
+            </div>
         </div>
     );
 }
@@ -871,7 +890,7 @@ function Details({
                         draft.code
                             ? draft.code
                             : draft.courseId
-                              ? "Generated and retained by Laravel"
+                              ? "Generated automatically"
                             : "Generated on first save"
                     }
                 />
@@ -897,7 +916,7 @@ function Details({
                 </Field>
             </div>
             <Field label="Category" required>
-                <select
+                <SystemSelect
                     className={input}
                     value={draft.category}
                     onChange={(e) => update({ category: e.target.value })}
@@ -913,10 +932,10 @@ function Details({
                     ].map((v) => (
                         <option key={v}>{v}</option>
                     ))}
-                </select>
+                </SystemSelect>
             </Field>
             <Field label="Difficulty" required>
-                <select
+                <SystemSelect
                     className={input}
                     value={draft.difficulty}
                     onChange={(e) => update({ difficulty: e.target.value })}
@@ -924,7 +943,7 @@ function Details({
                     {["Beginner", "Intermediate", "Advanced"].map((v) => (
                         <option key={v}>{v}</option>
                     ))}
-                </select>
+                </SystemSelect>
             </Field>
             <Field label="Language" required>
                 <input
@@ -937,7 +956,7 @@ function Details({
                 label="Instructor / Subject Matter Expert"
                 hint="Optional. Select an eligible active employee when one is designated."
             >
-                <select
+                <SystemSelect
                     className={input}
                     value={draft.subjectMatterExpertId ?? ""}
                     onChange={(e) =>
@@ -953,7 +972,7 @@ function Details({
                             {person.name} · {person.position} · {person.department}
                         </option>
                     ))}
-                </select>
+                </SystemSelect>
             </Field>
             <Field label="Course thumbnail">
                 <div className="flex min-h-24 items-center gap-3 rounded-lg border border-dashed border-slate-300 p-3">
@@ -1063,230 +1082,280 @@ function Details({
     );
 }
 
+function DepartmentScope({ draft, update, departments, personnel }: any) {
+    const value = draft.audience.allDepartments
+        ? "__all__"
+        : (draft.audience.departments[0] ?? "");
+    const audiencePersonTypes = (target: string): string[] => {
+        const rows = target === "__all__"
+            ? personnel
+            : personnel.filter((person: any) => person.department === target);
+        return [...new Set(rows.map((person: any) => String(person.person_type ?? "").trim()).filter(Boolean))] as string[];
+    };
+    return (
+        <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-4 md:grid-cols-[260px_1fr] md:items-end">
+                <Field
+                    label="Target Department"
+                    required
+                >
+                    <SystemSelect
+                        aria-label="Target Department"
+                        menuLabel="Target Department"
+                        className={input}
+                        value={value}
+                        onChange={(event) => {
+                            const next = event.target.value;
+                            update({
+                                audience: {
+                                    ...draft.audience,
+                                    allDepartments: next === "__all__",
+                                    departments: next === "__all__" || next === "" ? [] : [next],
+                                    positions: [],
+                                    personTypes: next === "" ? [] : audiencePersonTypes(next),
+                                },
+                                sourceDocumentIds: [],
+                            });
+                        }}
+                    >
+                        <option value="">Select department</option>
+                        <option value="__all__">Company-wide</option>
+                        {departments.map((department: string) => (
+                            <option key={department} value={department}>{department}</option>
+                        ))}
+                    </SystemSelect>
+                    {!draft.audience.allDepartments && !draft.audience.departments.length ? (
+                        <span className="mt-1 block text-xs font-medium text-rose-600">
+                            Select a target department or choose Company-wide.
+                        </span>
+                    ) : null}
+                </Field>
+                <div className="rounded-lg bg-white px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
+                    {value === "__all__" ? "Company-wide course" : value || "Select a department"}
+                </div>
+            </div>
+        </section>
+    );
+}
+
+function SourceDocuments({ draft, update, documents }: any) {
+    const targetDepartments = draft.audience.allDepartments
+        ? []
+        : draft.audience.departments;
+    const recommended = new Set(
+        documents
+            .filter((document: any) =>
+                draft.audience.allDepartments
+                    ? (document.departments ?? []).includes("Human Resources")
+                    : (document.departments ?? []).some((department: string) => targetDepartments.includes(department)),
+            )
+            .map((document: any) => document.documentId),
+    );
+    useEffect(() => {
+        if (draft.sourceDocumentIds.length || recommended.size === 0) return;
+        update({ sourceDocumentIds: [...recommended].slice(0, 6) });
+    }, [draft.sourceDocumentIds.length, recommended.size]);
+
+    const rows = [...documents].sort((left: any, right: any) => {
+        const leftSelected = draft.sourceDocumentIds.includes(left.documentId) ? 1 : 0;
+        const rightSelected = draft.sourceDocumentIds.includes(right.documentId) ? 1 : 0;
+        if (leftSelected !== rightSelected) return rightSelected - leftSelected;
+        const leftRecommended = recommended.has(left.documentId) ? 1 : 0;
+        const rightRecommended = recommended.has(right.documentId) ? 1 : 0;
+        if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
+        return left.title.localeCompare(right.title);
+    });
+
+    const toggle = (id: string, checked: boolean) => {
+        const current = new Set(draft.sourceDocumentIds);
+        if (checked) current.add(id);
+        else current.delete(id);
+        update({ sourceDocumentIds: [...current] });
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h3 className="text-sm font-bold text-slate-950">Source Documents</h3>
+
+                </div>
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200">
+                    {draft.sourceDocumentIds.length} selected
+                </span>
+            </div>
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div className="divide-y divide-slate-200">
+                    {rows.map((document: any) => {
+                        const selected = draft.sourceDocumentIds.includes(document.documentId);
+                        return (
+                            <label key={document.documentId} className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-amber-50/40">
+                                <input
+                                    className="mt-1"
+                                    type="checkbox"
+                                    checked={selected}
+                                    onChange={(event) => toggle(document.documentId, event.target.checked)}
+                                />
+                                <span className="min-w-0 flex-1">
+                                    <span className="flex flex-wrap items-center gap-2">
+                                        <span className="font-bold text-slate-900">{document.title}</span>
+                                        {recommended.has(document.documentId) && (
+                                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200">Recommended</span>
+                                        )}
+                                    </span>
+                                    <span className="mt-1 block text-xs text-slate-500">
+                                        {document.type} · v{document.version} · {document.owner}
+                                    </span>
+                                </span>
+                            </label>
+                        );
+                    })}
+                    {!rows.length && (
+                        <div className="px-4 py-8 text-center text-sm text-slate-500">No source documents are available.</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function Audience({
     draft,
     update,
-    personTypes,
+    personnel,
     invalidPersonTypes,
-    departments,
-    positions,
-    roleProfiles,
 }: any) {
     const audience = draft.audience;
     const set = (patch: any) => update({ audience: { ...audience, ...patch } });
+    const targetLabel = audience.allDepartments
+        ? "Company-wide"
+        : audience.departments.join(", ") || "Not set";
+    const targetedPersonnel = personnel.filter(
+        (person: any) =>
+            audience.allDepartments ||
+            audience.departments.includes(person.department),
+    );
+    const targetedPersonTypes = [
+        ...new Set(
+            targetedPersonnel
+                .map((person: any) => String(person.person_type ?? "").trim())
+                .filter(Boolean),
+        ),
+    ] as string[];
+    const targetedPositions = [
+        ...new Set(
+            targetedPersonnel
+                .map((person: any) => String(person.position ?? "").trim())
+                .filter(Boolean),
+        ),
+    ] as string[];
+
     return (
-        <div className="space-y-6">
-            <fieldset>
-                <legend className="text-sm font-bold text-slate-800">
-                    Person types
-                </legend>
-                {personTypes.length ? (
-                    <div className="mt-2 flex flex-wrap gap-3">
-                        {personTypes.map((value: string) => (
-                        <label
-                            key={value}
-                            className="flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 px-4 text-sm"
-                        >
-                            <input
-                                type="checkbox"
-                                checked={audience.personTypes.includes(value)}
-                                onChange={(e) =>
-                                    set({
-                                        personTypes: e.target.checked
-                                            ? [...audience.personTypes, value]
-                                            : audience.personTypes.filter(
-                                                  (v: string) => v !== value,
-                                              ),
-                                    })
-                                }
-                            />
-                            {value}
-                        </label>
-                        ))}
-                    </div>
-                ) : (
-                    <div
-                        role="alert"
-                        className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+        <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold text-slate-500">Target</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">{targetLabel}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold text-slate-500">Eligible learners</p>
+                    <p className="mt-1 text-2xl font-extrabold text-slate-900">{targetedPersonnel.length}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold text-slate-500">Learner types</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                        {targetedPersonTypes.join(", ") || "None"}
+                    </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold text-slate-500">Positions in scope</p>
+                    <p className="mt-1 text-2xl font-extrabold text-slate-900">{targetedPositions.length}</p>
+                </div>
+            </div>
+
+            {invalidPersonTypes.length > 0 && (
+                <div
+                    role="alert"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
+                >
+                    <span>Some saved learner types are no longer available.</span>
+                    <button
+                        type="button"
+                        className="font-bold underline"
+                        onClick={() =>
+                            set({
+                                personTypes: audience.personTypes.filter(
+                                    (value: string) => targetedPersonTypes.includes(value),
+                                ),
+                            })
+                        }
                     >
-                        Canonical personnel data is unavailable. Add or activate
-                        personnel with a Person Type in User Management, then
-                        refresh Learning.
-                    </div>
-                )}
-                {invalidPersonTypes.length > 0 && (
-                    <div
-                        role="alert"
-                        className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
-                    >
-                        <span>
-                            This Draft contains unsupported Person Type values:{" "}
-                            {invalidPersonTypes.join(", ")}.
-                        </span>
-                        <button
-                            type="button"
-                            className="font-bold underline"
-                            onClick={() =>
-                                set({
-                                    personTypes: audience.personTypes.filter(
-                                        (value: string) =>
-                                            personTypes.includes(value),
-                                    ),
-                                })
-                            }
+                        Update target
+                    </button>
+                </div>
+            )}
+
+            <details className="rounded-xl border border-slate-200 bg-white">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-900">
+                    Delivery settings
+                </summary>
+                <div className="grid gap-5 border-t border-slate-200 p-4 lg:grid-cols-2">
+                    <Field label="Catalog visibility">
+                        <SystemSelect
+                            className={input}
+                            value={audience.catalogVisibility}
+                            onChange={(e) => set({ catalogVisibility: e.target.value })}
                         >
-                            Remove unsupported values
-                        </button>
-                    </div>
-                )}
-            </fieldset>
-            <div className="grid gap-5 lg:grid-cols-2">
-                <Field label="Departments">
-                    <label className="mb-2 flex items-center gap-2 text-sm">
+                            {[
+                                "Assigned only",
+                                "Eligible users may self-enroll",
+                                "Unlisted",
+                            ].map((value) => (
+                                <option key={value}>{value}</option>
+                            ))}
+                        </SystemSelect>
+                    </Field>
+                    <Field label="Default due window (days)">
                         <input
-                            type="checkbox"
-                            checked={audience.allDepartments}
+                            type="number"
+                            min={1}
+                            className={input}
+                            value={audience.defaultDueDays ?? ""}
                             onChange={(e) =>
                                 set({
-                                    allDepartments: e.target.checked,
-                                    departments: e.target.checked
-                                        ? []
-                                        : audience.departments,
+                                    defaultDueDays: e.target.value
+                                        ? Number(e.target.value)
+                                        : null,
                                 })
                             }
                         />
-                        All Departments
+                    </Field>
+                    <Field label="Available from">
+                        <input
+                            type="datetime-local"
+                            className={input}
+                            value={audience.availableFrom ?? ""}
+                            onChange={(e) => set({ availableFrom: e.target.value || null })}
+                        />
+                    </Field>
+                    <Field label="Available until">
+                        <input
+                            type="datetime-local"
+                            className={input}
+                            value={audience.availableUntil ?? ""}
+                            onChange={(e) => set({ availableUntil: e.target.value || null })}
+                        />
+                    </Field>
+                    <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-slate-800 lg:col-span-2">
+                        <input
+                            type="checkbox"
+                            checked={audience.mandatoryDefault}
+                            onChange={(e) => set({ mandatoryDefault: e.target.checked })}
+                        />
+                        Mandatory by default
                     </label>
-                    <select
-                        multiple
-                        disabled={audience.allDepartments}
-                        className={`${input} h-36 py-2`}
-                        value={audience.departments}
-                        onChange={(e) =>
-                            set({
-                                departments: Array.from(
-                                    e.target.selectedOptions,
-                                ).map((o: any) => o.value),
-                            })
-                        }
-                    >
-                        {departments.map((value: string) => (
-                            <option key={value}>{value}</option>
-                        ))}
-                    </select>
-                </Field>
-                <Field label="Positions">
-                    <select
-                        multiple
-                        className={`${input} h-36 py-2`}
-                        value={audience.positions}
-                        onChange={(e) =>
-                            set({
-                                positions: Array.from(
-                                    e.target.selectedOptions,
-                                ).map((o: any) => o.value),
-                            })
-                        }
-                    >
-                        {positions.map((value: string) => (
-                            <option key={value}>{value}</option>
-                        ))}
-                    </select>
-                </Field>
-                <Field label="Role Profiles">
-                    <select
-                        multiple
-                        className={`${input} h-36 py-2`}
-                        value={audience.roleProfileIds}
-                        onChange={(e) =>
-                            set({
-                                roleProfileIds: Array.from(
-                                    e.target.selectedOptions,
-                                ).map((option: any) => option.value),
-                            })
-                        }
-                    >
-                        {roleProfiles
-                            .filter(
-                                (profile: any) =>
-                                    audience.personTypes.includes(
-                                        profile.personType,
-                                    ) &&
-                                    (audience.allDepartments ||
-                                        audience.departments.includes(
-                                            profile.department,
-                                        )),
-                            )
-                            .map((profile: any) => (
-                                <option key={profile.id} value={profile.id}>
-                                    {profile.name} · canonical v
-                                    {profile.version}
-                                </option>
-                            ))}
-                    </select>
-                </Field>
-                <Field label="Catalog visibility">
-                    <select
-                        className={input}
-                        value={audience.catalogVisibility}
-                        onChange={(e) =>
-                            set({ catalogVisibility: e.target.value })
-                        }
-                    >
-                        {[
-                            "Assigned only",
-                            "Eligible users may self-enroll",
-                            "Unlisted",
-                        ].map((v) => (
-                            <option key={v}>{v}</option>
-                        ))}
-                    </select>
-                </Field>
-                <Field label="Default due window (days)">
-                    <input
-                        type="number"
-                        className={input}
-                        value={audience.defaultDueDays ?? ""}
-                        onChange={(e) =>
-                            set({
-                                defaultDueDays: e.target.value
-                                    ? Number(e.target.value)
-                                    : null,
-                            })
-                        }
-                    />
-                </Field>
-                <Field label="Available from">
-                    <input
-                        type="datetime-local"
-                        className={input}
-                        value={audience.availableFrom ?? ""}
-                        onChange={(e) =>
-                            set({ availableFrom: e.target.value || null })
-                        }
-                    />
-                </Field>
-                <Field label="Available until">
-                    <input
-                        type="datetime-local"
-                        className={input}
-                        value={audience.availableUntil ?? ""}
-                        onChange={(e) =>
-                            set({ availableUntil: e.target.value || null })
-                        }
-                    />
-                </Field>
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-                <input
-                    type="checkbox"
-                    checked={audience.mandatoryDefault}
-                    onChange={(e) =>
-                        set({ mandatoryDefault: e.target.checked })
-                    }
-                />
-                Mandatory by default
-            </label>
+                </div>
+            </details>
         </div>
     );
 }
@@ -1295,9 +1364,7 @@ function Competency({ draft, update, catalog }: any) {
     return (
         <div>
             <p className="mb-4 text-sm text-slate-600">
-                General informational courses may remain unmapped.
-                Recommendation-created courses retain the exact competency
-                snapshot.
+                Map a competency only when the course is intended to address a defined skill requirement.
             </p>
             <div className="space-y-3">
                 {draft.competencies.map((item: any, index: number) => (
@@ -1305,10 +1372,10 @@ function Competency({ draft, update, catalog }: any) {
                         key={item.id}
                         className="grid gap-3 rounded-lg border border-slate-200 p-4 md:grid-cols-[1fr_110px_1fr_auto]"
                     >
-                        <select
+                        <SystemSelect
                             className={input}
                             value={item.id}
-                            aria-label="Canonical competency"
+                            aria-label="Competency"
                             onChange={(e) => {
                                 const selected = catalog.find(
                                     (value: any) => value.id === e.target.value,
@@ -1333,7 +1400,7 @@ function Competency({ draft, update, catalog }: any) {
                                     {value.version}
                                 </option>
                             ))}
-                        </select>
+                        </SystemSelect>
                         <input
                             className={input}
                             type="number"
@@ -1411,99 +1478,7 @@ function Competency({ draft, update, catalog }: any) {
                 </button>
             </div>
             <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-                <b>Boundary:</b> course completion creates supporting evidence
-                only. It never changes an official competency level or closes a
-                gap.
-            </div>
-        </div>
-    );
-}
-
-function Governance({ draft, update, governanceActors }: any) {
-    const owners = governanceActors.filter((person: any) => person.canOwn);
-    const publishers = governanceActors.filter(
-        (person: any) => person.canPublish,
-    );
-    const authors = governanceActors.filter((person: any) => person.canAuthor);
-    const reviewers = governanceActors.filter(
-        (person: any) =>
-            person.canReview &&
-            (draft.category !== "Safety & Compliance" ||
-                (!draft.authorIds.includes(person.id) &&
-                    person.id !== draft.ownerId &&
-                    person.id !== draft.publisherId)),
-    );
-    const options = (
-        ids: number[],
-        label: string,
-        setter: (ids: number[]) => void,
-    ) => (
-        <Field label={label}>
-            <select
-                multiple
-                className={`${input} h-36 py-2`}
-                value={ids.map(String)}
-                onChange={(e) =>
-                    setter(
-                        Array.from(e.target.selectedOptions).map((o: any) =>
-                            Number(o.value),
-                        ),
-                    )
-                }
-            >
-                {(label === "Reviewers" ? reviewers : authors).map(
-                    (person: any) => (
-                        <option key={person.id} value={person.id}>
-                            {person.name} — {person.position ?? person.role}
-                        </option>
-                    ),
-                )}
-            </select>
-        </Field>
-    );
-    return (
-        <div className="grid gap-5 lg:grid-cols-2">
-            <Field label="Course Owner">
-                <select
-                    className={input}
-                    value={draft.ownerId}
-                    onChange={(e) =>
-                        update({ ownerId: Number(e.target.value) })
-                    }
-                >
-                    {owners.map((p: any) => (
-                        <option key={p.id} value={p.id}>
-                            {p.name} — {p.role}
-                        </option>
-                    ))}
-                </select>
-            </Field>
-            <Field label="Publisher">
-                <select
-                    className={input}
-                    value={draft.publisherId ?? ""}
-                    onChange={(e) =>
-                        update({ publisherId: Number(e.target.value) || null })
-                    }
-                >
-                    <option value="">Select publisher</option>
-                    {publishers.map((p: any) => (
-                        <option key={p.id} value={p.id}>
-                            {p.name} — {p.role}
-                        </option>
-                    ))}
-                </select>
-            </Field>
-            {options(draft.authorIds, "Authors", (ids) =>
-                update({ authorIds: ids }),
-            )}
-            {options(draft.reviewerIds, "Reviewers", (ids) =>
-                update({ reviewerIds: ids }),
-            )}
-            <div className="lg:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                Admin access does not grant course authorship, review, or
-                publication. Every action is enforced by course-specific Laravel
-                authorization.
+                Course completion can support competency reassessment, but it does not change an official competency level by itself.
             </div>
         </div>
     );
@@ -1570,7 +1545,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                             className={button}
                             disabled={mi === 0}
                             onClick={() => move(mi, -1)}
-                            aria-label="Move module up"
+                            aria-label={`Move module ${module.title || mi + 1} up`}
                         >
                             <ArrowUp className="h-4 w-4" />
                         </button>
@@ -1578,12 +1553,13 @@ function Curriculum({ draft, update, material, busy }: any) {
                             className={button}
                             disabled={mi === modules.length - 1}
                             onClick={() => move(mi, 1)}
-                            aria-label="Move module down"
+                            aria-label={`Move module ${module.title || mi + 1} down`}
                         >
                             <ArrowDown className="h-4 w-4" />
                         </button>
                         <button
                             className={button}
+                            aria-label={`Remove module ${module.title || mi + 1}`}
                             onClick={() =>
                                 module.lessons.length
                                     ? setPendingRemoval({
@@ -1603,6 +1579,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                     </div>
                     <div className="space-y-3 p-4">
                         <textarea
+                            aria-label={`Module ${module.title || mi + 1} description`}
                             className={textarea}
                             value={module.description ?? ""}
                             placeholder="Module description"
@@ -1618,6 +1595,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                 className="grid gap-3 rounded-lg border border-slate-200 p-4 lg:grid-cols-2"
                             >
                                 <input
+                                    aria-label={`Lesson ${li + 1} title in ${module.title || `module ${mi + 1}`}`}
                                     className={input}
                                     value={lesson.title}
                                     placeholder="Lesson title"
@@ -1629,6 +1607,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                     }}
                                 />
                                 <input
+                                    aria-label={`Lesson ${li + 1} objective in ${module.title || `module ${mi + 1}`}`}
                                     className={input}
                                     value={lesson.objective}
                                     placeholder="Learning objective"
@@ -1639,7 +1618,8 @@ function Curriculum({ draft, update, material, busy }: any) {
                                         setModules(list);
                                     }}
                                 />
-                                <select
+                                <SystemSelect
+                                    aria-label={`Lesson ${lesson.title || li + 1} content type`}
                                     className={input}
                                     value={lesson.contentType}
                                     onChange={(e) => {
@@ -1658,8 +1638,9 @@ function Curriculum({ draft, update, material, busy }: any) {
                                     ].map((v) => (
                                         <option key={v}>{v}</option>
                                     ))}
-                                </select>
+                                </SystemSelect>
                                 <input
+                                    aria-label={`Lesson ${lesson.title || li + 1} estimated minutes`}
                                     type="number"
                                     className={input}
                                     value={lesson.estimatedMinutes}
@@ -1672,6 +1653,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                 />
                                 {lesson.contentType === "External Resource" ? (
                                     <input
+                                        aria-label={`Lesson ${lesson.title || li + 1} external URL`}
                                         className={`${input} lg:col-span-2`}
                                         value={lesson.externalUrl ?? ""}
                                         placeholder="https://..."
@@ -1685,6 +1667,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                     />
                                 ) : (
                                     <textarea
+                                        aria-label={`Lesson ${lesson.title || li + 1} content`}
                                         className={`${textarea} lg:col-span-2`}
                                         value={lesson.textContent ?? ""}
                                         placeholder="Lesson content. Protected files can be attached after the lesson is first saved."
@@ -1700,6 +1683,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                 <label className="flex items-center gap-2 text-sm">
                                     <input
                                         type="checkbox"
+                                        aria-label={`Require lesson ${lesson.title || li + 1}`}
                                         checked={lesson.required}
                                         onChange={(e) => {
                                             const list =
@@ -1714,7 +1698,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                 <div className="flex flex-wrap justify-end gap-2">
                                     <button
                                         className={button}
-                                        aria-label="Move lesson up"
+                                        aria-label={`Move lesson ${lesson.title || li + 1} up in ${module.title || `module ${mi + 1}`}`}
                                         disabled={li === 0}
                                         onClick={() => {
                                             const list =
@@ -1734,7 +1718,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                     </button>
                                     <button
                                         className={button}
-                                        aria-label="Move lesson down"
+                                        aria-label={`Move lesson ${lesson.title || li + 1} down in ${module.title || `module ${mi + 1}`}`}
                                         disabled={
                                             li === module.lessons.length - 1
                                         }
@@ -1787,6 +1771,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                                     )}
                                                     <button
                                                         className={button}
+                                                        aria-label={`Revoke material ${file.displayName} from lesson ${lesson.title || li + 1}`}
                                                         disabled={busy}
                                                         onClick={() =>
                                                             setPendingRemoval({
@@ -1837,6 +1822,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                                 </div>
                                 <button
                                     className={button}
+                                    aria-label={`Remove lesson ${lesson.title || li + 1} from ${module.title || `module ${mi + 1}`}`}
                                     onClick={() => {
                                         const populated = Boolean(
                                             lesson.title ||
@@ -1917,8 +1903,7 @@ function Curriculum({ draft, update, material, busy }: any) {
                 }
             >
                 <p className="text-sm text-slate-600">
-                    Confirm this deliberate content change. The action is
-                    recorded when persisted.
+                    Confirm this content change before continuing.
                 </p>
             </AppModal>
         </div>
@@ -1927,6 +1912,15 @@ function Curriculum({ draft, update, material, busy }: any) {
 
 function Assessment({ draft, update }: any) {
     const set = (v: any) => update({ assessments: v });
+    const pendingFocus = useRef<string | null>(null);
+    useEffect(() => {
+        if (!pendingFocus.current) return;
+        const target = document.querySelector<HTMLElement>(
+            `[data-learning-focus="${pendingFocus.current}"]`,
+        );
+        pendingFocus.current = null;
+        target?.focus();
+    }, [draft.assessments]);
     return (
         <div className="space-y-5">
             <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -2004,6 +1998,7 @@ function Assessment({ draft, update }: any) {
                 >
                     <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-[1fr_180px_210px_130px_130px_auto]">
                         <input
+                            aria-label={`Assessment ${ai + 1} title`}
                             className={input}
                             value={assessment.title}
                             onChange={(e) => {
@@ -2012,24 +2007,31 @@ function Assessment({ draft, update }: any) {
                                 set(list);
                             }}
                         />
-                        <select
+                        <SystemSelect
+                            aria-label={`Assessment ${assessment.title || ai + 1} type`}
                             className={input}
                             value={assessment.type}
                             onChange={(e) => {
                                 const list = structuredClone(draft.assessments);
                                 list[ai].type = e.target.value;
-                                if (e.target.value === "Final Assessment")
+                                if (e.target.value !== "Knowledge Check")
                                     list[ai].moduleClientId = null;
+                                if (e.target.value === "Pre-Test")
+                                    list[ai].required = false;
                                 set(list);
                             }}
                         >
+                            <option>Pre-Test</option>
                             <option>Knowledge Check</option>
-                            <option>Final Assessment</option>
-                        </select>
-                        <select
-                            aria-label="Knowledge Check module"
+                            <option>Post-Test</option>
+                            {assessment.type === "Final Assessment" && (
+                                <option>Final Assessment</option>
+                            )}
+                        </SystemSelect>
+                        <SystemSelect
+                            aria-label={`Module for assessment ${assessment.title || ai + 1}`}
                             className={input}
-                            disabled={assessment.type === "Final Assessment"}
+                            disabled={assessment.type !== "Knowledge Check"}
                             value={assessment.moduleClientId ?? ""}
                             onChange={(e) => {
                                 const list = structuredClone(draft.assessments);
@@ -2039,9 +2041,9 @@ function Assessment({ draft, update }: any) {
                             }}
                         >
                             <option value="">
-                                {assessment.type === "Final Assessment"
-                                    ? "Whole course"
-                                    : "Select module"}
+                                {assessment.type === "Knowledge Check"
+                                    ? "Select module"
+                                    : "Whole course"}
                             </option>
                             {draft.modules.map((module: any, index: number) => (
                                 <option
@@ -2051,9 +2053,9 @@ function Assessment({ draft, update }: any) {
                                     {module.title || `Module ${index + 1}`}
                                 </option>
                             ))}
-                        </select>
+                        </SystemSelect>
                         <input
-                            aria-label="Passing score"
+                            aria-label={`Passing score for assessment ${assessment.title || ai + 1}`}
                             type="number"
                             className={input}
                             value={assessment.passingScore}
@@ -2064,7 +2066,7 @@ function Assessment({ draft, update }: any) {
                             }}
                         />
                         <input
-                            aria-label="Attempts allowed"
+                            aria-label={`Attempts allowed for assessment ${assessment.title || ai + 1}`}
                             type="number"
                             className={input}
                             value={assessment.attemptsAllowed}
@@ -2078,6 +2080,7 @@ function Assessment({ draft, update }: any) {
                         />
                         <button
                             className={button}
+                            aria-label={`Remove assessment ${assessment.title || ai + 1}`}
                             onClick={() =>
                                 set(
                                     draft.assessments.filter(
@@ -2092,8 +2095,9 @@ function Assessment({ draft, update }: any) {
                     <div className="space-y-4 p-4">
                         <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2 lg:grid-cols-4">
                             <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-slate-700">
-                                <input
-                                    type="checkbox"
+                                    <input
+                                        type="checkbox"
+                                        aria-label={`Require assessment ${assessment.title || ai + 1} for completion`}
                                     checked={assessment.required}
                                     onChange={(e) => {
                                         const list = structuredClone(
@@ -2106,8 +2110,9 @@ function Assessment({ draft, update }: any) {
                                 Required for completion
                             </label>
                             <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-slate-700">
-                                <input
-                                    type="checkbox"
+                                    <input
+                                        type="checkbox"
+                                        aria-label={`Shuffle questions for assessment ${assessment.title || ai + 1}`}
                                     checked={assessment.shuffleQuestions}
                                     onChange={(e) => {
                                         const list = structuredClone(
@@ -2121,8 +2126,9 @@ function Assessment({ draft, update }: any) {
                                 Shuffle questions
                             </label>
                             <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-slate-700">
-                                <input
-                                    type="checkbox"
+                                    <input
+                                        type="checkbox"
+                                        aria-label={`Shuffle options for assessment ${assessment.title || ai + 1}`}
                                     checked={assessment.shuffleOptions}
                                     onChange={(e) => {
                                         const list = structuredClone(
@@ -2135,8 +2141,8 @@ function Assessment({ draft, update }: any) {
                                 />
                                 Shuffle options
                             </label>
-                            <select
-                                aria-label="Result feedback policy"
+                            <SystemSelect
+                                aria-label={`Feedback policy for assessment ${assessment.title || ai + 1}`}
                                 className={input}
                                 value={assessment.feedbackPolicy}
                                 onChange={(e) => {
@@ -2151,7 +2157,7 @@ function Assessment({ draft, update }: any) {
                                 <option>After final attempt</option>
                                 <option>Score only</option>
                                 <option>No feedback</option>
-                            </select>
+                            </SystemSelect>
                         </div>
                         {assessment.questions.map(
                             (question: any, qi: number) => (
@@ -2160,7 +2166,8 @@ function Assessment({ draft, update }: any) {
                                     className="rounded-lg border border-slate-200 p-4"
                                 >
                                     <div className="grid gap-3 lg:grid-cols-[180px_1fr_100px_auto]">
-                                        <select
+                                        <SystemSelect
+                                            aria-label={`Question ${qi + 1} type in ${assessment.title || `assessment ${ai + 1}`}`}
                                             className={input}
                                             value={question.type}
                                             onChange={(e) => {
@@ -2179,8 +2186,9 @@ function Assessment({ draft, update }: any) {
                                             ].map((v) => (
                                                 <option key={v}>{v}</option>
                                             ))}
-                                        </select>
+                                        </SystemSelect>
                                         <input
+                                            aria-label={`Question ${qi + 1} text in ${assessment.title || `assessment ${ai + 1}`}`}
                                             className={input}
                                             value={question.text}
                                             placeholder="Question text"
@@ -2194,6 +2202,7 @@ function Assessment({ draft, update }: any) {
                                             }}
                                         />
                                         <input
+                                            aria-label={`Question ${qi + 1} points in ${assessment.title || `assessment ${ai + 1}`}`}
                                             className={input}
                                             type="number"
                                             value={question.points}
@@ -2206,24 +2215,24 @@ function Assessment({ draft, update }: any) {
                                                 set(list);
                                             }}
                                         />
-                                        <button
-                                            className={button}
-                                            onClick={() => {
-                                                const list = structuredClone(
-                                                    draft.assessments,
-                                                );
-                                                list[ai].questions.splice(
-                                                    qi,
-                                                    1,
-                                                );
-                                                set(list);
-                                            }}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </button>
+                                        <div className="flex gap-2">
+                                            <button className={button} data-learning-focus={`question-${ai}-${qi}-up`} disabled={qi === 0} aria-label={`Move question ${qi + 1} up in ${assessment.title || `assessment ${ai + 1}`}`} onClick={() => {
+                                                pendingFocus.current = `question-${ai}-${qi - 1}-remove`;
+                                                const list = structuredClone(draft.assessments); const [row] = list[ai].questions.splice(qi, 1); list[ai].questions.splice(qi - 1, 0, row); set(list);
+                                            }}><ArrowUp className="h-4 w-4" /></button>
+                                            <button className={button} data-learning-focus={`question-${ai}-${qi}-down`} disabled={qi === assessment.questions.length - 1} aria-label={`Move question ${qi + 1} down in ${assessment.title || `assessment ${ai + 1}`}`} onClick={() => {
+                                                pendingFocus.current = `question-${ai}-${qi + 1}-remove`;
+                                                const list = structuredClone(draft.assessments); const [row] = list[ai].questions.splice(qi, 1); list[ai].questions.splice(qi + 1, 0, row); set(list);
+                                            }}><ArrowDown className="h-4 w-4" /></button>
+                                            <button className={button} data-learning-focus={`question-${ai}-${qi}-remove`} aria-label={`Remove question ${qi + 1} from ${assessment.title || `assessment ${ai + 1}`}`} onClick={() => {
+                                                pendingFocus.current = assessment.questions.length > 1 ? `question-${ai}-${Math.min(qi, assessment.questions.length - 2)}-remove` : `assessment-${ai}-add-question`;
+                                                const list = structuredClone(draft.assessments); list[ai].questions.splice(qi, 1); set(list);
+                                            }}><Trash2 className="h-4 w-4" /></button>
+                                        </div>
                                     </div>
                                     <div className="mt-3 space-y-2">
                                         <input
+                                            aria-label={`Explanation for question ${qi + 1} in ${assessment.title || `assessment ${ai + 1}`}`}
                                             className={input}
                                             value={question.explanation ?? ""}
                                             placeholder="Optional answer explanation"
@@ -2237,6 +2246,10 @@ function Assessment({ draft, update }: any) {
                                                 set(list);
                                             }}
                                         />
+                                        <fieldset className="space-y-2">
+                                            <legend className="text-sm font-semibold text-slate-700">
+                                                Answers for question {qi + 1}: {question.text || "Untitled question"}
+                                            </legend>
                                         {question.options.map(
                                             (option: any, oi: number) => (
                                                 <div
@@ -2244,6 +2257,7 @@ function Assessment({ draft, update }: any) {
                                                     key={option.id ?? oi}
                                                 >
                                                     <input
+                                                        aria-label={`Mark option ${oi + 1} correct for question ${qi + 1} in ${assessment.title || `assessment ${ai + 1}`}`}
                                                         type={
                                                             question.type ===
                                                             "Multiple Response"
@@ -2279,6 +2293,7 @@ function Assessment({ draft, update }: any) {
                                                         }}
                                                     />
                                                     <input
+                                                        aria-label={`Option ${oi + 1} text for question ${qi + 1} in ${assessment.title || `assessment ${ai + 1}`}`}
                                                         className={input}
                                                         value={option.text}
                                                         placeholder={`Option ${oi + 1}`}
@@ -2294,9 +2309,20 @@ function Assessment({ draft, update }: any) {
                                                             set(list);
                                                         }}
                                                     />
+                                                    <button className={button} data-learning-focus={`option-${ai}-${qi}-${oi}-up`} disabled={oi === 0} aria-label={`Move option ${oi + 1} up for question ${qi + 1} in ${assessment.title || `assessment ${ai + 1}`}`} onClick={() => {
+                                                        pendingFocus.current = `option-${ai}-${qi}-${oi - 1}-remove`;
+                                                        const list = structuredClone(draft.assessments); const [row] = list[ai].questions[qi].options.splice(oi, 1); list[ai].questions[qi].options.splice(oi - 1, 0, row); set(list);
+                                                    }}><ArrowUp className="h-4 w-4" /></button>
+                                                    <button className={button} data-learning-focus={`option-${ai}-${qi}-${oi}-down`} disabled={oi === question.options.length - 1} aria-label={`Move option ${oi + 1} down for question ${qi + 1} in ${assessment.title || `assessment ${ai + 1}`}`} onClick={() => {
+                                                        pendingFocus.current = `option-${ai}-${qi}-${oi + 1}-remove`;
+                                                        const list = structuredClone(draft.assessments); const [row] = list[ai].questions[qi].options.splice(oi, 1); list[ai].questions[qi].options.splice(oi + 1, 0, row); set(list);
+                                                    }}><ArrowDown className="h-4 w-4" /></button>
                                                     <button
                                                         className={button}
+                                                        data-learning-focus={`option-${ai}-${qi}-${oi}-remove`}
+                                                        aria-label={`Remove option ${oi + 1} from question ${qi + 1} in ${assessment.title || `assessment ${ai + 1}`}`}
                                                         onClick={() => {
+                                                            pendingFocus.current = question.options.length > 1 ? `option-${ai}-${qi}-${Math.min(oi, question.options.length - 2)}-remove` : `question-${ai}-${qi}-add-option`;
                                                             const list =
                                                                 structuredClone(
                                                                     draft.assessments,
@@ -2317,6 +2343,8 @@ function Assessment({ draft, update }: any) {
                                         )}
                                         <button
                                             className={button}
+                                            data-learning-focus={`question-${ai}-${qi}-add-option`}
+                                            aria-label={`Add option to question ${qi + 1} in ${assessment.title || `assessment ${ai + 1}`}`}
                                             onClick={() => {
                                                 const list = structuredClone(
                                                     draft.assessments,
@@ -2333,12 +2361,15 @@ function Assessment({ draft, update }: any) {
                                             <Plus className="h-4 w-4" />
                                             Add option
                                         </button>
+                                        </fieldset>
                                     </div>
                                 </div>
                             ),
                         )}
                         <button
                             className={button}
+                            data-learning-focus={`assessment-${ai}-add-question`}
+                            aria-label={`Add question to ${assessment.title || `assessment ${ai + 1}`}`}
                             onClick={() => {
                                 const list = structuredClone(draft.assessments);
                                 list[ai].questions.push(newQuestion());
@@ -2351,161 +2382,177 @@ function Assessment({ draft, update }: any) {
                     </div>
                 </article>
             ))}
-            <button
-                className={primary}
-                onClick={() => set([...draft.assessments, newAssessment()])}
-            >
-                <Plus className="h-4 w-4" />
-                Add assessment
-            </button>
+            <div className="flex flex-wrap gap-2">
+                {!draft.assessments.some((item: AssessmentDraft) => item.type === "Pre-Test") && (
+                    <button
+                        className={primary}
+                        onClick={() =>
+                            set([...draft.assessments, newAssessment("Pre-Test")])
+                        }
+                    >
+                        <Plus className="h-4 w-4" />
+                        Add Pre-Test
+                    </button>
+                )}
+                <button
+                    className={button}
+                    onClick={() =>
+                        set([...draft.assessments, newAssessment("Knowledge Check")])
+                    }
+                >
+                    <Plus className="h-4 w-4" />
+                    Add Knowledge Check
+                </button>
+                {!draft.assessments.some((item: AssessmentDraft) => item.type === "Post-Test") && (
+                    <button
+                        className={primary}
+                        onClick={() =>
+                            set([...draft.assessments, newAssessment("Post-Test")])
+                        }
+                    >
+                        <Plus className="h-4 w-4" />
+                        Add Post-Test
+                    </button>
+                )}
+            </div>
         </div>
     );
 }
 
-function Review({
-    draft,
-    errors,
-    state,
-    comment,
-    setComment,
-    workflow,
-    busy,
-}: any) {
-    const reviewer = state.governanceActors.find((p: any) =>
-        draft.reviewerIds.includes(p.id),
+function Review({ draft, errors }: any) {
+    const lessonCount = draft.modules.reduce(
+        (count: number, module: any) => count + module.lessons.length,
+        0,
     );
-    const isReviewer = draft.reviewerIds.includes(state.actor.id);
-    const isPublisher = draft.publisherId === state.actor.id;
+    const target = draft.audience.allDepartments
+        ? "Company-wide"
+        : draft.audience.departments.join(", ") || "Not set";
+    const preTest = draft.assessments.find((item: AssessmentDraft) => item.type === "Pre-Test");
+    const postTest = draft.assessments.find((item: AssessmentDraft) => item.type === "Post-Test");
+    const knowledgeChecks = draft.assessments.filter(
+        (item: AssessmentDraft) => item.type === "Knowledge Check",
+    );
+
     return (
-        <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-            <div className="space-y-4">
+        <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {[
-                    [
-                        "Course details",
-                        `${draft.title} · ${draft.category} · ${draft.difficulty}`,
-                    ],
-                    [
-                        "Audience",
-                        `${draft.audience.personTypes.join(", ")} · ${draft.audience.catalogVisibility}`,
-                    ],
-                    [
-                        "Competency mappings",
-                        `${draft.competencies.length} mapping(s); completion does not change official competency`,
-                    ],
-                    [
-                        "Governance",
-                        `${draft.authorIds.length} author(s) · ${draft.reviewerIds.length} reviewer(s) · ${draft.publisherId ? "Publisher assigned" : "No publisher"}`,
-                    ],
-                    [
-                        "Curriculum",
-                        `${draft.modules.length} module(s) · ${draft.modules.reduce((n: number, m: any) => n + m.lessons.length, 0)} lesson(s)`,
-                    ],
-                    [
-                        "Assessments",
-                        `${draft.assessments.length} assessment(s) · ${draft.assessments.reduce((n: number, a: any) => n + a.questions.length, 0)} question(s)`,
-                    ],
-                    [
-                        "Certificate",
-                        draft.completion.issueCertificate
-                            ? "Enabled"
-                            : "Disabled",
-                    ],
-                    [
-                        "Version impact",
-                        draft.versionNumber
-                            ? `Published v${draft.versionNumber}; edits require a separate working Draft`
-                            : "Draft saves do not increment official versions",
-                    ],
+                    ["Target", target],
+                    ["Source documents", `${draft.sourceDocumentIds.length} selected`],
+                    ["Curriculum", `${draft.modules.length} modules · ${lessonCount} lessons`],
+                    ["Assessment", `${preTest ? "Pre-Test" : "No Pre-Test"} · ${postTest ? "Post-Test" : "No Post-Test"}`],
                 ].map(([label, value]) => (
-                    <div
-                        key={label}
-                        className="rounded-lg border border-slate-200 p-4"
-                    >
-                        <h3 className="text-sm font-bold text-slate-900">
-                            {label}
-                        </h3>
-                        <p className="mt-1 text-sm text-slate-600">{value}</p>
+                    <div key={label} className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                        <p className="text-xs font-semibold text-slate-500">{label}</p>
+                        <p className="mt-1 text-sm font-bold text-slate-900">{value}</p>
                     </div>
                 ))}
             </div>
-            <aside>
-                <div
-                    className={`rounded-xl border p-4 ${errors.length ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}
-                >
-                    {errors.length ? (
-                        <>
-                            <h3 className="flex items-center gap-2 text-sm font-bold text-rose-900">
-                                <AlertCircle className="h-4 w-4" />
-                                Missing requirements
-                            </h3>
-                            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-rose-800">
-                                {errors.map((error: string) => (
-                                    <li key={error}>{error}</li>
-                                ))}
-                            </ul>
-                        </>
+
+            <section className="rounded-xl border border-slate-200 bg-white">
+                <div className="border-b border-slate-200 px-4 py-3">
+                    <h3 className="text-sm font-bold text-slate-900">Course summary</h3>
+                </div>
+                <div className="grid gap-4 p-4 md:grid-cols-2">
+                    <ReviewLine label="Course" value={draft.title || "Untitled course"} />
+                    <ReviewLine label="Category" value={`${draft.category} · ${draft.difficulty}`} />
+                    <ReviewLine label="Learners" value={draft.audience.personTypes.join(", ") || "Not set"} />
+                    <ReviewLine label="Availability" value={draft.audience.catalogVisibility} />
+                    <ReviewLine label="Competencies" value={`${draft.competencies.length} mapped`} />
+                    <ReviewLine label="Knowledge checks" value={`${knowledgeChecks.length}`} />
+                    <ReviewLine label="Certificate" value={draft.completion.issueCertificate ? "Issued on completion" : "Not issued"} />
+                    <ReviewLine label="Default due" value={draft.audience.defaultDueDays ? `${draft.audience.defaultDueDays} days` : "No default due date"} />
+                </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white">
+                <div className="border-b border-slate-200 px-4 py-3">
+                    <h3 className="text-sm font-bold text-slate-900">Source documents</h3>
+                </div>
+                <div className="divide-y divide-slate-100">
+                    {(draft.sourceDocuments ?? []).length ? (
+                        draft.sourceDocuments.map((source: any) => (
+                            <div key={`${source.documentId}-${source.version}`} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900">{source.title}</p>
+                                    <p className="text-xs text-slate-500">{source.type} · v{source.version}</p>
+                                </div>
+                                <span className="text-xs font-semibold text-slate-600">{source.owner}</span>
+                            </div>
+                        ))
                     ) : (
-                        <p className="flex items-center gap-2 text-sm font-bold text-emerald-800">
-                            <CheckCircle2 className="h-4 w-4" />
-                            Publication validation passed
-                        </p>
+                        <p className="px-4 py-4 text-sm text-slate-500">Selected source documents will appear here after saving.</p>
                     )}
                 </div>
-                <Field label="Review comment">
-                    <textarea
-                        className={`${textarea} mt-4`}
-                        value={comment}
-                        onChange={(e) => setComment(e.target.value)}
-                        placeholder="Required when requesting changes"
-                    />
-                </Field>
-                <div className="mt-4 grid gap-2">
-                    {(draft.status === "Draft" ||
-                        draft.status === "Changes Requested") && (
+            </section>
+
+            {errors.length > 0 && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                    <h3 className="flex items-center gap-2 text-sm font-bold text-rose-900">
+                        <AlertCircle className="h-4 w-4" />
+                        Complete before submission
+                    </h3>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-800">
+                        {errors.map((error: string) => (
+                            <li key={error}>{error}</li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function ReviewLine({ label, value }: { label: string; value: string }) {
+    return (
+        <div>
+            <p className="text-xs font-semibold text-slate-500">{label}</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
+        </div>
+    );
+}
+
+function SubmitCourse({ draft, errors, workflow, busy }: any) {
+    const submitted = draft.status === "In Review" || draft.status === "Approved";
+    return (
+        <div className="mx-auto max-w-3xl">
+            <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+                {submitted ? (
+                    <>
+                        <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-600" />
+                        <h3 className="mt-3 text-lg font-extrabold text-slate-950">Submitted to Admin</h3>
+                        <p className="mt-2 text-sm text-slate-600">
+                            The course is locked for publication review. Source checking runs on the submitted version.
+                        </p>
+                    </>
+                ) : errors.length ? (
+                    <>
+                        <AlertCircle className="mx-auto h-10 w-10 text-rose-600" />
+                        <h3 className="mt-3 text-lg font-extrabold text-slate-950">Course is not ready</h3>
+                        <ul className="mx-auto mt-3 max-w-xl list-disc space-y-1 pl-5 text-left text-sm text-rose-800">
+                            {errors.map((error: string) => (
+                                <li key={error}>{error}</li>
+                            ))}
+                        </ul>
+                    </>
+                ) : (
+                    <>
+                        <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-600" />
+                        <h3 className="mt-3 text-lg font-extrabold text-slate-950">Ready for Admin review</h3>
+                        <p className="mt-2 text-sm text-slate-600">
+                            Submit the completed course for source review and publication approval.
+                        </p>
                         <button
-                            className={primary}
-                            disabled={busy || errors.length > 0 || !reviewer}
+                            className={`${primary} mt-5`}
+                            disabled={busy}
                             onClick={() => workflow("review")}
                         >
-                            Submit for Review
+                            <Send className="h-4 w-4" />
+                            {busy ? "Submitting…" : "Submit to Admin"}
                         </button>
-                    )}
-                    {draft.status === "In Review" && isReviewer && (
-                        <>
-                            <button
-                                className={primary}
-                                disabled={busy}
-                                onClick={() => workflow("approve")}
-                            >
-                                Approve
-                            </button>
-                            <button
-                                className={button}
-                                disabled={busy || !comment.trim()}
-                                onClick={() => workflow("changes")}
-                            >
-                                Request Changes
-                            </button>
-                        </>
-                    )}
-                    {draft.status === "Approved" && (
-                        <button
-                            className={primary}
-                            disabled={busy || !isPublisher || errors.length > 0}
-                            onClick={() => workflow("publish")}
-                        >
-                            {isPublisher
-                                ? "Publish official version"
-                                : "Assigned Publisher only"}
-                        </button>
-                    )}
-                    {draft.status === "Published" && (
-                        <p className="rounded-lg bg-slate-100 p-3 text-sm text-slate-700">
-                            This official version is immutable.
-                        </p>
-                    )}
-                </div>
-            </aside>
+                    </>
+                )}
+            </div>
         </div>
     );
 }

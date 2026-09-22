@@ -110,6 +110,27 @@ export const REVIEW_TEMPLATES: ReviewTemplate[] = [
 
 export const PERFORMANCE_CYCLES: PerformanceCycle[] = [
   {
+    id: "period-q1-2026",
+    cycleName: "Q1 2026 Performance Cycle",
+    cycleType: "Quarterly",
+    performanceStartDate: "2026-01-01",
+    performanceEndDate: "2026-03-31",
+    reviewOpenDate: "2026-04-01",
+    reviewDueDate: "2026-04-15",
+    applicablePersonTypes: ["Employee", "Trainee"],
+    departmentScopes: [],
+    reviewTemplateIds: {
+      Employee: "review-template-employee-standard",
+      Trainee: "review-template-trainee-standard",
+    },
+    selfEvaluationEnabled: true,
+    selfRatingEnabled: true,
+    calibrationRequired: true,
+    employeeAcknowledgment: "Required",
+    status: "Closed",
+    description: "System-generated quarterly Performance cycle governed by ALB-PND-POL-014.",
+  },
+  {
     id: "period-q2-2026",
     cycleName: "Q2 2026 Performance Cycle",
     cycleType: "Quarterly",
@@ -123,12 +144,12 @@ export const PERFORMANCE_CYCLES: PerformanceCycle[] = [
       Employee: "review-template-employee-standard",
       Trainee: "review-template-trainee-standard",
     },
-    selfEvaluationEnabled: false,
-    selfRatingEnabled: false,
-    calibrationRequired: false,
-    employeeAcknowledgment: "Optional",
+    selfEvaluationEnabled: true,
+    selfRatingEnabled: true,
+    calibrationRequired: true,
+    employeeAcknowledgment: "Required",
     status: "Closed",
-    description: "Historical quarterly performance cycle.",
+    description: "System-generated quarterly Performance cycle governed by ALB-PND-POL-014.",
   },
   {
     id: "period-q3-2026",
@@ -149,8 +170,29 @@ export const PERFORMANCE_CYCLES: PerformanceCycle[] = [
     calibrationRequired: true,
     employeeAcknowledgment: "Required",
     status: "Active",
-    description: "Active organization-wide quarterly performance cycle.",
-    instructions: "Use agreed goals and documented workplace evidence. Missing supporting evidence does not become a zero score.",
+    description: "System-generated quarterly Performance cycle governed by ALB-PND-POL-014.",
+    instructions: "Use agreed Goals/KPIs and documented workplace evidence. Missing supporting evidence does not become a zero score.",
+  },
+  {
+    id: "period-q4-2026",
+    cycleName: "Q4 2026 Performance Cycle",
+    cycleType: "Quarterly",
+    performanceStartDate: "2026-10-01",
+    performanceEndDate: "2026-12-31",
+    reviewOpenDate: "2027-01-01",
+    reviewDueDate: "2027-01-15",
+    applicablePersonTypes: ["Employee", "Trainee"],
+    departmentScopes: [],
+    reviewTemplateIds: {
+      Employee: "review-template-employee-standard",
+      Trainee: "review-template-trainee-standard",
+    },
+    selfEvaluationEnabled: true,
+    selfRatingEnabled: true,
+    calibrationRequired: true,
+    employeeAcknowledgment: "Required",
+    status: "Draft",
+    description: "System-generated quarterly Performance cycle governed by ALB-PND-POL-014.",
   },
   {
     id: "cycle-probationary-2026",
@@ -168,8 +210,8 @@ export const PERFORMANCE_CYCLES: PerformanceCycle[] = [
     calibrationRequired: false,
     employeeAcknowledgment: "Optional",
     probationaryMilestoneMonths: 4,
-    status: "Draft",
-    description: "Configurable milestone review for eligible trainees; it does not change HR1 employment status.",
+    status: "Active",
+    description: "Special trainee review generated from the applicable probationary milestone; it does not change employment status automatically.",
   },
 ];
 
@@ -199,56 +241,9 @@ export type GoalTemplate = {
   active: boolean;
 };
 
-export const GOAL_TEMPLATES: GoalTemplate[] = [
-  {
-    id: "goal-template-operations",
-    name: "Operations Delivery & Safety",
-    applicablePersonTypes: ["Employee"],
-    departmentScopes: ["Operations", "Crane Operations", "Logistics"],
-    positionScopes: [],
-    cycleIds: ["period-q3-2026"],
-    description: "Shared operational expectations that can be refined for an individual's actual assignment.",
-    allowIndividualOverrides: true,
-    active: true,
-    items: [
-      { id: "ops-kra-delivery", metricType: "KRA", title: "Operational Delivery", target: "Meet the agreed work plan", unit: "% work plan", weight: 35 },
-      { id: "ops-kpi-quality", metricType: "KPI", title: "Work Quality", target: "At least 95", unit: "% accepted output", weight: 30 },
-      { id: "ops-kpi-compliance", metricType: "KPI", title: "Safety and Process Compliance", target: "Meet documented requirements", unit: "% compliance", weight: 25 },
-      { id: "ops-goal-development", metricType: "Goal", title: "Role Development Goal", target: "Complete agreed development action", unit: "milestone", weight: 10 },
-    ],
-  },
-  {
-    id: "goal-template-finance",
-    name: "Finance Accuracy & Timeliness",
-    applicablePersonTypes: ["Employee"],
-    departmentScopes: ["Finance"],
-    positionScopes: [],
-    cycleIds: ["period-q3-2026"],
-    allowIndividualOverrides: true,
-    active: true,
-    items: [
-      { id: "finance-kra-accuracy", metricType: "KRA", title: "Financial Record Accuracy", target: "At least 98", unit: "% accurate", weight: 40 },
-      { id: "finance-kpi-timeliness", metricType: "KPI", title: "Reporting Timeliness", target: "Meet all agreed reporting dates", unit: "% on time", weight: 35 },
-      { id: "finance-goal-improvement", metricType: "Goal", title: "Process Improvement", target: "Deliver one approved improvement", unit: "milestone", weight: 25 },
-    ],
-  },
-  {
-    id: "goal-template-trainee",
-    name: "Trainee Development Plan",
-    applicablePersonTypes: ["Trainee"],
-    departmentScopes: [],
-    positionScopes: [],
-    cycleIds: ["period-q3-2026", "cycle-probationary-2026"],
-    description: "Development expectations only; completion does not automatically change employment status.",
-    allowIndividualOverrides: true,
-    active: true,
-    items: [
-      { id: "trainee-kra-progress", metricType: "KRA", title: "Development Progress", target: "Complete agreed milestones", unit: "% milestones", weight: 35 },
-      { id: "trainee-kpi-application", metricType: "KPI", title: "Practical Application", target: "Demonstrate supervised task readiness", unit: "milestone", weight: 35 },
-      { id: "trainee-goal-feedback", metricType: "Goal", title: "Apply Coaching Feedback", target: "Close agreed coaching actions", unit: "% actions", weight: 30 },
-    ],
-  },
-];
+// Goal templates are server-owned and loaded from PostgreSQL.
+// The canonical seed source is database/seeders/data/DEFENSE_PERFORMANCE_GOALS_V2.json.
+export const GOAL_TEMPLATES: GoalTemplate[] = [];
 
 export type PerformanceGoal = {
   id: string;
@@ -269,17 +264,19 @@ export type PerformanceGoal = {
   description?: string;
 };
 
-export const PERFORMANCE_GOALS: PerformanceGoal[] = [
-  { id: "goal-mateo-delivery", personId: "user-gen-2", cycleId: "period-q3-2026", templateId: "goal-template-operations", templateItemId: "ops-kra-delivery", title: "Operational Delivery", metricType: "KRA", target: "Meet the agreed work plan", unit: "% work plan", weight: 35, progress: 62, status: "On Track", startDate: "2026-07-01", endDate: "2026-09-30", individualOverride: false },
-  { id: "goal-mateo-quality", personId: "user-gen-2", cycleId: "period-q3-2026", templateId: "goal-template-operations", templateItemId: "ops-kpi-quality", title: "Work Quality", metricType: "KPI", target: "At least 95", unit: "% accepted output", weight: 30, progress: 54, status: "At Risk", startDate: "2026-07-01", endDate: "2026-09-30", individualOverride: false },
-  { id: "goal-elaine-progress", personId: "user-6", cycleId: "period-q3-2026", templateId: "goal-template-trainee", templateItemId: "trainee-kra-progress", title: "Development Progress", metricType: "KRA", target: "Complete agreed milestones", unit: "% milestones", weight: 35, progress: 70, status: "On Track", startDate: "2026-07-01", endDate: "2026-09-30", individualOverride: false },
-  { id: "goal-nina-accuracy", personId: "user-5", cycleId: "period-q3-2026", templateId: "goal-template-finance", templateItemId: "finance-kra-accuracy", title: "Financial Record Accuracy", metricType: "KRA", target: "At least 98", unit: "% accurate", weight: 40, progress: 100, status: "Completed", startDate: "2026-07-01", endDate: "2026-09-30", individualOverride: false },
-];
+// Operational goal assignments are server-owned. Empty client defaults avoid
+// displaying stale/demo values before the authoritative Performance state loads.
+export const PERFORMANCE_GOALS: PerformanceGoal[] = [];
 
 export function getActivePerformanceCycle(
   cycles: PerformanceCycle[] = PERFORMANCE_CYCLES,
 ): PerformanceCycle | undefined {
-  return cycles.find((cycle) => cycle.status === "Active");
+  const recurringTypes: PerformanceCycleType[] = ["Quarterly", "Semi-Annual", "Annual"];
+  return (
+    cycles.find(
+      (cycle) => cycle.status === "Active" && recurringTypes.includes(cycle.cycleType),
+    ) ?? cycles.find((cycle) => cycle.status === "Active")
+  );
 }
 
 export function isCycleApplicableToPerson(

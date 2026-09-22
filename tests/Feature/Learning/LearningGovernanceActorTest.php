@@ -2,215 +2,238 @@
 
 namespace Tests\Feature\Learning;
 
-use App\Models\Learning\LearningAssignment;
+use App\Enums\UserRole;
+use App\Models\Learning\LearningCourseVersion;
 use App\Models\User;
-use App\Services\Learning\LearningAssignmentService;
 use App\Services\Learning\LearningCourseService;
-use Database\Seeders\DatabaseSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class LearningGovernanceActorTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_database_seeder_default_admin_is_an_authorized_system_account_without_a_personnel_identity(): void
+    protected function setUp(): void
     {
-        $this->seed(DatabaseSeeder::class);
-
-        $admin = User::query()->where('email', 'admin@alibaton.com')->firstOrFail();
-
-        $this->assertSame('Admin User', $admin->name);
-        $this->assertSame('admin', $admin->role->value);
-        $this->assertNull($admin->personnel_key);
+        parent::setUp();
+        config([
+            'services.groq.key' => null,
+            'services.learning_lms.url' => null,
+            'services.learning_lms.token' => null,
+        ]);
     }
 
-    public function test_default_admin_creates_saves_and_reopens_a_persistent_draft_through_http(): void
+    public function test_admin_cannot_create_or_edit_an_hr_course_draft(): void
     {
-        $this->seed(DatabaseSeeder::class);
-        $admin = User::query()->where('email', 'admin@alibaton.com')->firstOrFail();
-        $payload = $this->incompletePayload($admin);
+        [$hr, $admin] = $this->actors();
+        $courses = app(LearningCourseService::class);
 
-        $created = $this->actingAs($admin)->postJson(route('learning.api.courses.create'), $payload);
+        try {
+            $courses->createDraft($admin, $this->payload($hr));
+            $this->fail('Admin created a course draft.');
+        } catch (AuthorizationException) {
+            $this->assertTrue(true);
+        }
 
-        $created->assertCreated()->assertJsonStructure(['data' => ['versionId', 'courseId', 'code']]);
-        $this->assertMatchesRegularExpression('/^LRN-\d{4}-\d{3,}$/', $created->json('data.code'));
+        $draft = $courses->createDraft($hr, $this->payload($hr));
+        try {
+            $courses->saveDraft($admin, $draft, $this->payload($hr));
+            $this->fail('Admin edited the HR course draft.');
+        } catch (AuthorizationException) {
+            $this->assertTrue(true);
+        }
+    }
+
+    public function test_hr_creation_automatically_assigns_hr_author_and_admin_publisher(): void
+    {
+        [$hr, $admin] = $this->actors();
+        $draft = app(LearningCourseService::class)->createDraft($hr, $this->payload($hr));
+
         $this->assertDatabaseHas('learning_course_collaborators', [
-            'course_id' => $created->json('data.courseId'),
-            'user_id' => $admin->id,
+            'course_id' => $draft->course_id,
+            'user_id' => $hr->id,
             'permission' => 'Owner',
         ]);
         $this->assertDatabaseHas('learning_course_collaborators', [
-            'course_id' => $created->json('data.courseId'),
+            'course_id' => $draft->course_id,
+            'user_id' => $hr->id,
+            'permission' => 'Author',
+        ]);
+        $this->assertDatabaseHas('learning_course_collaborators', [
+            'course_id' => $draft->course_id,
+            'user_id' => $admin->id,
+            'permission' => 'Publisher',
+        ]);
+        $this->assertDatabaseMissing('learning_course_collaborators', [
+            'course_id' => $draft->course_id,
             'user_id' => $admin->id,
             'permission' => 'Author',
         ]);
-
-        $state = $this->actingAs($admin)->getJson(route('learning.api.state'))->assertOk()->json('data');
-        $governanceAdmin = collect($state['governanceActors'])->firstWhere('id', $admin->id);
-        $this->assertNotNull($governanceAdmin);
-        $this->assertNull($governanceAdmin['personnel_key']);
-        $this->assertTrue($governanceAdmin['canOwn']);
-        $this->assertTrue($governanceAdmin['canAuthor']);
-        $this->assertTrue($governanceAdmin['canPublish']);
-        $this->assertFalse($governanceAdmin['canReview']);
-        $this->assertFalse(collect($state['personnel'])->contains(fn (array $person) => $person['id'] === $admin->id));
-
-        $payload['title'] = 'Workplace readiness';
-        $payload['description'] = 'A governed online course Draft that persists the completed first stage.';
-        $payload['learningObjectives'] = ['Apply the documented workplace requirement correctly.'];
-        $this->actingAs($admin)->putJson(
-            route('learning.api.versions.save', ['version' => $created->json('data.versionId')]),
-            $payload,
-        )->assertOk();
-
-        $reopenedState = $this->actingAs($admin)->getJson(route('learning.api.state'))->assertOk()->json('data');
-        $course = collect($reopenedState['courses'])->firstWhere('id', $created->json('data.courseId'));
-        $this->assertSame($admin->id, $course['draftDetail']['ownerId']);
-        $this->assertContains($admin->id, $course['draftDetail']['authorIds']);
-        $this->assertSame('Workplace readiness', $course['draftDetail']['title']);
-        $this->assertSame($created->json('data.code'), $course['draftDetail']['code']);
     }
 
-    public function test_http_draft_uses_canonical_person_types_and_normalizes_only_known_legacy_aliases(): void
+    public function test_hr_can_create_a_persistent_draft_through_http_but_admin_cannot(): void
     {
-        $this->seed(DatabaseSeeder::class);
-        $admin = User::query()->where('email', 'admin@alibaton.com')->firstOrFail();
-        $canonical = User::query()->whereNotNull('personnel_key')->where('employment_status', 'Active')->firstOrFail();
-        $canonical->update(['person_type' => 'Project Employee']);
+        [$hr, $admin] = $this->actors();
 
-        $payload = $this->incompletePayload($admin);
-        $payload['audience']['personTypes'] = ['Project Employee'];
-        $created = $this->actingAs($admin)->postJson(route('learning.api.courses.create'), $payload)->assertCreated();
-        $this->assertSame(
-            ['Project Employee'],
-            \App\Models\Learning\LearningCourseVersion::query()->findOrFail($created->json('data.versionId'))->audience_rules['personTypes'],
-        );
+        $this->actingAs($admin)
+            ->postJson(route('learning.api.courses.create'), $this->payload($hr))
+            ->assertForbidden();
 
-        $payload['audience']['personTypes'] = ['Employees'];
-        $legacy = $this->actingAs($admin)->postJson(route('learning.api.courses.create'), $payload)->assertCreated();
-        $this->assertSame(
-            ['Employee'],
-            \App\Models\Learning\LearningCourseVersion::query()->findOrFail($legacy->json('data.versionId'))->audience_rules['personTypes'],
-        );
-
-        $payload['audience']['personTypes'] = ['Invented Type'];
-        $this->actingAs($admin)->postJson(route('learning.api.courses.create'), $payload)
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('audience.personTypes');
-    }
-
-    public function test_http_step_one_draft_saves_without_configuring_step_two_audience(): void
-    {
-        $this->seed(DatabaseSeeder::class);
-        $admin = User::query()->where('email', 'admin@alibaton.com')->firstOrFail();
-        $payload = $this->incompletePayload($admin);
-        $payload['audience']['personTypes'] = [];
-
-        $this->actingAs($admin)->postJson(route('learning.api.courses.create'), $payload)
+        $response = $this->actingAs($hr)
+            ->postJson(route('learning.api.courses.create'), $this->payload($hr))
             ->assertCreated()
-            ->assertJsonStructure(['data' => ['versionId', 'courseId', 'code']]);
+            ->assertJsonPath('data.code', 'LRN-'.now()->format('Y').'-001');
+
+        $versionId = $response->json('data.versionId');
+        $this->assertDatabaseHas('learning_course_versions', [
+            'id' => $versionId,
+            'created_by' => $hr->id,
+            'status' => 'Draft',
+        ]);
     }
 
-    public function test_system_admin_is_not_learner_eligible_and_has_no_course_lifecycle_bypass(): void
+    public function test_submission_routes_to_the_assigned_admin_and_admin_controls_publication(): void
     {
-        $this->seed(DatabaseSeeder::class);
-        $admin = User::query()->where('email', 'admin@alibaton.com')->firstOrFail();
-        $reviewer = User::query()->where('personnel_key', 'user-gen-10')->firstOrFail();
-        $publisher = User::query()->where('personnel_key', 'user-1')->firstOrFail();
+        [$hr, $admin, $otherAdmin] = $this->actors();
         $courses = app(LearningCourseService::class);
-        $draft = $courses->createDraft($admin, $this->completePayload($admin, $reviewer, $publisher));
+        $draft = $courses->createDraft($hr, $this->payload($hr));
+        $courses->submitForReview($hr, $draft);
+
+        $this->assertDatabaseHas('learning_review_requests', [
+            'course_version_id' => $draft->id,
+            'reviewer_id' => $admin->id,
+            'status' => 'Pending',
+        ]);
+        $this->assertDatabaseHas('learning_course_source_reviews', [
+            'course_version_id' => $draft->id,
+        ]);
 
         try {
-            $courses->submitForReview($admin, $draft, $admin->id);
-            $this->fail('Admin status bypassed course-specific reviewer authorization.');
-        } catch (ValidationException) {
+            $courses->decideReview($otherAdmin, $draft->fresh(), 'Approved', 'Not assigned');
+            $this->fail('An unassigned Admin reviewed the course.');
+        } catch (AuthorizationException) {
+            $this->assertTrue(true);
         }
 
-        $courses->submitForReview($admin, $draft->fresh(), $reviewer->id);
+        $courses->decideReview($admin, $draft->fresh(), 'Approved', 'Sources and course content reviewed.');
+
         try {
-            $courses->decideReview($admin, $draft->fresh(), 'Approved', 'Self approval attempt');
-            $this->fail('The owner approved their own course.');
+            $courses->publish($hr, $draft->fresh());
+            $this->fail('HR published the course.');
         } catch (AuthorizationException) {
+            $this->assertTrue(true);
         }
-        $courses->decideReview($reviewer, $draft->fresh(), 'Approved', 'Independent review complete');
-        try {
-            $courses->publish($admin, $draft->fresh());
-            $this->fail('Admin status bypassed course-specific Publisher authorization.');
-        } catch (AuthorizationException) {
-        }
-        $courses->publish($publisher, $draft->fresh());
+
+        $result = $courses->publish($admin, $draft->fresh());
+        $this->assertSame('Published', $draft->fresh()->status);
+        $this->assertSame('Queued', $result['status']);
+        $this->assertDatabaseHas('learning_publication_deliveries', [
+            'course_version_id' => $draft->id,
+            'status' => 'Queued',
+            'published_by' => $admin->id,
+        ]);
+    }
+
+    public function test_changes_requested_returns_the_same_working_version_to_hr(): void
+    {
+        [$hr, $admin] = $this->actors();
+        $courses = app(LearningCourseService::class);
+        $draft = $courses->createDraft($hr, $this->payload($hr));
+        $courses->submitForReview($hr, $draft);
+        $courses->decideReview($admin, $draft->fresh(), 'Changes Requested', 'Clarify the final handover step.');
+
+        $this->assertSame('Changes Requested', $draft->fresh()->status);
+        $courses->saveDraft($hr, $draft->fresh(), array_replace($this->payload($hr), [
+            'description' => 'Updated source-grounded operational handover course with the final handover step clarified.',
+        ]));
+        $this->assertSame('Changes Requested', $draft->fresh()->status);
+    }
+
+    public function test_only_hr_can_open_a_revision_from_an_official_published_version(): void
+    {
+        [$hr, $admin] = $this->actors();
+        $courses = app(LearningCourseService::class);
+        $draft = $courses->createDraft($hr, $this->payload($hr));
+        $courses->submitForReview($hr, $draft);
+        $courses->decideReview($admin, $draft->fresh(), 'Approved', 'Ready');
+        $courses->publish($admin, $draft->fresh());
         $published = $draft->fresh();
 
-        $preview = app(LearningAssignmentService::class)->preview($publisher, $published, [$admin->id]);
-        $this->assertSame('Ineligible', $preview[0]['result']);
         try {
-            app(LearningAssignmentService::class)->assign($publisher, $published, [
-                'learnerIds' => [$admin->id],
-                'source' => 'Manual Assignment',
-                'priority' => 'Normal',
-                'reason' => 'Learner boundary check',
-            ]);
-            $this->fail('A system-only account was assigned as a learner.');
-        } catch (ValidationException) {
-        }
-        try {
-            app(LearningAssignmentService::class)->selfEnroll($admin, $published);
-            $this->fail('A system-only account self-enrolled as a learner.');
+            $courses->workingDraft($admin, $published);
+            $this->fail('Admin opened an authoring revision.');
         } catch (AuthorizationException) {
+            $this->assertTrue(true);
         }
 
-        $this->assertSame(0, LearningAssignment::query()->where('learner_id', $admin->id)->count());
+        $revision = $courses->workingDraft($hr, $published);
+        $this->assertNull($revision->version_number);
+        $this->assertSame($published->id, $revision->based_on_version_id);
+        $this->assertSame('Draft', $revision->status);
+        $this->assertSame(
+            DB::table('learning_course_source_links')->where('course_version_id', $published->id)->count(),
+            DB::table('learning_course_source_links')->where('course_version_id', $revision->id)->count(),
+        );
     }
 
-    public function test_independent_review_and_evaluator_authorization_remain_enforced(): void
+    private function actors(): array
     {
-        $this->seed(DatabaseSeeder::class);
-        $admin = User::query()->where('email', 'admin@alibaton.com')->firstOrFail();
-        $reviewer = User::query()->where('personnel_key', 'user-gen-10')->firstOrFail();
-        $publisher = User::query()->where('personnel_key', 'user-1')->firstOrFail();
-        $courses = app(LearningCourseService::class);
+        $hr = $this->user('hr-author', 'HR Course Author', UserRole::HR, 'Human Resources');
+        $admin = $this->user('admin-publisher', 'Learning Admin', UserRole::Admin, 'Administration');
+        $otherAdmin = $this->user('admin-other', 'Other Admin', UserRole::Admin, 'Administration');
+        $this->user('learner-operations', 'Operations Learner', UserRole::User, 'Operations');
 
-        $notIndependent = $this->completePayload($admin, $reviewer, $publisher);
-        $notIndependent['authorIds'][] = $reviewer->id;
-        $draft = $courses->createDraft($admin, $notIndependent);
-        try {
-            $courses->submitForReview($admin, $draft, $reviewer->id);
-            $this->fail('A Safety author was accepted as the independent reviewer.');
-        } catch (ValidationException) {
-        }
-
-        $nonEvaluator = User::query()->where('personnel_key', 'user-6')->firstOrFail();
-        $unauthorizedReviewer = $this->completePayload($admin, $reviewer, $publisher);
-        $unauthorizedReviewer['reviewerIds'] = [$nonEvaluator->id];
-        try {
-            $courses->createDraft($admin, $unauthorizedReviewer);
-            $this->fail('Canonical personnel without evaluator authorization became a reviewer.');
-        } catch (ValidationException) {
-        }
+        return [$hr, $admin, $otherAdmin];
     }
 
-    private function incompletePayload(User $owner): array
+    private function user(string $key, string $name, UserRole $role, string $department): User
     {
+        return User::factory()->create([
+            'personnel_key' => $key,
+            'core_person_id' => 'CORE-'.$key,
+            'employee_or_trainee_id' => 'EMP-'.$key,
+            'name' => $name,
+            'role' => $role,
+            'person_type' => 'Employee',
+            'department' => $department,
+            'position' => $role === UserRole::HR ? 'HR Business Partner' : 'Staff Professional',
+            'employment_status' => 'Active',
+            'evaluator_capable' => $role === UserRole::HR,
+        ]);
+    }
+
+    private function payload(User $hr): array
+    {
+        $question = fn (string $text): array => [
+            'type' => 'Multiple Choice',
+            'text' => $text,
+            'explanation' => 'Follow the documented procedure.',
+            'points' => 1,
+            'options' => [
+                ['text' => 'Follow the documented procedure', 'correct' => true],
+                ['text' => 'Ignore the documented procedure', 'correct' => false],
+            ],
+        ];
+
         return [
-            'title' => '',
-            'description' => '',
-            'category' => 'General',
+            'title' => 'Operational Handover',
+            'description' => 'A source-grounded operational handover course prepared by Human Resources.',
+            'category' => 'Operations',
             'difficulty' => 'Beginner',
             'language' => 'English',
-            'learningObjectives' => [''],
-            'ownerId' => $owner->id,
-            'subjectMatterExpertId' => null,
-            'durationOverrideMinutes' => null,
-            'authorIds' => [$owner->id],
+            'learningObjectives' => ['Apply the documented handover procedure correctly.'],
+            'ownerId' => $hr->id,
+            'subjectMatterExpertId' => $hr->id,
+            'authorIds' => [$hr->id],
             'reviewerIds' => [],
             'publisherId' => null,
+            'sourceDocumentIds' => ['ALB-PND-SOP-002'],
             'audience' => [
                 'personTypes' => ['Employee'],
-                'allDepartments' => true,
-                'departments' => [],
+                'allDepartments' => false,
+                'departments' => ['Operations'],
                 'positions' => [],
                 'roleProfileIds' => [],
                 'catalogVisibility' => 'Assigned only',
@@ -218,66 +241,43 @@ class LearningGovernanceActorTest extends TestCase
                 'mandatoryDefault' => true,
             ],
             'competencies' => [],
-            'modules' => [],
-            'assessments' => [],
+            'modules' => [[
+                'clientId' => 'module-1',
+                'title' => 'Handover Foundation',
+                'description' => 'Required handover controls.',
+                'lessons' => [[
+                    'title' => 'Shift Handover',
+                    'objective' => 'Apply the handover process correctly.',
+                    'description' => 'Review the required handover process.',
+                    'contentType' => 'Text/Reading',
+                    'textContent' => 'Complete the documented handover and the required operational record.',
+                    'externalUrl' => null,
+                    'estimatedMinutes' => 10,
+                    'required' => true,
+                ]],
+            ]],
+            'assessments' => [
+                [
+                    'type' => 'Pre-Test', 'title' => 'Pre-Test', 'required' => false,
+                    'passingScore' => 80, 'attemptsAllowed' => 1, 'shuffleQuestions' => false,
+                    'shuffleOptions' => false, 'feedbackPolicy' => 'After submission',
+                    'moduleClientId' => null, 'questions' => [$question('Before training, which action follows the procedure?')],
+                ],
+                [
+                    'type' => 'Post-Test', 'title' => 'Post-Test', 'required' => true,
+                    'passingScore' => 80, 'attemptsAllowed' => 3, 'shuffleQuestions' => false,
+                    'shuffleOptions' => false, 'feedbackPolicy' => 'After submission',
+                    'moduleClientId' => null, 'questions' => [$question('After training, which action follows the procedure?')],
+                ],
+            ],
             'completion' => [
                 'completeRequiredLessons' => true,
                 'passRequiredKnowledgeChecks' => true,
                 'passFinalAssessment' => true,
-                'issueCertificate' => false,
-                'certificateValidityMonths' => null,
-                'renewalIntervalMonths' => null,
+                'issueCertificate' => true,
+                'certificateValidityMonths' => 12,
+                'renewalIntervalMonths' => 12,
             ],
         ];
-    }
-
-    private function completePayload(User $owner, User $reviewer, User $publisher): array
-    {
-        $payload = $this->incompletePayload($owner);
-        $payload['title'] = 'Workplace Safety Orientation';
-        $payload['description'] = 'A governed online safety course with independently reviewed learning content.';
-        $payload['category'] = 'Safety & Compliance';
-        $payload['learningObjectives'] = ['Apply the documented workplace safety procedure correctly.'];
-        $payload['subjectMatterExpertId'] = $reviewer->id;
-        $payload['reviewerIds'] = [$reviewer->id];
-        $payload['publisherId'] = $publisher->id;
-        $payload['audience']['catalogVisibility'] = 'Eligible users may self-enroll';
-        $payload['modules'] = [[
-            'clientId' => 'safety-foundation',
-            'title' => 'Safety foundation',
-            'description' => 'Required foundation module.',
-            'lessons' => [[
-                'title' => 'Workplace controls',
-                'objective' => 'Apply the documented workplace controls correctly.',
-                'description' => 'Review the required controls.',
-                'contentType' => 'Text/Reading',
-                'textContent' => 'Review each required control and use the authorized escalation path.',
-                'externalUrl' => null,
-                'estimatedMinutes' => 10,
-                'required' => true,
-            ]],
-        ]];
-        $payload['assessments'] = [[
-            'type' => 'Final Assessment',
-            'title' => 'Final Assessment',
-            'required' => true,
-            'passingScore' => 80,
-            'attemptsAllowed' => 3,
-            'shuffleQuestions' => false,
-            'shuffleOptions' => false,
-            'feedbackPolicy' => 'After submission',
-            'questions' => [[
-                'type' => 'Multiple Choice',
-                'text' => 'Which action follows the documented safety control?',
-                'explanation' => 'Use the documented control.',
-                'points' => 1,
-                'options' => [
-                    ['text' => 'Apply the documented control', 'correct' => true],
-                    ['text' => 'Skip the documented control', 'correct' => false],
-                ],
-            ]],
-        ]];
-
-        return $payload;
     }
 }

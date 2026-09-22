@@ -47,6 +47,7 @@ export type CalibrationStatus =
 export type CalibrationHistoryRecord = {
   action: "Submitted" | "Review Started" | "Approved" | "Returned for Revision";
   actor: string;
+  actorRole?: string | null;
   timestamp: string;
   notes?: string;
 };
@@ -74,10 +75,22 @@ export type CompletedReviewRevisionRecord = RevisionMetadata & {
   snapshot: ReviewRevisionSnapshot;
 };
 
+export type PerformanceReviewAuditEvent = {
+  actorRole?: string | null;
+  type: string;
+  actor: string;
+  timestamp: string;
+  reason?: string | null;
+  notes?: string | null;
+  fromEvaluatorId?: string | null;
+  toEvaluatorId?: string | null;
+};
+
 export type PerformanceReview = {
   id: string;
   personId: string;
   evaluatorId: string;
+  goalEvaluatorId?: string;
   periodId: string;
   reviewTemplateId?: string;
   rating: number | null;
@@ -97,6 +110,15 @@ export type PerformanceReview = {
   acknowledgment?: EmployeeAcknowledgment;
   assignmentHistory?: ReassignmentMetadata[];
   revisionHistory?: CompletedReviewRevisionRecord[];
+  auditTrail?: PerformanceReviewAuditEvent[];
+  reviewMethod?: "Manager Review" | "360° Leadership Review";
+  pipOwner?: {
+    id: string | null;
+    name: string | null;
+    authorityType: string | null;
+    source: string | null;
+    assignmentBasis: string | null;
+  } | null;
 };
 
 export const DEVELOPMENT_RECOMMENDATION_OPTIONS = [
@@ -108,204 +130,9 @@ export const DEVELOPMENT_RECOMMENDATION_OPTIONS = [
   "Other",
 ] as const;
 
-export const INITIAL_PERFORMANCE_REVIEWS: PerformanceReview[] = [
-  {
-    id: "eval-1",
-    personId: "user-6",
-    evaluatorId: "user-gen-10",
-    periodId: "period-q3-2026",
-    reviewTemplateId: "review-template-trainee-standard",
-    rating: 4.4,
-    status: "Completed",
-    dateEvaluated: "Aug 3, 2026",
-    managerSubmittedAt: "2026-08-03T15:10:00+08:00",
-    finalizedAt: "2026-08-03T15:10:00+08:00",
-    workflowState: "Finalized",
-    calibrationStatus: "Not Required",
-    competencyScores: [
-      { name: "Learning / Development Progress", score: 4.3 },
-      { name: "Assessment Performance", score: 4.2 },
-      { name: "Training Participation", score: 4.6 },
-      { name: "Competency Readiness", score: 4.4 },
-      { name: "Participation / Compliance", score: 4.7 },
-      { name: "Practical Application", score: 4.2 },
-    ],
-    comments:
-      "Adjusting well to the Operations training track and consistently meets attendance expectations.",
-    developmentRecommendations: ["Training recommended"],
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-2",
-    personId: "user-5",
-    evaluatorId: "user-gen-11",
-    periodId: "period-q2-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: 4.2,
-    status: "Completed",
-    dateEvaluated: "Jul 2, 2026",
-    managerSubmittedAt: "2026-07-02T14:30:00+08:00",
-    finalizedAt: "2026-07-02T14:30:00+08:00",
-    workflowState: "Finalized",
-    calibrationStatus: "Not Required",
-    competencyScores: [
-      { name: "Quality of Work", score: 4.1 },
-      { name: "Productivity", score: 4.3 },
-      { name: "Role Competency", score: 4.2 },
-      { name: "Communication / Collaboration", score: 4.4 },
-      { name: "Reliability / Compliance", score: 4.0 },
-      { name: "Problem Solving", score: 4.1 },
-    ],
-    comments:
-      "Reliable performance in Finance with steady turnaround on monthly reconciliations.",
-    developmentRecommendations: [],
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-3",
-    personId: "user-8",
-    evaluatorId: "user-gen-13",
-    periodId: "period-q3-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: null,
-    status: "Pending",
-    dueDate: "2026-08-20",
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-4",
-    personId: "user-gen-0",
-    evaluatorId: "user-gen-8",
-    periodId: "period-q2-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: 4.5,
-    status: "Completed",
-    dateEvaluated: "Jul 5, 2026",
-    managerSubmittedAt: "2026-07-05T10:15:00+08:00",
-    finalizedAt: "2026-07-05T10:15:00+08:00",
-    workflowState: "Finalized",
-    calibrationStatus: "Not Required",
-    competencyScores: [
-      { name: "Quality of Work", score: 4.3 },
-      { name: "Productivity", score: 4.7 },
-      { name: "Role Competency", score: 4.5 },
-      { name: "Communication / Collaboration", score: 4.6 },
-      { name: "Reliability / Compliance", score: 4.4 },
-      { name: "Problem Solving", score: 4.5 },
-    ],
-    comments:
-      "Strong technical execution on crane operations with a clean safety record this quarter.",
-    developmentRecommendations: ["Learning recommended"],
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-5",
-    personId: "user-gen-1",
-    evaluatorId: "user-gen-9",
-    periodId: "period-q2-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: 4.0,
-    status: "Completed",
-    dateEvaluated: "Jul 6, 2026",
-    managerSubmittedAt: "2026-07-06T16:20:00+08:00",
-    finalizedAt: "2026-07-06T16:20:00+08:00",
-    workflowState: "Finalized",
-    calibrationStatus: "Not Required",
-    competencyScores: [
-      { name: "Quality of Work", score: 4.0 },
-      { name: "Productivity", score: 3.9 },
-      { name: "Role Competency", score: 4.1 },
-      { name: "Communication / Collaboration", score: 4.0 },
-      { name: "Reliability / Compliance", score: 4.2 },
-      { name: "Problem Solving", score: 3.8 },
-    ],
-    comments:
-      "Consistent contributor to the Logistics team with good coordination across shifts.",
-    developmentRecommendations: [],
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-6",
-    personId: "user-gen-2",
-    evaluatorId: "user-gen-10",
-    periodId: "period-q3-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: null,
-    status: "Pending",
-    dueDate: "2026-08-25",
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-7",
-    personId: "user-gen-3",
-    evaluatorId: "user-gen-11",
-    periodId: "period-q2-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: 3.8,
-    status: "Completed",
-    dateEvaluated: "Jul 8, 2026",
-    managerSubmittedAt: "2026-07-08T11:40:00+08:00",
-    finalizedAt: "2026-07-08T11:40:00+08:00",
-    workflowState: "Finalized",
-    calibrationStatus: "Not Required",
-    competencyScores: [
-      { name: "Quality of Work", score: 3.7 },
-      { name: "Productivity", score: 3.9 },
-      { name: "Role Competency", score: 3.8 },
-      { name: "Communication / Collaboration", score: 3.6 },
-      { name: "Reliability / Compliance", score: 4.0 },
-      { name: "Problem Solving", score: 3.7 },
-    ],
-    comments:
-      "Meets expectations overall; would benefit from additional support on reporting turnaround time.",
-    developmentRecommendations: ["Learning recommended"],
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-q3-luis",
-    personId: "user-gen-0",
-    evaluatorId: "user-gen-8",
-    periodId: "period-q3-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: null,
-    status: "Pending",
-    dueDate: "2026-10-15",
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-q3-sofia",
-    personId: "user-gen-1",
-    evaluatorId: "user-gen-9",
-    periodId: "period-q3-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: null,
-    status: "Pending",
-    dueDate: "2026-10-15",
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-q3-nina",
-    personId: "user-5",
-    evaluatorId: "user-gen-11",
-    periodId: "period-q3-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: null,
-    status: "Pending",
-    dueDate: "2026-10-15",
-    linkedEvidence: [],
-  },
-  {
-    id: "eval-q3-isabella",
-    personId: "user-gen-3",
-    evaluatorId: "user-gen-11",
-    periodId: "period-q3-2026",
-    reviewTemplateId: "review-template-employee-standard",
-    rating: null,
-    status: "Pending",
-    dueDate: "2026-10-15",
-    linkedEvidence: [],
-  },
-];
+export const INITIAL_PERFORMANCE_REVIEWS: PerformanceReview[] = [];
+// Deprecated compatibility export only. The active Performance UI loads review records
+// from /performance/api/state and never uses a second client-side review dataset.
 
 export function isPastDue(dueDate?: string | null): boolean {
   if (!dueDate) return false;

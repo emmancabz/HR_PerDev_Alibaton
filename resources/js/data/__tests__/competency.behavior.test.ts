@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     EMPTY_ANALYTICS_FILTERS,
+    assessmentRequiresGovernanceValidation,
+    assignmentDueDate,
     buildAssessmentRows,
+    buildCompetencyAnalytics,
+    buildCompetencyProfiles,
     buildOverviewMetrics,
     cyclePopulationMatches,
     filterAssessmentRows,
@@ -118,7 +122,9 @@ function makeSubmissionReady(assessment: CompetencyAssessment): CompetencyAssess
                           description: "Valid evidence fixture",
                           addedAt: meta.changedAt,
                           addedBy: "HR Test",
-                          verificationState: "Reviewed",
+                          verificationState: requirement.critical
+                              ? "Verified"
+                              : "Reviewed",
                           sourceContext: "Metadata or link reference",
                       },
                   ]
@@ -560,6 +566,37 @@ describe("Evidence and self-assessment submission validation", () => {
         );
     });
 
+    it("requires Verified evidence and governance validation for every critical requirement", () => {
+        const current = state();
+        const source = current.assessments.find((item) =>
+            item.roleProfileSnapshot.requirements.some((requirement) => requirement.critical),
+        )!;
+        const ready = makeSubmissionReady(source);
+        ready.cycleSnapshot.requireHrValidation = false;
+        const requirement = ready.roleProfileSnapshot.requirements.find((item) => item.critical)!;
+        const rating = ready.ratings.find((item) => item.competencyId === requirement.competencyId)!;
+        expect(rating.evidence.length).toBeGreaterThan(0);
+        rating.evidence[0].verificationState = "Reviewed";
+        expect(validateAssessmentForSubmit(ready, null)).toContain(
+            `${requirement.competency.name}: critical competency evidence must be Verified before submission.`,
+        );
+        rating.evidence[0].verificationState = "Verified";
+        expect(
+            validateAssessmentForSubmit(ready, null).some((error) =>
+                error.includes("critical competency evidence must be Verified"),
+            ),
+        ).toBe(false);
+        expect(assessmentRequiresGovernanceValidation(ready, null)).toBe(true);
+    });
+
+    it("caps automatically calculated assignment due dates at the cycle end", () => {
+        const cycle = structuredClone(state().cycles[0]);
+        cycle.startDate = "2031-03-01";
+        cycle.endDate = "2031-03-20";
+        cycle.dueDaysAfterAssignment = 30;
+        expect(assignmentDueDate(cycle, "2031-03-15")).toBe("2031-03-20");
+    });
+
     it("applies the cycle-wide evidence rule to an otherwise optional non-critical competency", () => {
         const source = state().assessments.find((item) =>
             item.roleProfileSnapshot.requirements.some(
@@ -650,5 +687,24 @@ describe("Cycle population and snapshot-specific analytics", () => {
             cancelled: expected.cancelled,
             completionRate: expected.rate,
         });
+    });
+});
+
+
+describe("Authoritative current analytics metrics", () => {
+    it("keeps role-profile coverage separate from assessment coverage", () => {
+        const current = state();
+        current.assessments = [];
+        const analytics = buildCompetencyAnalytics(current, {...EMPTY_ANALYTICS_FILTERS, department: "Finance", position: "Finance Staff"});
+        expect(analytics.profileCoverage).toBe(100);
+        expect(analytics.assessmentCoverage).toBe(0);
+        expect(analytics.notAssessed).toBeGreaterThan(0);
+    });
+    it("counts due people once using the server projection, including development targets", () => {
+        const current = state();
+        const person = buildCompetencyProfiles(current).find(row => row.person.id === "user-5")!;
+        current.profileRows = [{...person, requirements: person.requirements.map((detail, index) => ({...detail, reassessmentDue: index < 2}))}];
+        const analytics = buildCompetencyAnalytics(current, {...EMPTY_ANALYTICS_FILTERS});
+        expect(analytics.reassessmentsDue).toBe(1);
     });
 });

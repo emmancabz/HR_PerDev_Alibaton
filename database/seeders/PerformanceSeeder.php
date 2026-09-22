@@ -13,19 +13,28 @@ class PerformanceSeeder extends Seeder
 {
     public function run(): void
     {
-        $this->seedPersonnel();
+        // Performance consumes the same canonical workforce used by every other
+        // module. Do not overwrite authoritative positions with showcase titles.
+        $this->call(CanonicalPersonnelSeeder::class);
+
+        $canonicalGoals = $this->canonicalGoalDataset();
+        $this->seedSourceGovernedGoalTemplates(array_values($canonicalGoals['goal_templates'] ?? []));
 
         $admin = User::query()->where('personnel_key', 'user-1')->firstOrFail();
         app(PerformanceService::class)->syncConfiguration($admin, [
             'cycles' => $this->cycles(),
             'reviewTemplates' => $this->reviewTemplates(),
-            'goalTemplates' => $this->goalTemplates(),
-            'goals' => $this->goals(),
+            'goalTemplates' => array_values($canonicalGoals['goal_templates'] ?? []),
+            'goals' => array_values($canonicalGoals['goals'] ?? []),
             'assignments' => $this->reportingAssignments(),
         ]);
 
         $this->seedHistoricalAndNamedReviews($admin);
         $this->seedDevelopment($admin);
+
+        // Align the local/demo review history to the governed quarterly timeline:
+        // Q1/Q2 are finalized historical reviews and Q3 remains Scheduled until Oct 1.
+        $this->call(PerformanceReviewShowcaseSeeder::class);
     }
 
     private function seedPersonnel(): void
@@ -92,12 +101,20 @@ class PerformanceSeeder extends Seeder
     {
         return [
             [
+                'id' => 'period-q1-2026', 'cycleName' => 'Q1 2026 Performance Cycle', 'cycleType' => 'Quarterly',
+                'performanceStartDate' => '2026-01-01', 'performanceEndDate' => '2026-03-31', 'reviewOpenDate' => '2026-04-01', 'reviewDueDate' => '2026-04-15',
+                'applicablePersonTypes' => ['Employee', 'Trainee'], 'departmentScopes' => [],
+                'reviewTemplateIds' => ['Employee' => 'review-template-employee-standard', 'Trainee' => 'review-template-trainee-standard'],
+                'selfEvaluationEnabled' => true, 'selfRatingEnabled' => true, 'calibrationRequired' => true,
+                'employeeAcknowledgment' => 'Required', 'status' => 'Closed', 'description' => 'Historical quarterly performance cycle.',
+            ],
+            [
                 'id' => 'period-q2-2026', 'cycleName' => 'Q2 2026 Performance Cycle', 'cycleType' => 'Quarterly',
                 'performanceStartDate' => '2026-04-01', 'performanceEndDate' => '2026-06-30', 'reviewOpenDate' => '2026-07-01', 'reviewDueDate' => '2026-07-15',
                 'applicablePersonTypes' => ['Employee', 'Trainee'], 'departmentScopes' => [],
                 'reviewTemplateIds' => ['Employee' => 'review-template-employee-standard', 'Trainee' => 'review-template-trainee-standard'],
-                'selfEvaluationEnabled' => false, 'selfRatingEnabled' => false, 'calibrationRequired' => false,
-                'employeeAcknowledgment' => 'Optional', 'status' => 'Closed', 'description' => 'Historical quarterly performance cycle.',
+                'selfEvaluationEnabled' => true, 'selfRatingEnabled' => true, 'calibrationRequired' => true,
+                'employeeAcknowledgment' => 'Required', 'status' => 'Closed', 'description' => 'Historical quarterly performance cycle.',
             ],
             [
                 'id' => 'period-q3-2026', 'cycleName' => 'Q3 2026 Performance Cycle', 'cycleType' => 'Quarterly',
@@ -111,10 +128,7 @@ class PerformanceSeeder extends Seeder
             ],
             [
                 'id' => 'cycle-probationary-2026', 'cycleName' => '2026 Probationary Review', 'cycleType' => 'Probationary',
-                'performanceStartDate' => '2026-08-01',
-'performanceEndDate' => '2026-11-30',
-'reviewOpenDate' => '2026-12-01',
-'reviewDueDate' => '2026-12-05',
+                'performanceStartDate' => '2026-08-01', 'performanceEndDate' => '2026-11-30', 'reviewOpenDate' => '2026-12-01', 'reviewDueDate' => '2026-12-05',
                 'applicablePersonTypes' => ['Trainee'], 'departmentScopes' => [],
                 'reviewTemplateIds' => ['Trainee' => 'review-template-trainee-standard'],
                 'selfEvaluationEnabled' => false, 'selfRatingEnabled' => false, 'calibrationRequired' => false,
@@ -126,33 +140,157 @@ class PerformanceSeeder extends Seeder
 
     private function reviewTemplates(): array
     {
-        return [
-            [
-                'id' => 'review-template-employee-standard', 'name' => 'Standard Employee Review', 'personType' => 'Employee',
-                'ratingScaleId' => 'rating-scale-five-point', 'active' => true,
-                'criteria' => [
-                    ['id' => 'employee-goal-achievement', 'name' => 'Goal / KPI Achievement', 'description' => 'Results against agreed goals, KPIs, and KRAs.', 'weight' => 25],
-                    ['id' => 'employee-quality', 'name' => 'Quality of Work', 'description' => 'Accuracy, completeness, and standard of work delivered.', 'weight' => 20],
-                    ['id' => 'employee-productivity', 'name' => 'Productivity', 'description' => 'Consistent and timely delivery of role responsibilities.', 'weight' => 15],
-                    ['id' => 'employee-competency', 'name' => 'Role Competency', 'description' => 'Application of the knowledge and skills required for the role.', 'weight' => 15],
-                    ['id' => 'employee-collaboration', 'name' => 'Communication / Collaboration', 'description' => 'Clear communication and constructive teamwork.', 'weight' => 10],
-                    ['id' => 'employee-reliability', 'name' => 'Reliability / Compliance', 'description' => 'Dependability and adherence to organizational requirements.', 'weight' => 10],
-                    ['id' => 'employee-problem-solving', 'name' => 'Problem Solving', 'description' => 'Sound judgment when analyzing and resolving work issues.', 'weight' => 5],
-                ],
-            ],
-            [
-                'id' => 'review-template-trainee-standard', 'name' => 'Standard Trainee Review', 'personType' => 'Trainee',
-                'ratingScaleId' => 'rating-scale-five-point', 'active' => true,
-                'criteria' => [
-                    ['id' => 'trainee-learning', 'name' => 'Learning / Development Progress', 'description' => 'Growth against the agreed trainee development plan.', 'weight' => 25],
-                    ['id' => 'trainee-assessment', 'name' => 'Assessment Performance', 'description' => 'Demonstrated understanding in assigned assessments.', 'weight' => 20],
-                    ['id' => 'trainee-participation', 'name' => 'Training Participation', 'description' => 'Engagement with required development activities.', 'weight' => 15],
-                    ['id' => 'trainee-readiness', 'name' => 'Competency Readiness', 'description' => 'Readiness to apply role competencies with appropriate support.', 'weight' => 20],
-                    ['id' => 'trainee-compliance', 'name' => 'Participation / Compliance', 'description' => 'Participation and adherence to trainee requirements.', 'weight' => 10],
-                    ['id' => 'trainee-practical', 'name' => 'Practical Application', 'description' => 'Ability to apply learning in practical work situations.', 'weight' => 10],
-                ],
+        $standardEmployee = [
+            'id' => 'review-template-employee-standard', 'name' => 'Standard Employee Review', 'personType' => 'Employee',
+            'ratingScaleId' => 'rating-scale-five-point', 'active' => true,
+            'criteria' => [
+                ['id' => 'employee-goal-achievement', 'name' => 'Goal / KPI Achievement', 'description' => 'Results against agreed goals, KPIs, and KRAs.', 'weight' => 25],
+                ['id' => 'employee-quality', 'name' => 'Quality of Work', 'description' => 'Accuracy, completeness, and standard of work delivered.', 'weight' => 20],
+                ['id' => 'employee-productivity', 'name' => 'Productivity', 'description' => 'Consistent and timely delivery of role responsibilities.', 'weight' => 15],
+                ['id' => 'employee-competency', 'name' => 'Role Competency', 'description' => 'Application of the knowledge and skills required for the role.', 'weight' => 15],
+                ['id' => 'employee-collaboration', 'name' => 'Communication / Collaboration', 'description' => 'Clear communication and constructive teamwork.', 'weight' => 10],
+                ['id' => 'employee-reliability', 'name' => 'Reliability / Compliance', 'description' => 'Dependability and adherence to organizational requirements.', 'weight' => 10],
+                ['id' => 'employee-problem-solving', 'name' => 'Problem Solving', 'description' => 'Sound judgment when analyzing and resolving work issues.', 'weight' => 5],
             ],
         ];
+
+        $trainee = [
+            'id' => 'review-template-trainee-standard', 'name' => 'Standard Trainee Review', 'personType' => 'Trainee',
+            'ratingScaleId' => 'rating-scale-five-point', 'active' => true,
+            'criteria' => [
+                ['id' => 'trainee-learning', 'name' => 'Learning / Development Progress', 'description' => 'Growth against the agreed trainee development plan.', 'weight' => 25],
+                ['id' => 'trainee-assessment', 'name' => 'Assessment Performance', 'description' => 'Demonstrated understanding in assigned assessments.', 'weight' => 20],
+                ['id' => 'trainee-participation', 'name' => 'Training Participation', 'description' => 'Engagement with required development activities.', 'weight' => 15],
+                ['id' => 'trainee-readiness', 'name' => 'Competency Readiness', 'description' => 'Readiness to apply role competencies with appropriate support.', 'weight' => 20],
+                ['id' => 'trainee-compliance', 'name' => 'Participation / Compliance', 'description' => 'Participation and adherence to trainee requirements.', 'weight' => 10],
+                ['id' => 'trainee-practical', 'name' => 'Practical Application', 'description' => 'Ability to apply learning in practical work situations.', 'weight' => 10],
+            ],
+        ];
+
+        $core = [
+            ['id' => 'core-goal-achievement', 'name' => 'Goal / KPI Achievement', 'description' => 'Results against the person\'s agreed Goals, KPIs, and KRAs for the same performance cycle.', 'weight' => 25],
+            ['id' => 'core-quality', 'name' => 'Quality of Work', 'description' => 'Accuracy, completeness, and standard of work delivered.', 'weight' => 15],
+            ['id' => 'core-competency', 'name' => 'Role Competency', 'description' => 'Application of the knowledge and skills required for the role.', 'weight' => 10],
+            ['id' => 'core-collaboration', 'name' => 'Communication / Collaboration', 'description' => 'Clear communication and constructive teamwork.', 'weight' => 10],
+            ['id' => 'core-reliability', 'name' => 'Reliability / Compliance', 'description' => 'Dependability and adherence to organizational requirements.', 'weight' => 5],
+            ['id' => 'core-problem-solving', 'name' => 'Problem Solving', 'description' => 'Sound judgment when analyzing and resolving work issues.', 'weight' => 5],
+        ];
+
+        $definitions = [
+            'review-template-employee-crane-operations' => ['Crane Operations Employee Review',
+                ['id' => 'crane-safe-operation', 'name' => 'Safe Equipment Operation', 'description' => 'Applies equipment and work-zone safety requirements during assigned operations.', 'weight' => 15],
+                ['id' => 'crane-rigging-signals', 'name' => 'Rigging / Signal Communication Execution', 'description' => 'Applies approved crane, rigging, and signal communication practices relevant to assigned work.', 'weight' => 15]],
+            'review-template-employee-logistics' => ['Logistics Employee Review',
+                ['id' => 'logistics-dispatch', 'name' => 'Dispatch & Journey Reliability', 'description' => 'Executes dispatch and journey responsibilities reliably and on time.', 'weight' => 15],
+                ['id' => 'logistics-road-safety', 'name' => 'Road Safety & Documentation', 'description' => 'Applies journey, road-safety, and required logistics documentation controls.', 'weight' => 15]],
+            'review-template-employee-operations' => ['Operations Employee Review',
+                ['id' => 'operations-coordination', 'name' => 'Operational Coordination & Delivery', 'description' => 'Coordinates assigned operational work and delivers agreed outputs.', 'weight' => 15],
+                ['id' => 'operations-reporting', 'name' => 'Project / Site Reporting', 'description' => 'Maintains timely and accurate project, site, progress, and handover reporting.', 'weight' => 15]],
+            'review-template-employee-finance' => ['Finance Employee Review',
+                ['id' => 'finance-accuracy', 'name' => 'Financial Record Accuracy', 'description' => 'Maintains accurate and complete financial records and supporting documentation.', 'weight' => 15],
+                ['id' => 'finance-controls', 'name' => 'Disbursement & Documentation Control', 'description' => 'Applies required recordkeeping and disbursement control practices.', 'weight' => 15]],
+            'review-template-employee-contracts' => ['Contracts Employee Review',
+                ['id' => 'contracts-documentation', 'name' => 'Contract Documentation Accuracy', 'description' => 'Maintains complete and accurate contract documentation.', 'weight' => 15],
+                ['id' => 'contracts-compliance', 'name' => 'Compliance & Permit Control', 'description' => 'Tracks required compliance and permit documentation within assigned responsibilities.', 'weight' => 15]],
+            'review-template-employee-safety' => ['Safety & Compliance Employee Review',
+                ['id' => 'safety-hazard', 'name' => 'Hazard Reporting & Prevention', 'description' => 'Identifies, documents, and escalates hazards using approved safety practices.', 'weight' => 15],
+                ['id' => 'safety-procedure', 'name' => 'Safety Procedure Compliance', 'description' => 'Consistently applies applicable safety and work-zone procedures.', 'weight' => 15]],
+            'review-template-employee-administration' => ['Administration Employee Review',
+                ['id' => 'admin-records', 'name' => 'Records & Document Control', 'description' => 'Maintains controlled records and documents accurately and consistently.', 'weight' => 15],
+                ['id' => 'admin-handover', 'name' => 'Operational Handover & Coordination', 'description' => 'Supports reliable work turnover, handover, and internal coordination.', 'weight' => 15]],
+            'review-template-employee-it' => ['Information Technology Employee Review',
+                ['id' => 'it-access-incidents', 'name' => 'Access Control & Incident Handling', 'description' => 'Applies authorized access-control and service-incident management practices.', 'weight' => 15],
+                ['id' => 'it-service', 'name' => 'Service Continuity & Technical Execution', 'description' => 'Delivers reliable technical support and resolves assigned service issues effectively.', 'weight' => 15]],
+            'review-template-employee-hr' => ['Human Resources Employee Review',
+                ['id' => 'hr-learning-governance', 'name' => 'Learning & Development Governance', 'description' => 'Applies approved employee learning, development, and training governance practices where relevant.', 'weight' => 15],
+                ['id' => 'hr-stakeholder', 'name' => 'Employee Support & Stakeholder Coordination', 'description' => 'Handles employee-facing work and stakeholder coordination consistently and professionally.', 'weight' => 15]],
+        ];
+
+        $functionTemplates = [];
+        foreach ($definitions as $id => [$name, $specificA, $specificB]) {
+            $functionTemplates[] = [
+                'id' => $id,
+                'name' => $name,
+                'personType' => 'Employee',
+                'ratingScaleId' => 'rating-scale-five-point',
+                'active' => true,
+                'criteria' => [...$core, $specificA, $specificB],
+            ];
+        }
+
+        return [$standardEmployee, $trainee, ...$functionTemplates];
+    }
+
+    /**
+     * Load the canonical Data B-aligned Performance goal-plan dataset.
+     * Live progress remains a Performance transaction; this dataset owns the
+     * source plan mapping, structure, metrics, targets, and weights.
+     */
+    private function canonicalGoalDataset(): array
+    {
+        $path = database_path('seeders/data/DEFENSE_PERFORMANCE_GOALS_V2.json');
+        if (! is_file($path)) {
+            throw new \RuntimeException('Canonical Performance goals V2 dataset is missing.');
+        }
+
+        $dataset = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        if (($dataset['source_authority']['workforce_personas'] ?? null) !== 'DEFENSE_WORKFORCE_PERSONAS_V1') {
+            throw new \RuntimeException('Performance Goals V2 must declare DEFENSE_WORKFORCE_PERSONAS_V1 as its workforce authority.');
+        }
+
+        if (empty($dataset['goal_templates']) || empty($dataset['goals'])) {
+            throw new \RuntimeException('Canonical Performance Goals V2 cannot be empty.');
+        }
+
+        return $dataset;
+    }
+
+    /**
+     * Trusted source bootstrap for the read-only Goal Plan library. Normal
+     * Admin configuration is intentionally forbidden from creating or
+     * rewriting these records; only the canonical source path may do so.
+     */
+    private function seedSourceGovernedGoalTemplates(array $templates): void
+    {
+        foreach ($templates as $template) {
+            $items = array_values($template['items'] ?? []);
+            $weight = collect($items)->sum(fn (array $item) => (float) ($item['weight'] ?? 0));
+
+            if (round($weight, 2) !== 100.0) {
+                throw new \RuntimeException('Source-governed Performance goal-plan weights must total 100%.');
+            }
+
+            $key = trim((string) ($template['id'] ?? ''));
+            if ($key === '') {
+                throw new \RuntimeException('Source-governed Performance goal plans require a stable source key.');
+            }
+
+            $values = [
+                'name' => trim((string) ($template['name'] ?? '')),
+                'applicable_person_types' => json_encode(array_values($template['applicablePersonTypes'] ?? []), JSON_THROW_ON_ERROR),
+                'department_scopes' => json_encode(array_values($template['departmentScopes'] ?? []), JSON_THROW_ON_ERROR),
+                'position_scopes' => json_encode(array_values($template['positionScopes'] ?? []), JSON_THROW_ON_ERROR),
+                'cycle_keys' => json_encode(array_values($template['cycleIds'] ?? []), JSON_THROW_ON_ERROR),
+                'description' => trim((string) ($template['description'] ?? '')) ?: null,
+                'allow_individual_overrides' => (bool) ($template['allowIndividualOverrides'] ?? true),
+                'items' => json_encode($items, JSON_THROW_ON_ERROR),
+                'active' => (bool) ($template['active'] ?? true),
+                'updated_at' => now(),
+            ];
+
+            $existing = DB::table('performance_goal_templates')->where('external_key', $key)->first();
+            if ($existing) {
+                DB::table('performance_goal_templates')->where('id', $existing->id)->update($values);
+                continue;
+            }
+
+            DB::table('performance_goal_templates')->insert([
+                'external_key' => $key,
+                ...$values,
+                'lock_version' => 1,
+                'created_at' => now(),
+            ]);
+        }
     }
 
     private function goalTemplates(): array
@@ -257,6 +395,22 @@ class PerformanceSeeder extends Seeder
                 'name' => $criterion['name'],
                 'score' => $scoreValues[$index] ?? $rating,
             ])->all();
+
+            $totalWeight = collect($criteria)->sum(
+                fn (array $criterion) => (float) ($criterion['weight'] ?? 0)
+            );
+
+            $derivedRating = $totalWeight > 0
+                ? round(
+                    collect($criteria)->values()->sum(
+                        fn (array $criterion, int $index) =>
+                            (float) ($criterion['weight'] ?? 0)
+                            * (float) ($scoreValues[$index] ?? $rating)
+                    ) / $totalWeight,
+                    2
+                )
+                : round((float) $rating, 2);
+
             DB::table('performance_reviews')->updateOrInsert(
                 ['performance_review_assignment_id' => $assignmentId],
                 [
@@ -264,8 +418,8 @@ class PerformanceSeeder extends Seeder
                     'performance_review_template_id' => $template->id,
                     'status' => 'Completed',
                     'workflow_state' => 'Finalized',
-                    'calibration_status' => 'Not Required',
-                    'final_rating' => $rating,
+                    'calibration_status' => (bool) $cycle->calibration_required ? 'Approved' : 'Not Required',
+                    'final_rating' => $derivedRating,
                     'criteria_scores' => json_encode($scores, JSON_THROW_ON_ERROR),
                     'comments' => $comments,
                     'development_recommendations' => json_encode($recommendations, JSON_THROW_ON_ERROR),

@@ -1,0 +1,72 @@
+openapi: 3.1.0
+info:
+  title: Recognition Contextual Evidence Contract
+  version: 1.0.0
+  description: Recognition may reference finalized source evidence without changing source ownership or automatically changing any P&D outcome.
+paths:
+  /recognition/api/records:
+    post:
+      summary: Submit a governed Recognition nomination
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecognitionNomination'
+      responses:
+        '201':
+          description: Draft or Pending Review nomination created
+        '422':
+          description: Canonical personnel, category, self-recognition, duplicate, or evidence validation failed
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: alibaton_session
+  schemas:
+    RecognitionNomination:
+      type: object
+      required: [recipientId, categoryId, title, achievementDetails, achievementDate]
+      properties:
+        recipientId:
+          type: integer
+        categoryId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 255
+        achievementDetails:
+          type: string
+          maxLength: 10000
+        achievementDate:
+          type: string
+          format: date
+        saveAsDraft:
+          type: boolean
+        evidence:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/ContextualEvidence'
+    ContextualEvidence:
+      type: object
+      properties:
+        type:
+          type: string
+        sourceModule:
+          type: [string, 'null']
+          enum: [Performance, Competency, Learning, Training, Other, null]
+        sourceRecordId:
+          type: [string, 'null']
+        sourceFinalizedAt:
+          type: [string, 'null']
+          format: date-time
+        description:
+          type: [string, 'null']
+        sourceSnapshot:
+          type: [object, 'null']
+          description: Immutable contextual snapshot. It does not transfer source-module ownership and has no automatic scoring effect.

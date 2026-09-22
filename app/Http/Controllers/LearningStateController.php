@@ -17,6 +17,8 @@ use App\Services\Learning\LearningDeliveryService;
 use App\Services\Learning\LearningGroqService;
 use App\Services\Learning\LearningMaterialService;
 use App\Services\Learning\LearningRequestService;
+use App\Services\Learning\LearningSourceReviewService;
+use App\Services\Learning\LearningPublicationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -29,14 +31,18 @@ class LearningStateController extends Controller
         private readonly LearningCourseService $courses, private readonly LearningAssignmentService $assignments,
         private readonly LearningDeliveryService $delivery, private readonly LearningMaterialService $materials,
         private readonly LearningGroqService $groq, private readonly LearningRequestService $requests,
+        private readonly LearningSourceReviewService $sourceReview,
+        private readonly LearningPublicationService $publication,
     ) {}
 
     public function show(Request $request): JsonResponse { return response()->json(['data' => $this->courses->state($request->user())]); }
-    public function create(LearningCourseRequest $request): JsonResponse { $version = $this->courses->createDraft($request->user(), $request->validated()); return response()->json(['data' => ['versionId' => $version->id, 'courseId' => $version->course_id]], 201); }
+    public function create(LearningCourseRequest $request): JsonResponse { $version = $this->courses->createDraft($request->user(), $request->validated()); return response()->json(['data' => ['versionId' => $version->id, 'courseId' => $version->course_id, 'code' => $version->course->code]], 201); }
     public function save(LearningCourseRequest $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('edit', $version); $this->courses->saveDraft($request->user(), $version, $request->validated()); return response()->json(['data' => $this->courses->state($request->user())]); }
-    public function submitReview(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('submitReview', $version); $data = $request->validate(['reviewerId' => ['required', 'integer', 'exists:users,id']]); $this->courses->submitForReview($request->user(), $version, $data['reviewerId']); return $this->show($request); }
+    public function submitReview(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('submitReview', $version); $this->courses->submitForReview($request->user(), $version); return $this->show($request); }
     public function decideReview(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('review', $version); $data = $request->validate(['decision' => ['required', 'in:Approved,Changes Requested'], 'comment' => ['nullable', 'string', 'max:10000']]); $this->courses->decideReview($request->user(), $version, $data['decision'], $data['comment'] ?? ''); return $this->show($request); }
     public function publish(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('publish', $version); $this->courses->publish($request->user(), $version); return $this->show($request); }
+    public function sourceReview(Request $request, LearningCourseVersion $version): JsonResponse { $this->sourceReview->scan($request->user(), $version); return $this->show($request); }
+    public function retryPublication(Request $request, LearningCourseVersion $version): JsonResponse { $this->publication->retry($request->user(), $version); return $this->show($request); }
     public function workingDraft(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('createWorkingDraft', $version); $draft = $this->courses->workingDraft($request->user(), $version); return response()->json(['data' => ['versionId' => $draft->id, 'courseId' => $draft->course_id]]); }
     public function archive(Request $request, LearningCourse $course): JsonResponse { Gate::authorize('archive', $course); $this->courses->archive($request->user(), $course); return $this->show($request); }
 

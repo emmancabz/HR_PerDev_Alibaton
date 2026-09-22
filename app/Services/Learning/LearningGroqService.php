@@ -13,8 +13,11 @@ use Illuminate\Validation\ValidationException;
 
 class LearningGroqService
 {
-    private const USE_CASES = ['Course Outline', 'Module and Lesson Titles', 'Learning Objectives', 'Lesson Content', 'Knowledge Check Questions', 'Final Assessment Questions', 'Competency-aligned Objectives'];
-    public function __construct(private readonly LearningAuditService $audit) {}
+    private const USE_CASES = ['Course Outline', 'Module and Lesson Titles', 'Learning Objectives', 'Lesson Content', 'Knowledge Check Questions', 'Pre-Test Questions', 'Post-Test Questions', 'Final Assessment Questions', 'Competency-aligned Objectives'];
+    public function __construct(
+        private readonly LearningAuditService $audit,
+        private readonly LearningSourceLibraryService $sources,
+    ) {}
 
     public function generate(User $actor, LearningCourseVersion $version, string $useCase, array $context): array
     {
@@ -85,14 +88,28 @@ class LearningGroqService
     public function buildGroundingContext(LearningCourseVersion $version, string $useCase): array
     {
         $version->loadMissing(['modules.lessons', 'assessments.questions.options']);
+        $sourceDocuments = collect($this->sources->links($version->id))->map(function (array $source): array {
+            return [
+                'documentId' => $source['documentId'],
+                'title' => $source['title'],
+                'version' => $source['version'],
+                'type' => $source['type'],
+                'owner' => $source['owner'],
+                'content' => $this->cleanText($this->sources->sourceText($source['documentId'], 10000), 10000),
+            ];
+        })->values()->all();
+
         return [
             'useCase' => $useCase,
+            'sourceDocuments' => $sourceDocuments,
             'course' => [
                 'title' => $this->cleanText($version->title),
                 'description' => $this->cleanText($version->description),
                 'category' => $this->cleanText($version->category),
                 'difficulty' => $this->cleanText($version->difficulty),
                 'language' => $this->cleanText($version->language),
+                'targetDepartments' => ($version->audience_rules ?? [])['departments'] ?? [],
+                'companyWide' => (bool) (($version->audience_rules ?? [])['allDepartments'] ?? false),
                 'learningObjectives' => collect($version->learning_objectives ?? [])->map(fn ($text) => $this->cleanText($text))->values()->all(),
                 'modules' => $version->modules->map(fn ($module) => [
                     'title' => $this->cleanText($module->title),
@@ -118,5 +135,5 @@ class LearningGroqService
         return mb_substr(trim($text), 0, $limit);
     }
 
-    private function authorizeAuthor(User $actor, LearningCourseVersion $version): void { if ($version->course?->archived_at || $version->version_number !== null || ! in_array($version->status, ['Draft', 'Changes Requested'], true) || ! DB::table('learning_course_collaborators')->where('course_id', $version->course_id)->where('user_id', $actor->id)->whereIn('permission', ['Owner', 'Author'])->exists()) throw new AuthorizationException('Only an authorized author of an active working Draft may use Learning AI assistance.'); }
+    private function authorizeAuthor(User $actor, LearningCourseVersion $version): void { if ($actor->role !== \App\Enums\UserRole::HR || $version->course?->archived_at || $version->version_number !== null || ! in_array($version->status, ['Draft', 'Changes Requested'], true) || ! DB::table('learning_course_collaborators')->where('course_id', $version->course_id)->where('user_id', $actor->id)->whereIn('permission', ['Owner', 'Author'])->exists()) throw new AuthorizationException('Only the assigned HR course author may use Aevyn course assistance.'); }
 }

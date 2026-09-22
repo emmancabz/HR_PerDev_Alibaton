@@ -49,13 +49,6 @@ export type RatingDistributionPoint = {
   color: string;
 };
 
-export type ComparableTopResults = {
-  rows: ResolvedPerformanceReview[];
-  comparable: boolean;
-  comparisonBasis: string;
-  message?: string;
-};
-
 export type PerformanceSupportRow = {
   review: PerformanceReview;
   person: PersonnelIdentity;
@@ -93,6 +86,7 @@ export type EvaluatorCalibrationRow = {
   team: string;
   assigned: number;
   finalized: number;
+  templateCount: number;
   averageRating: number | null;
   organizationAverage: number | null;
   deviation: number | null;
@@ -100,6 +94,7 @@ export type EvaluatorCalibrationRow = {
   returnedForRevision: number;
   signal:
     | "Insufficient sample"
+    | "Mixed templates"
     | "Within expected range"
     | "Review high pattern"
     | "Review low pattern";
@@ -220,61 +215,6 @@ export function getAccurateRatingDistribution(
       };
     });
 }
-export function getComparableTopPerformanceResults(
-  rows: ResolvedPerformanceReview[],
-  filters: PerformanceAnalyticsFilters,
-  cycles: PerformanceCycle[],
-  limit = 5,
-): ComparableTopResults {
-  const finalized = rows.filter(({ review }) => isFinalizedRatedReview(review));
-  if (filters.cycleId === ALL_ANALYTICS_CYCLES) {
-    return {
-      rows: [],
-      comparable: false,
-      comparisonBasis: "No single cycle selected",
-      message:
-        "Select one Performance Cycle before comparing Top Performance Results.",
-    };
-  }
-  const templateIds = new Set(
-    finalized.map(
-      ({ review, person }) =>
-        review.reviewTemplateId ?? `legacy-${person.personType}`,
-    ),
-  );
-  if (
-    filters.reviewTemplateId === ALL_ANALYTICS_TEMPLATES &&
-    templateIds.size > 1
-  ) {
-    return {
-      rows: [],
-      comparable: false,
-      comparisonBasis: "Multiple review templates",
-      message:
-        "Select one review template so ranked results remain comparable.",
-    };
-  }
-  const cycle = cycles.find((candidate) => candidate.id === filters.cycleId);
-  const comparisonBasis = [
-    cycle?.cycleName ?? filters.cycleId,
-    filters.department,
-    filters.reviewTemplateId,
-  ]
-    .filter(
-      (value) =>
-        value !== ALL_ANALYTICS_DEPARTMENTS &&
-        value !== ALL_ANALYTICS_TEMPLATES,
-    )
-    .join(" · ");
-  return {
-    rows: [...finalized]
-      .sort((a, b) => (b.review.rating as number) - (a.review.rating as number))
-      .slice(0, limit),
-    comparable: true,
-    comparisonBasis: comparisonBasis || "Selected comparable scope",
-  };
-}
-
 function latestReviewPerPerson(
   rows: ResolvedPerformanceReview[],
   cycles: PerformanceCycle[],
@@ -300,9 +240,13 @@ function latestReviewPerPerson(
 function firstOpenPip(
   personId: string,
   pips: PerformanceImprovementPlan[],
+  relatedReviewId?: string,
 ): PerformanceImprovementPlan | undefined {
   return pips.find(
-    (pip) => pip.personId === personId && pip.status !== "Completed",
+    (pip) =>
+      pip.personId === personId &&
+      pip.status !== "Completed" &&
+      (!relatedReviewId || pip.relatedReviewId === relatedReviewId),
   );
 }
 
@@ -318,7 +262,7 @@ export function getNeedsPerformanceSupport(
   );
   return finalized
     .map(({ review, person }) => {
-      const pip = firstOpenPip(person.id, developmentStore.pips);
+      const pip = firstOpenPip(person.id, developmentStore.pips, review.id);
       const atRiskGoal = goals.find(
         (goal) =>
           goal.personId === person.id &&
@@ -395,11 +339,11 @@ export function getGoalTrendAnalytics(
   cycles: PerformanceCycle[],
   filters: PerformanceAnalyticsFilters,
 ): GoalTrendPoint[] {
-  const scopedGoals = filteredGoals(goals, personnel, {
-    ...filters,
-    cycleId: ALL_ANALYTICS_CYCLES,
-  });
-  return [...cycles]
+  const scopedGoals = filteredGoals(goals, personnel, filters);
+  const scopedCycles = filters.cycleId === ALL_ANALYTICS_CYCLES
+    ? cycles
+    : cycles.filter((cycle) => cycle.id === filters.cycleId);
+  return [...scopedCycles]
     .sort((a, b) => a.performanceEndDate.localeCompare(b.performanceEndDate))
     .map((cycle) => {
       const cycleGoals = scopedGoals.filter(
@@ -486,6 +430,7 @@ export function getDepartmentTrendAnalytics(
         openPips: developmentStore.pips.filter(
           (pip) =>
             pip.status !== "Completed" &&
+            rows.some(({ review }) => review.id === pip.relatedReviewId) &&
             personnel.find((person) => person.id === pip.personId)
               ?.department === department,
         ).length,
@@ -508,39 +453,51 @@ export function getDepartmentTrendAnalytics(
 export function getEvaluatorCalibrationAnalytics(
   rows: ResolvedPerformanceReview[],
 ): EvaluatorCalibrationRow[] {
-  const organizationRatings = rows
-    .filter(({ review }) => isFinalizedRatedReview(review))
-    .map(({ review }) => review.rating as number);
-  const organizationAverage = organizationRatings.length
+  const comparableRows = rows.filter(
+    ({ review }) =>
+      review.reviewMethod !== "360° Leadership Review" &&
+      Boolean(review.evaluatorId),
+  );
+  const finalizedRows = comparableRows.filter(({ review }) => isFinalizedRatedReview(review));
+  const scopeTemplateIds = new Set(
+    finalizedRows.map(({ review, person }) =>
+      review.reviewTemplateId ?? `legacy-${person.personType}`,
+    ),
+  );
+  const comparableTemplateScope = scopeTemplateIds.size <= 1;
+  const organizationRatings = finalizedRows.map(({ review }) => review.rating as number);
+  const organizationAverage = comparableTemplateScope && organizationRatings.length
     ? round(
         organizationRatings.reduce((sum, rating) => sum + rating, 0) /
           organizationRatings.length,
         2,
       )
     : null;
-  const evaluatorIds = Array.from(
-    new Set(rows.map(({ review }) => review.evaluatorId)),
-  );
+  const evaluatorIds = Array.from(new Set(comparableRows.map(({ review }) => review.evaluatorId))).filter(Boolean);
   return evaluatorIds
     .map((evaluatorId) => {
-      const evaluatorRows = rows.filter(
-        ({ review }) => review.evaluatorId === evaluatorId,
+      const evaluatorRows = comparableRows.filter(({ review }) => review.evaluatorId === evaluatorId);
+      const evaluatorFinalized = evaluatorRows.filter(({ review }) =>
+        isFinalizedRatedReview(review),
       );
-      const ratings = evaluatorRows
-        .filter(({ review }) => isFinalizedRatedReview(review))
-        .map(({ review }) => review.rating as number);
+      const evaluatorTemplateIds = new Set(
+        evaluatorFinalized.map(({ review, person }) =>
+          review.reviewTemplateId ?? `legacy-${person.personType}`,
+        ),
+      );
+      const ratings = evaluatorFinalized.map(({ review }) => review.rating as number);
+      const evaluatorComparable = evaluatorTemplateIds.size <= 1;
       const averageRating = ratings.length
-        ? round(
-            ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length,
-            2,
-          )
+        ? round(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length, 2)
         : null;
       const deviation =
-        averageRating === null || organizationAverage === null
-          ? null
-          : round(averageRating - organizationAverage, 2);
+        comparableTemplateScope && evaluatorComparable && averageRating !== null && organizationAverage !== null
+          ? round(averageRating - organizationAverage, 2)
+          : null;
       let signal: EvaluatorCalibrationRow["signal"] = "Insufficient sample";
-      if (ratings.length >= 2 && deviation !== null) {
+      if (!comparableTemplateScope || !evaluatorComparable) {
+        signal = "Mixed templates";
+      } else if (ratings.length >= 2 && deviation !== null) {
         signal =
           deviation >= 0.5
             ? "Review high pattern"
@@ -557,6 +514,7 @@ export function getEvaluatorCalibrationAnalytics(
           : "Assignment identity unavailable",
         assigned: evaluatorRows.length,
         finalized: ratings.length,
+        templateCount: evaluatorTemplateIds.size,
         averageRating,
         organizationAverage,
         deviation,

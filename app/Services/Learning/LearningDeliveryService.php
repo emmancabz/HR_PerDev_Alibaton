@@ -17,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 
 class LearningDeliveryService
 {
-    public function __construct(private readonly LearningAuditService $audit) {}
+    public function __construct(private readonly LearningAuditService $audit, private readonly LearningEligibilityService $eligibility) {}
 
     public function player(User $actor, LearningAssignment $assignment): array
     {
@@ -61,10 +61,10 @@ class LearningDeliveryService
     {
         $this->own($actor, $assignment); $this->active($assignment);
         if ($assessment->course_version_id !== $assignment->course_version_id) throw ValidationException::withMessages(['assessment' => 'Assessment version does not match the assignment.']);
-        if ($assessment->assessment_type === 'Final Assessment') {
+        if (in_array($assessment->assessment_type, ['Post-Test', 'Final Assessment'], true)) {
             $requiredLessons = DB::table('learning_course_lessons as lesson')->join('learning_course_modules as module', 'module.id', '=', 'lesson.module_id')->where('module.course_version_id', $assignment->course_version_id)->where('lesson.is_required', true)->pluck('lesson.id');
             $complete = DB::table('learning_lesson_progress')->where('assignment_id', $assignment->id)->whereIn('lesson_id', $requiredLessons)->where('status', 'Completed')->count();
-            if ($complete !== $requiredLessons->count()) throw ValidationException::withMessages(['assessment' => 'Complete all required lessons before starting the Final Assessment.']);
+            if ($complete !== $requiredLessons->count()) throw ValidationException::withMessages(['assessment' => 'Complete all required lessons before starting the Post-Test.']);
         }
         return DB::transaction(function () use ($assignment,$assessment) {
             LearningAssignment::query()->lockForUpdate()->findOrFail($assignment->id);
@@ -130,9 +130,10 @@ class LearningDeliveryService
             $attempt = LearningAssessmentAttempt::query()->lockForUpdate()->findOrFail($attempt->id);
             if ($attempt->status !== 'Submitted') throw ValidationException::withMessages(['attempt' => 'Only a submitted attempt can be regraded.']);
             $assignment = LearningAssignment::query()->lockForUpdate()->findOrFail($attempt->assignment_id);
-            if (LearningCompletion::query()->where('assignment_id', $attempt->assignment_id)->lockForUpdate()->exists()) throw ValidationException::withMessages(['attempt' => 'A completion already exists and is immutable. Revoke or replace certificate records separately; do not rewrite completion history.']);
+            $completion = LearningCompletion::query()->where('assignment_id', $attempt->assignment_id)->lockForUpdate()->first();
+            if ($completion) throw ValidationException::withMessages(['attempt' => 'A completion already exists and is immutable. Revoke or replace certificate records separately; do not rewrite completion history.']);
             $assessment = LearningAssessment::query()->lockForUpdate()->findOrFail($attempt->assessment_id);
-            $rows = DB::table('learning_attempt_responses')->where('attempt_id', $attempt->id)->get()->keyBy('question_id');
+            $rows = DB::table('learning_attempt_responses')->where('attempt_id', $attempt->id)->lockForUpdate()->get()->keyBy('question_id');
             $earned = 0; $total = 0;
             foreach ($attempt->question_snapshot as $question) {
                 $total += $question['points']; $selected = collect(json_decode($rows->get($question['id'])?->selected_option_ids ?? '[]', true))->sort()->values()->all();
@@ -145,7 +146,10 @@ class LearningDeliveryService
             $attempt->update(['score_percent' => $score, 'passed' => $passed]);
             $this->audit->record($actor, 'Attempt regraded', 'LearningAssessmentAttempt', $attempt->id, ['reason' => trim($reason), 'before' => $old, 'after' => ['score' => $score, 'passed' => $passed]]);
 
-            $submittedCount = LearningAssessmentAttempt::query()->where(['assignment_id' => $assignment->id, 'assessment_id' => $assessment->id, 'status' => 'Submitted'])->lockForUpdate()->count();
+            $submittedAttemptIds = LearningAssessmentAttempt::query()
+                ->where(['assignment_id' => $assignment->id, 'assessment_id' => $assessment->id, 'status' => 'Submitted'])
+                ->orderBy('id')->lockForUpdate()->pluck('id');
+            $submittedCount = LearningAssessmentAttempt::query()->whereIn('id', $submittedAttemptIds)->count();
             $assignment->update(['status' => ! $passed && $assessment->is_required && $submittedCount >= $assessment->attempts_allowed
                 ? 'Failed/Attempts Exhausted'
                 : ((int) $assignment->progress_percent > 0 ? 'In Progress' : 'Not Started')]);
@@ -171,7 +175,7 @@ class LearningDeliveryService
                 ->where(function ($query) use ($rules) {
                     $types = [];
                     if ($rules['passRequiredKnowledgeChecks'] ?? true) $types[] = 'Knowledge Check';
-                    if ($rules['passFinalAssessment'] ?? true) $types[] = 'Final Assessment';
+                    if ($rules['passFinalAssessment'] ?? true) { $types[] = 'Post-Test'; $types[] = 'Final Assessment'; }
                     $query->whereIn('assessment_type', $types ?: ['__none__']);
                 })->get();
             foreach ($requiredAssessments as $assessment) if (! LearningAssessmentAttempt::where(['assignment_id' => $assignment->id, 'assessment_id' => $assessment->id, 'status' => 'Submitted', 'passed' => true])->exists()) return null;
@@ -254,7 +258,7 @@ class LearningDeliveryService
         $percent = $required->count() ? min(99, (int) floor($complete / $required->count() * 100)) : 0;
         $assignment->update(['progress_percent' => $percent, 'status' => $percent > 0 ? 'In Progress' : 'Not Started']);
     }
-    private function own(User $actor, LearningAssignment $assignment): void { if ($assignment->learner_id !== $actor->id) throw new AuthorizationException('This learning assignment belongs to another person.'); }
+    private function own(User $actor, LearningAssignment $assignment): void { if ($assignment->learner_id !== $actor->id || ! $this->eligibility->isActiveLearner($actor)) throw new AuthorizationException('This learning assignment is not available to this learner identity.'); }
     private function active(LearningAssignment $assignment): void { if (in_array($assignment->status, ['Cancelled', 'Expired', 'Completed', 'Failed/Attempts Exhausted'], true)) throw ValidationException::withMessages(['assignment' => 'This assignment cannot accept new learning activity.']); }
     private function launchable(LearningAssignment $assignment): void
     {

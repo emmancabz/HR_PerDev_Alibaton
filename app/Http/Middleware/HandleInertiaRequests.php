@@ -2,8 +2,10 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Personnel\CanonicalPersonnelService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use Illuminate\Support\Facades\Storage;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -25,6 +27,7 @@ class HandleInertiaRequests extends Middleware
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
+                    'profile_photo_url' => $user->profile_photo_path ? Storage::disk('public')->url($user->profile_photo_path) : null,
                     'role' => $user->role->value,
                     'personnel_key' => $user->personnel_key,
                     'core_person_id' => $user->core_person_id,
@@ -37,6 +40,10 @@ class HandleInertiaRequests extends Middleware
                     'email_verified_at' => $user->email_verified_at,
                 ] : null,
             ],
+            'securitySessionTimeoutMinutes' => (int) config('governance.security.session_timeout_minutes', 5),
+            'canonicalPersonnel' => fn () => $user
+                ? app(CanonicalPersonnelService::class)->active()->values()->all()
+                : [],
         ];
     }
 }

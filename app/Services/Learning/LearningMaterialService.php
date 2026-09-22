@@ -26,7 +26,7 @@ class LearningMaterialService
         'xlsx' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],
     ];
 
-    public function __construct(private readonly LearningAuditService $audit, private readonly LearningCatalogService $catalog) {}
+    public function __construct(private readonly LearningAuditService $audit, private readonly LearningEligibilityService $eligibility) {}
 
     public function storeThumbnail(User $actor, LearningCourseVersion $version, UploadedFile $file): array
     {
@@ -46,7 +46,7 @@ class LearningMaterialService
                 LearningCourse::query()->lockForUpdate()->findOrFail($version->course_id);
                 $locked = LearningCourseVersion::query()->lockForUpdate()->findOrFail($version->id);
                 $this->authorizeDraftVersion($actor, $locked);
-                $locked->update(['thumbnail_path' => $path, 'updated_by' => $actor->id]);
+                $locked->update(['thumbnail_path' => $path, 'updated_by' => $actor->id, 'is_untouched_initial_draft' => false]);
                 $this->audit->record($actor, 'Thumbnail replaced', 'LearningCourseVersion', $locked->id, ['mime' => $mime, 'size' => $file->getSize()]);
             }, 3);
         } catch (\Throwable $error) {
@@ -60,13 +60,13 @@ class LearningMaterialService
     public function downloadThumbnail(User $actor, LearningCourseVersion $version): BinaryFileResponse
     {
         $rules = $version->audience_rules ?? [];
-        $authorized = DB::table('learning_course_collaborators')->where(['course_id' => $version->course_id, 'user_id' => $actor->id])->exists()
-            || DB::table('learning_assignments')->where(['course_version_id' => $version->id, 'learner_id' => $actor->id])->whereNotIn('status', ['Cancelled', 'Expired'])->exists()
+        $collaborator = DB::table('learning_course_collaborators')->where(['course_id' => $version->course_id, 'user_id' => $actor->id])->exists();
+        $learnerAccess = $this->eligibility->isActiveLearner($actor) && (
+            DB::table('learning_assignments')->where(['course_version_id' => $version->id, 'learner_id' => $actor->id])->whereNotIn('status', ['Cancelled', 'Expired'])->exists()
             || ($version->status === 'Published' && ($rules['catalogVisibility'] ?? '') === 'Eligible users may self-enroll'
-                && (empty($rules['personTypes']) || in_array($actor->person_type, $rules['personTypes'], true))
-                && (($rules['allDepartments'] ?? false) || empty($rules['departments']) || in_array($actor->department, $rules['departments'], true))
-                && (empty($rules['positions']) || in_array($actor->position, $rules['positions'], true))
-                && $this->catalog->userMatchesProfiles($actor, $rules['roleProfileIds'] ?? []));
+                && $this->eligibility->matchesAudience($actor, $version))
+        );
+        $authorized = $collaborator || $learnerAccess;
         if (! $authorized || ! $version->thumbnail_path) throw new AuthorizationException('You are not authorized to access this protected thumbnail.');
         $path = Storage::disk('local')->path($version->thumbnail_path);
         abort_unless(is_file($path), 404, 'Thumbnail content is missing from protected storage.');
@@ -87,6 +87,8 @@ class LearningMaterialService
         try {
             return DB::transaction(function () use ($actor, $lesson, $file, $extension, $mime, $stored, $path, $hash) {
                 $lockedLesson = $this->lockAndAuthorizeLesson($actor, $lesson->id);
+                $versionId = DB::table('learning_course_modules')->where('id', $lockedLesson->module_id)->value('course_version_id');
+                DB::table('learning_course_versions')->where('id', $versionId)->update(['is_untouched_initial_draft' => false]);
                 $material = LearningMaterial::create(['lesson_id' => $lockedLesson->id, 'storage_disk' => 'local', 'storage_path' => $path, 'display_name' => $this->safeName($file->getClientOriginalName()), 'stored_name' => $stored, 'mime_type' => $mime, 'extension' => $extension, 'size_bytes' => $file->getSize(), 'sha256' => $hash, 'uploaded_by' => $actor->id]);
                 $this->audit->record($actor, 'Material added', 'LearningMaterial', $material->id, ['mime' => $mime, 'size' => $file->getSize(), 'sha256' => $hash]);
                 return $material;
@@ -108,12 +110,60 @@ class LearningMaterialService
         }, 3);
     }
 
+    /** Called from the Draft content transaction before lesson rows are removed. */
+    public function prepareLessonRemoval(User $actor, array $lessonIds, string $context): void
+    {
+        $lessonIds = array_values(array_unique(array_filter($lessonIds)));
+        if ($lessonIds === []) return;
+        $materials = LearningMaterial::query()->whereIn('lesson_id', $lessonIds)->orderBy('id')->lockForUpdate()->get();
+        $pending = [];
+        foreach ($materials as $material) {
+            if (! $material->revoked_at) {
+                $material->update([
+                    'revoked_at' => now(), 'revoked_by' => $actor->id,
+                    'cleanup_status' => 'Pending', 'cleanup_error' => null,
+                ]);
+                $this->audit->record($actor, 'Material removed with Draft lesson', 'LearningMaterial', $material->id, ['context' => $context, 'lessonId' => $material->lesson_id]);
+            }
+            if ($material->cleanup_status !== 'Complete') $pending[] = $material->id;
+        }
+        if ($pending !== []) DB::afterCommit(fn () => $this->processCleanup($pending));
+    }
+
+    public function retryPendingCleanup(): void
+    {
+        $this->processCleanup(LearningMaterial::query()->whereIn('cleanup_status', ['Pending', 'Failed'])->pluck('id')->all());
+    }
+
+    private function processCleanup(array $materialIds): void
+    {
+        foreach (LearningMaterial::query()->whereIn('id', $materialIds)->get() as $material) {
+            try {
+                $shared = LearningMaterial::query()->where('id', '!=', $material->id)
+                    ->where('storage_disk', $material->storage_disk)->where('storage_path', $material->storage_path)
+                    ->whereNull('revoked_at')->exists();
+                $deleted = $shared || ! Storage::disk($material->storage_disk)->exists($material->storage_path)
+                    || Storage::disk($material->storage_disk)->delete($material->storage_path);
+                $error = $deleted ? null : 'Protected file deletion failed and requires retry.';
+            } catch (\Throwable $exception) {
+                $deleted = false;
+                $error = 'Protected file deletion failed and requires retry: '.mb_substr($exception->getMessage(), 0, 500);
+            }
+            $material->update([
+                'cleanup_status' => $deleted ? 'Complete' : 'Failed',
+                'cleanup_attempted_at' => now(),
+                'cleanup_error' => $error,
+            ]);
+        }
+    }
+
     public function download(User $actor, LearningMaterial $material): BinaryFileResponse
     {
         if ($material->revoked_at) abort(410, 'This material is no longer available.');
         $courseId = DB::table('learning_course_lessons as l')->join('learning_course_modules as m', 'm.id', '=', 'l.module_id')->join('learning_course_versions as v', 'v.id', '=', 'm.course_version_id')->where('l.id', $material->lesson_id)->value('v.course_id');
         $authorized = DB::table('learning_course_collaborators')->where(['course_id' => $courseId, 'user_id' => $actor->id])->exists()
             || DB::table('learning_assignments as a')->join('learning_course_modules as m', 'm.course_version_id', '=', 'a.course_version_id')->join('learning_course_lessons as l', 'l.module_id', '=', 'm.id')->where('a.learner_id', $actor->id)->where('l.id', $material->lesson_id)->whereNotIn('a.status', ['Cancelled', 'Expired'])->exists();
+        if (! DB::table('learning_course_collaborators')->where(['course_id' => $courseId, 'user_id' => $actor->id])->exists() && ! $this->eligibility->isActiveLearner($actor)) $authorized = false;
         if (! $authorized) throw new AuthorizationException('You are not authorized to access this protected material.');
         $path = Storage::disk($material->storage_disk)->path($material->storage_path);
         abort_unless(is_file($path), 404, 'Material content is missing from protected storage.');

@@ -1,1133 +1,436 @@
+import { AppModal, Field } from '@/Components/Competency/CompetencyUI';
 import DataTable from '@/Components/DataTable';
-import PageHeader from '@/Components/PageHeader';
+import RecognitionNominationForm from '@/Components/Recognition/RecognitionNominationForm';
 import StatCard from '@/Components/StatCard';
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, usePage } from '@inertiajs/react';
+import SystemSelect from '@/Components/SystemSelect';
+import AuthenticatedLayout, { HeaderActions, HeaderFilters } from '@/Layouts/AuthenticatedLayout';
+import { recognitionClient, recognitionError } from '@/data/recognitionClient';
+import {
+    RECOGNITION_ADMIN_WORKSPACES,
+    normalizeRecognitionState,
+    type RecognitionAdminWorkspace,
+    type RecognitionCategory,
+    type RecognitionEvidence,
+    type RecognitionRecord,
+    type RecognitionState,
+    type RecognitionStatus,
+} from '@/data/recognition';
+import { useHashWorkspace } from '@/workspaceNavigation';
+import { Head } from '@inertiajs/react';
 import {
     Award,
     Building2,
-    Calendar,
     CheckCircle2,
-    ChevronRight,
-    Clock,
-    Hash,
-    Lightbulb,
-    Mail,
-    MapPin,
-    Phone,
+    Clock3,
+    FileCheck2,
+    FileText,
+    Medal,
     Plus,
-    Shield,
-    Sparkles,
-    Trophy,
+    RotateCcw,
+    Settings2,
+    ShieldCheck,
+    UserRoundCheck,
     Users,
-    X,
-    XCircle
+    XCircle,
+    type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState, type ComponentType } from 'react';
-type RecognitionCategory =
-    | 'Performance Excellence'
-    | 'Teamwork & Collaboration'
-    | 'Leadership'
-    | 'Innovation'
-    | 'Learning & Development'
-    | 'Safety & Compliance';
-type RecognitionStatus = 'Pending Review' | 'Recognized' | 'Declined';
-type RecognitionRecord = {
-    id: string;
-    recipient: string;
-    position: string;
-    department: string;
-    title: string;
-    category: RecognitionCategory;
-    recognizedBy: string;
-    recognizedByRole: string;
-    date: string;
-    month: string;
-    status: RecognitionStatus;
-    color: string;
-    note?: string;
-    declineReason?: string;
-    employeeId?: string;
-    phone?: string;
-    email?: string;
-    address?: string;
-    dateCreatedProfile?: string;
-    lastLogin?: string;
-};
-type MockEmployee = {
-    id: string;
-    name: string;
-    position: string;
-    department: string;
-    color: string;
-    employeeId: string;
-    phone: string;
-    email: string;
-    address: string;
-    dateCreatedProfile: string;
-    lastLogin: string;
-};
-const MOCK_EMPLOYEES: MockEmployee[] = [
-    { id: 'e1', name: 'Bruno Mars', position: 'IT Trainee', department: 'Information Technology', color: '#fbbf24', employeeId: 'EMP-002', phone: '+639171234567', email: 'bruno.mars@alibaton.com', address: 'Quezon City', dateCreatedProfile: 'July 12, 2021', lastLogin: 'July 26, 2026 9:15 AM' },
-    { id: 'e2', name: 'Taylor Swift', position: 'Finance Trainee', department: 'Finance', color: '#a3e635', employeeId: 'EMP-003', phone: '+639182345678', email: 'taylor.swift@alibaton.com', address: 'Makati City', dateCreatedProfile: 'August 3, 2021', lastLogin: 'July 25, 2026 4:40 PM' },
-    { id: 'e3', name: 'Justin Bieber', position: 'Operations Staff', department: 'Operations', color: '#c084fc', employeeId: 'EMP-004', phone: '+639193456789', email: 'justin.bieber@alibaton.com', address: 'Calamba City', dateCreatedProfile: 'September 15, 2021', lastLogin: 'July 27, 2026 8:02 AM' },
-    { id: 'e4', name: 'Jemarie Cuesta', position: 'Operations Manager', department: 'Operations', color: '#38bdf8', employeeId: 'EMP-005', phone: '+639204567890', email: 'jemarie.cuesta@alibaton.com', address: 'Pasig City', dateCreatedProfile: 'October 1, 2021', lastLogin: 'July 24, 2026 2:18 PM' },
-    { id: 'e5', name: 'Rico Blanco', position: 'Site Engineer', department: 'Engineering', color: '#fb923c', employeeId: 'EMP-006', phone: '+639215678901', email: 'rico.blanco@alibaton.com', address: 'Manila City', dateCreatedProfile: 'November 5, 2021', lastLogin: 'July 22, 2026 11:10 AM' },
-    { id: 'e6', name: 'Lana Del Rey', position: 'Operations Staff', department: 'Operations', color: '#fb7185', employeeId: 'EMP-007', phone: '+639226789012', email: 'lana.delrey@alibaton.com', address: 'Taguig City', dateCreatedProfile: 'December 1, 2021', lastLogin: 'July 27, 2026 1:00 PM' },
-    { id: 'e7', name: 'Avril Lavigne', position: 'Operations Staff', department: 'Operations', color: '#f87171', employeeId: 'EMP-008', phone: '+639237890123', email: 'avril.lavigne@alibaton.com', address: 'Quezon City', dateCreatedProfile: 'January 10, 2022', lastLogin: 'July 20, 2026 11:10 AM' },
-    { id: 'e8', name: 'Juan Karlos', position: 'Procurement Officer', department: 'Procurement', color: '#34d399', employeeId: 'EMP-009', phone: '+639248901234', email: 'juan.karlos@alibaton.com', address: 'San Juan City', dateCreatedProfile: 'February 15, 2022', lastLogin: 'July 26, 2026 10:00 AM' },
-    { id: 'e9', name: 'Ainah Sta. Maria', position: 'HR Manager', department: 'Human Resources', color: '#818cf8', employeeId: 'EMP-001', phone: '+639565147895', email: 'ainah.stamaria@alibaton.com', address: 'Caloocan City', dateCreatedProfile: 'July 10, 2021', lastLogin: 'July 23, 2026 10:30 AM' },
-    { id: 'e10', name: 'Jovan Saldua', position: 'Fleet Coordinator', department: 'Operations', color: '#fbbf24', employeeId: 'EMP-010', phone: '+639259012345', email: 'jovan.saldua@alibaton.com', address: 'Quezon City', dateCreatedProfile: 'March 11, 2022', lastLogin: 'July 25, 2026 9:00 AM' },
-    { id: 'e11', name: 'Charlie Puth', position: 'Finance Manager', department: 'Finance', color: '#60a5fa', employeeId: 'EMP-011', phone: '+639260123456', email: 'charlie.puth@alibaton.com', address: 'Makati City', dateCreatedProfile: 'April 12, 2022', lastLogin: 'July 26, 2026 2:00 PM' },
-    { id: 'e12', name: 'Regine Velasquez', position: 'Safety Officer', department: 'Safety & Compliance', color: '#f472b6', employeeId: 'EMP-012', phone: '+639271234567', email: 'regine.velasquez@alibaton.com', address: 'Quezon City', dateCreatedProfile: 'May 13, 2022', lastLogin: 'July 27, 2026 3:00 PM' },
-    { id: 'e13', name: 'Zack Tubudlo', position: 'Project Manager', department: 'Operations', color: '#2dd4bf', employeeId: 'EMP-013', phone: '+639282345678', email: 'zack.tubudlo@alibaton.com', address: 'Pasig City', dateCreatedProfile: 'June 14, 2022', lastLogin: 'July 24, 2026 4:00 PM' },
-    { id: 'e14', name: 'Kaye Caagusan', position: 'Operations Staff', department: 'Operations', color: '#a78bfa', employeeId: 'EMP-014', phone: '+639293456789', email: 'kaye.caagusan@alibaton.com', address: 'Mandaluyong City', dateCreatedProfile: 'July 15, 2022', lastLogin: 'July 23, 2026 5:00 PM' },
-];
-const INITIAL_RECOGNITIONS: RecognitionRecord[] = [
-    {
-        id: '1',
-        recipient: 'Bruno Mars',
-        position: 'IT Trainee',
-        department: 'Information Technology',
-        title: 'Outstanding Support During System Migration',
-        category: 'Innovation',
-        recognizedBy: 'Ainah Sta. Maria',
-        recognizedByRole: 'HR Manager',
-        date: 'August 1, 2026',
-        month: 'August 2026',
-        status: 'Recognized',
-        color: '#fbbf24',
-        note: 'Went beyond scope to keep the migration on schedule and documented the fix for the team.',
-        employeeId: 'EMP-002',
-        phone: '+639171234567',
-        email: 'bruno.mars@alibaton.com',
-        address: 'Quezon City',
-        dateCreatedProfile: 'July 12, 2021',
-        lastLogin: 'July 26, 2026 9:15 AM',
-    },
-    {
-        id: '2',
-        recipient: 'Taylor Swift',
-        position: 'Finance Trainee',
-        department: 'Finance',
-        title: 'Exceptional Collaboration on Year-End Audit',
-        category: 'Teamwork & Collaboration',
-        recognizedBy: 'Charlie Puth',
-        recognizedByRole: 'Finance Manager',
-        date: 'July 28, 2026',
-        month: 'July 2026',
-        status: 'Recognized',
-        color: '#a3e635',
-        note: 'Coordinated closely with three departments to close the audit ahead of deadline.',
-        employeeId: 'EMP-003',
-        phone: '+639182345678',
-        email: 'taylor.swift@alibaton.com',
-        address: 'Makati City',
-        dateCreatedProfile: 'August 3, 2021',
-        lastLogin: 'July 25, 2026 4:40 PM',
-    },
-    {
-        id: '3',
-        recipient: 'Justin Bieber',
-        position: 'Operations Staff',
-        department: 'Operations',
-        title: 'Consistent Safety Compliance on Site',
-        category: 'Safety & Compliance',
-        recognizedBy: 'Regine Velasquez',
-        recognizedByRole: 'Safety Officer',
-        date: 'July 22, 2026',
-        month: 'July 2026',
-        status: 'Recognized',
-        color: '#c084fc',
-        note: 'Zero safety incidents on-site for two consecutive quarters under his watch.',
-        employeeId: 'EMP-004',
-        phone: '+639193456789',
-        email: 'justin.bieber@alibaton.com',
-        address: 'Calamba City',
-        dateCreatedProfile: 'September 15, 2021',
-        lastLogin: 'July 27, 2026 8:02 AM',
-    },
-    {
-        id: '4',
-        recipient: 'Jemarie Cuesta',
-        position: 'Operations Manager',
-        department: 'Operations',
-        title: 'Led Successful Process Improvement Initiative',
-        category: 'Leadership',
-        recognizedBy: 'Zack Tubudlo',
-        recognizedByRole: 'Project Manager',
-        date: 'July 15, 2026',
-        month: 'July 2026',
-        status: 'Recognized',
-        color: '#38bdf8',
-        note: 'Redesigned the equipment dispatch process, cutting turnaround time noticeably.',
-        employeeId: 'EMP-005',
-        phone: '+639204567890',
-        email: 'jemarie.cuesta@alibaton.com',
-        address: 'Pasig City',
-        dateCreatedProfile: 'October 1, 2021',
-        lastLogin: 'July 24, 2026 2:18 PM',
-    },
-    {
-        id: '5',
-        recipient: 'Rico Blanco',
-        position: 'Site Engineer',
-        department: 'Engineering',
-        title: 'Completed Advanced Structural Safety Training',
-        category: 'Learning & Development',
-        recognizedBy: 'Regine Velasquez',
-        recognizedByRole: 'Safety Officer',
-        date: 'July 10, 2026',
-        month: 'July 2026',
-        status: 'Recognized',
-        color: '#fb923c',
-        note: 'Completed certification a full quarter ahead of the training plan.',
-        employeeId: 'EMP-006',
-        phone: '+639215678901',
-        email: 'rico.blanco@alibaton.com',
-        address: 'Manila City',
-        dateCreatedProfile: 'November 5, 2021',
-        lastLogin: 'July 22, 2026 11:10 AM',
-    },
-    {
-        id: '6',
-        recipient: 'Lana Del Rey',
-        position: 'Operations Staff',
-        department: 'Operations',
-        title: 'Went Above and Beyond During Client Site Visit',
-        category: 'Performance Excellence',
-        recognizedBy: 'Mhicaela Buban',
-        recognizedByRole: 'Staff',
-        date: 'August 1, 2026',
-        month: 'August 2026',
-        status: 'Pending Review',
-        color: '#fb7185',
-        note: 'Client specifically called out her professionalism and quick problem-solving on-site.',
-        employeeId: 'EMP-007',
-        phone: '+639226789012',
-        email: 'lana.delrey@alibaton.com',
-        address: 'Taguig City',
-        dateCreatedProfile: 'December 1, 2021',
-        lastLogin: 'July 27, 2026 1:00 PM',
-    },
-    {
-        id: '7',
-        recipient: 'Avril Lavigne',
-        position: 'Operations Staff',
-        department: 'Operations',
-        title: 'Innovative Equipment Maintenance Solution',
-        category: 'Innovation',
-        recognizedBy: 'Kaye Caagusan',
-        recognizedByRole: 'Staff',
-        date: 'July 30, 2026',
-        month: 'July 2026',
-        status: 'Pending Review',
-        color: '#f87171',
-        note: 'Devised a low-cost fix for recurring equipment downtime.',
-        employeeId: 'EMP-008',
-        phone: '+639237890123',
-        email: 'avril.lavigne@alibaton.com',
-        address: 'Quezon City',
-        dateCreatedProfile: 'January 10, 2022',
-        lastLogin: 'July 20, 2026 11:10 AM',
-    },
-    {
-        id: '8',
-        recipient: 'Juan Karlos',
-        position: 'Procurement Officer',
-        department: 'Procurement',
-        title: 'Negotiated Cost-Saving Vendor Contract',
-        category: 'Performance Excellence',
-        recognizedBy: 'Jemarie Cuesta',
-        recognizedByRole: 'Operations Manager',
-        date: 'June 25, 2026',
-        month: 'June 2026',
-        status: 'Recognized',
-        color: '#34d399',
-        note: 'Renegotiated the fuel supply contract for meaningful year-over-year savings.',
-        employeeId: 'EMP-009',
-        phone: '+639248901234',
-        email: 'juan.karlos@alibaton.com',
-        address: 'San Juan City',
-        dateCreatedProfile: 'February 15, 2022',
-        lastLogin: 'July 26, 2026 10:00 AM',
-    },
-    {
-        id: '9',
-        recipient: 'Ainah Sta. Maria',
-        position: 'HR Manager',
-        department: 'Human Resources',
-        title: 'Outstanding Mentorship of New Trainees',
-        category: 'Leadership',
-        recognizedBy: 'Emmanuel Cabanas',
-        recognizedByRole: 'Training Officer',
-        date: 'June 18, 2026',
-        month: 'June 2026',
-        status: 'Recognized',
-        color: '#818cf8',
-        note: 'Onboarded and mentored five new trainees this quarter with strong retention.',
-        employeeId: 'EMP-001',
-        phone: '+639565147895',
-        email: 'ainah.stamaria@alibaton.com',
-        address: 'Caloocan City',
-        dateCreatedProfile: 'July 10, 2021',
-        lastLogin: 'July 23, 2026 10:30 AM',
-    },
-    {
-        id: '10',
-        recipient: 'Jovan Saldua',
-        position: 'Fleet Coordinator',
-        department: 'Operations',
-        title: 'Reliable Fleet Uptime Management',
-        category: 'Performance Excellence',
-        recognizedBy: 'Jemarie Cuesta',
-        recognizedByRole: 'Operations Manager',
-        date: 'August 2, 2026',
-        month: 'August 2026',
-        status: 'Pending Review',
-        color: '#fbbf24',
-        note: 'Maintained fleet availability above target throughout the quarter.',
-        employeeId: 'EMP-010',
-        phone: '+639259012345',
-        email: 'jovan.saldua@alibaton.com',
-        address: 'Quezon City',
-        dateCreatedProfile: 'March 11, 2022',
-        lastLogin: 'July 25, 2026 9:00 AM',
-    },
-];
-const TREND_DATA: { month: string; count: number }[] = [
-    { month: 'Feb', count: 3 },
-    { month: 'Mar', count: 5 },
-    { month: 'Apr', count: 4 },
-    { month: 'May', count: 6 },
-    { month: 'Jun', count: 7 },
-    { month: 'Jul', count: 9 },
-    { month: 'Aug', count: 6 },
-];
-const CATEGORIES: RecognitionCategory[] = [
-    'Performance Excellence',
-    'Teamwork & Collaboration',
-    'Leadership',
-    'Innovation',
-    'Learning & Development',
-    'Safety & Compliance',
-];
-const CATEGORY_META: Record<RecognitionCategory, { badge: string; dot: string; icon: typeof Trophy }> = {
-    'Performance Excellence': { badge: 'bg-amber-100 text-amber-700', dot: 'bg-amber-400', icon: Trophy },
-    'Teamwork & Collaboration': { badge: 'bg-blue-100 text-blue-700', dot: 'bg-blue-400', icon: Users },
-    Leadership: { badge: 'bg-purple-100 text-purple-700', dot: 'bg-purple-400', icon: Award },
-    Innovation: { badge: 'bg-cyan-100 text-cyan-700', dot: 'bg-cyan-400', icon: Lightbulb },
-    'Learning & Development': { badge: 'bg-green-100 text-green-700', dot: 'bg-green-400', icon: Sparkles },
-    'Safety & Compliance': { badge: 'bg-rose-100 text-rose-700', dot: 'bg-rose-400', icon: Shield },
-};
-const PERIOD_OPTIONS = ['All Periods', 'June 2026', 'July 2026', 'August 2026'];
-function statusBadgeClass(status: RecognitionStatus) {
-    switch (status) {
-        case 'Recognized':
-            return 'bg-green-100 text-green-700';
-        case 'Pending Review':
-            return 'bg-amber-100 text-amber-700';
-        case 'Declined':
-            return 'bg-slate-200 text-slate-600';
-    }
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+
+const button = 'app-button';
+const primary = 'app-button app-button-primary';
+const input = 'app-control';
+
+type Props = { initialRecognitionState?: unknown };
+type Filters = { department: string; category: string; status: string; nominator: string; from: string; to: string };
+const EMPTY_FILTERS: Filters = { department: 'all', category: 'all', status: 'all', nominator: 'all', from: '', to: '' };
+const OFFICIAL_EVIDENCE = new Set(['Performance', 'Competency', 'Learning', 'Training']);
+
+function initialState(value: unknown): RecognitionState | null {
+    try { return value ? normalizeRecognitionState(value) : null; } catch { return null; }
 }
-function statusDotClass(status: RecognitionStatus) {
-    switch (status) {
-        case 'Recognized':
-            return 'bg-green-500';
-        case 'Pending Review':
-            return 'bg-amber-500';
-        case 'Declined':
-            return 'bg-slate-400';
-    }
+
+function formatDate(value: string | null | undefined) {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
-function initialsOf(name: string) {
-    return name.split(' ').map((n) => n[0]).slice(0, 2).join('');
+
+function recordActivityDate(record: RecognitionRecord): string {
+    return record.recognizedAt ?? record.reviewedAt ?? record.submittedAt ?? record.achievementDate ?? record.createdAt ?? '';
 }
-function todayForForm() {
-    const d = new Date();
-    return d.toISOString().slice(0, 10);
+
+function statusClass(status: RecognitionStatus | string): string {
+    if (status === 'Recognized') return 'bg-emerald-100 text-emerald-700';
+    if (status === 'Pending Review') return 'bg-amber-100 text-amber-800';
+    if (status === 'Declined' || status === 'Revoked') return 'bg-rose-100 text-rose-700';
+    return 'bg-slate-100 text-slate-600';
 }
-function formatDisplayDate(isoDate: string) {
-    if (!isoDate) return '';
-    const d = new Date(`${isoDate}T00:00:00`);
-    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+function StatusPill({ value }: { value: string }) {
+    return <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-extrabold ${statusClass(value)}`}>{value}</span>;
 }
-function formatMonthKey(isoDate: string) {
-    if (!isoDate) return '';
-    const d = new Date(`${isoDate}T00:00:00`);
-    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
-function DetailField({
-    icon: Icon,
-    label,
-    value,
-}: {
-    icon: ComponentType<{ className?: string }>;
+
+type EvidenceSummary = {
     label: string;
-    value: string;
-}) {
-    return (
-        <div className="flex items-start gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-100">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                <Icon className="h-4 w-4" />
-            </div>
-            <div className="min-w-0">
-                <p className="text-xs font-medium text-slate-500">{label}</p>
-                <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">
-                    {value}
-                </p>
-            </div>
-        </div>
-    );
-}
-function RecognitionDetailsModal({
-    selected,
-    onClose,
-    onApprove,
-    onStartDecline,
-    decliningId,
-    declineReasonDraft,
-    setDeclineReasonDraft,
-    onConfirmDecline,
-    setDecliningId,
-}: {
-    selected: RecognitionRecord;
-    onClose: () => void;
-    onApprove: (id: string) => void;
-    onStartDecline: (id: string) => void;
-    decliningId: string | null;
-    declineReasonDraft: string;
-    setDeclineReasonDraft: (v: string) => void;
-    onConfirmDecline: (id: string) => void;
-    setDecliningId: (v: string | null) => void;
-}) {
-    return (
-        <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-fade-in"
-            onClick={onClose}
-        >
-            <div
-                className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-slate-50 shadow-2xl ring-1 ring-slate-900/10"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="relative bg-gradient-to-br from-[#121212] to-[#2a2a2a] px-6 pb-8 pt-6">
-                    <button
-                        onClick={onClose}
-                        className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
-                        aria-label="Close"
-                    >
-                        <X className="h-5 w-5" />
-                    </button>
-                    <p className="text-xs font-semibold uppercase tracking-widest text-[#F4B400]">
-                        Recognition Details
-                    </p>
-                    <div className="mt-4 flex items-center gap-4">
-                        <div
-                            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-2xl font-bold text-white shadow-lg"
-                            style={{ backgroundColor: selected.color }}
-                        >
-                            {initialsOf(selected.recipient)}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                            <h2 className="truncate text-xl font-bold text-white">
-                                {selected.recipient}
-                            </h2>
-                            <p className="mt-0.5 text-sm text-white/60">
-                                {selected.position} · {selected.department}
-                            </p>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <span
-                                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                                        selected.status === 'Recognized'
-                                            ? 'bg-emerald-500/20 text-emerald-300'
-                                            : selected.status === 'Pending Review'
-                                            ? 'bg-amber-500/20 text-amber-300'
-                                            : 'bg-white/10 text-white/50'
-                                    }`}
-                                >
-                                    <span
-                                        className={`h-1.5 w-1.5 rounded-full ${
-                                            selected.status === 'Recognized'
-                                                ? 'bg-emerald-400'
-                                                : selected.status === 'Pending Review'
-                                                ? 'bg-amber-400'
-                                                : 'bg-white/40'
-                                        }`}
-                                    />
-                                    {selected.status}
-                                </span>
-                                <span className="inline-flex items-center gap-1 rounded-full bg-[#F4B400]/20 px-3 py-1 text-xs font-semibold text-[#F4B400]">
-                                    {selected.category}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-                    <div className="rounded-xl bg-white p-4 ring-1 ring-slate-100 shadow-sm space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                            Recognition Achievement
-                        </p>
-                        <p className="text-sm font-bold text-slate-900">{selected.title}</p>
-                        {selected.note && <p className="text-xs leading-relaxed text-slate-600">{selected.note}</p>}
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <DetailField icon={Award} label="Recognized By" value={`${selected.recognizedBy} (${selected.recognizedByRole})`} />
-                        <DetailField icon={Calendar} label="Date Recognized" value={selected.date} />
-                    </div>
-                    {selected.status === 'Declined' && selected.declineReason && (
-                        <div className="rounded-xl bg-rose-50 p-4 ring-1 ring-rose-100 text-xs">
-                            <p className="font-semibold text-rose-700">Decline Reason</p>
-                            <p className="mt-1 text-rose-600">{selected.declineReason}</p>
-                        </div>
-                    )}
-                    <p className="pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                        Contact Information
-                    </p>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <DetailField icon={Hash} label="Employee ID" value={selected.employeeId || 'EMP-002'} />
-                        <DetailField icon={Mail} label="Email" value={selected.email || `${selected.recipient.toLowerCase().replace(/\s+/g, '.')}\@alibaton.com`} />
-                        <DetailField icon={Phone} label="Phone Number" value={selected.phone || '+639171234567'} />
-                        <DetailField icon={MapPin} label="Address" value={selected.address || 'Quezon City'} />
-                    </div>
-                    <p className="pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                        Account Activity
-                    </p>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <DetailField icon={Calendar} label="Date Created" value={selected.dateCreatedProfile || 'July 12, 2021'} />
-                        <DetailField icon={Clock} label="Last Login" value={selected.lastLogin || 'July 26, 2026 9:15 AM'} />
-                    </div>
-                    {selected.status === 'Pending Review' && (
-                        <div className="mt-4 rounded-xl bg-amber-50/60 p-4 ring-1 ring-amber-200/60">
-                            <p className="text-xs font-bold text-amber-900 mb-2">Review Required</p>
-                            {decliningId === selected.id ? (
-                                <div className="space-y-2">
-                                    <label className="block text-[11px] font-medium text-slate-600">Reason for declining (optional)</label>
-                                    <textarea
-                                        value={declineReasonDraft}
-                                        onChange={(e) => setDeclineReasonDraft(e.target.value)}
-                                        rows={2}
-                                        placeholder="e.g. Needs more supporting context"
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs focus:border-[#F4B400] focus:outline-none"
-                                    />
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => setDecliningId(null)}
-                                            className="flex-1 rounded-lg border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            onClick={() => onConfirmDecline(selected.id)}
-                                            className="flex-1 rounded-lg bg-slate-900 py-2 text-xs font-semibold text-white hover:bg-slate-800"
-                                        >
-                                            Confirm Decline
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => onStartDecline(selected.id)}
-                                        className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
-                                    >
-                                        <XCircle className="h-4 w-4 text-rose-500" /> Decline
-                                    </button>
-                                    <button
-                                        onClick={() => onApprove(selected.id)}
-                                        className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#F4B400] py-2 text-xs font-semibold text-black hover:bg-[#dba300] shadow-sm"
-                                    >
-                                        <CheckCircle2 className="h-4 w-4" /> Approve & Recognize
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-                <div className="flex justify-end border-t border-slate-200 bg-white px-6 py-4">
-                    <button
-                        onClick={onClose}
-                        className="rounded-xl bg-[#121212] px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2a2a2a]"
-                    >
-                        Close
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-function RecognitionTrendChart({ data }: { data: { month: string; count: number }[] }) {
-    const width = 520;
-    const height = 180;
-    const padding = { top: 12, right: 8, bottom: 24, left: 24 };
-    const innerW = width - padding.left - padding.right;
-    const innerH = height - padding.top - padding.bottom;
-    const barGap = 10;
-    const barWidth = innerW / data.length - barGap;
-    const max = Math.max(...data.map((d) => d.count), 1);
-    return (
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="none">
-            {[0.25, 0.5, 0.75, 1].map((f) => (
-                <line
-                    key={f}
-                    x1={padding.left}
-                    x2={width - padding.right}
-                    y1={padding.top + innerH * (1 - f)}
-                    y2={padding.top + innerH * (1 - f)}
-                    stroke="#e2e8f0"
-                    strokeWidth={1}
-                    strokeDasharray="3 3"
-                />
-            ))}
-            {data.map((d, i) => {
-                const barHeight = (d.count / max) * innerH;
-                const x = padding.left + i * (barWidth + barGap);
-                const y = padding.top + innerH - barHeight;
-                const isLast = i === data.length - 1;
-                return (
-                    <g key={d.month}>
-                        <rect
-                            x={x}
-                            y={y}
-                            width={barWidth}
-                            height={barHeight}
-                            rx={4}
-                            fill={isLast ? '#F4B400' : '#fde9ad'}
-                        />
-                        <text x={x + barWidth / 2} y={y - 5} textAnchor="middle" className="fill-slate-500" style={{ fontSize: 9, fontWeight: 600 }}>
-                            {d.count}
-                        </text>
-                        <text x={x + barWidth / 2} y={height - 6} textAnchor="middle" className="fill-slate-400" style={{ fontSize: 9 }}>
-                            {d.month}
-                        </text>
-                    </g>
-                );
-            })}
-        </svg>
-    );
-}
-export default function SocialRecognition() {
-    const currentUser = usePage().props.auth?.user;
-    const [recognitions, setRecognitions] = useState<RecognitionRecord[]>(INITIAL_RECOGNITIONS);
-    const [departmentFilter, setDepartmentFilter] = useState('All Departments');
-    const [categoryFilter, setCategoryFilter] = useState<'All Categories' | RecognitionCategory>('All Categories');
-    const [periodFilter, setPeriodFilter] = useState('All Periods');
-    const [statusFilter, setStatusFilter] = useState<'All' | RecognitionStatus>('All');
-    const [selected, setSelected] = useState<RecognitionRecord | null>(null);
-    const [decliningId, setDecliningId] = useState<string | null>(null);
-    const [declineReasonDraft, setDeclineReasonDraft] = useState('');
-    const [showAllRecent, setShowAllRecent] = useState(false);
-    const [showCreateForm, setShowCreateForm] = useState(false);
-    const departments = useMemo(
-        () => Array.from(new Set(recognitions.map((r) => r.department))),
-        [recognitions],
-    );
-    const filtered = useMemo(() => {
-        return recognitions.filter((r) => {
-            const matchesDept = departmentFilter === 'All Departments' || r.department === departmentFilter;
-            const matchesCategory = categoryFilter === 'All Categories' || r.category === categoryFilter;
-            const matchesPeriod = periodFilter === 'All Periods' || r.month === periodFilter;
-            const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
-            return matchesDept && matchesCategory && matchesPeriod && matchesStatus;
-        });
-    }, [recognitions, departmentFilter, categoryFilter, periodFilter, statusFilter]);
-    const totalRecognitions = recognitions.length;
-    const thisMonthCount = recognitions.filter((r) => r.month === 'August 2026').length;
-    const employeesRecognized = new Set(
-        recognitions.filter((r) => r.status === 'Recognized').map((r) => r.recipient),
-    ).size;
-    const pendingReviewCount = recognitions.filter((r) => r.status === 'Pending Review').length;
-    const categoryCounts = useMemo(() => {
-        return CATEGORIES.map((c) => ({
-            category: c,
-            count: recognitions.filter((r) => r.category === c).length,
-        }));
-    }, [recognitions]);
-    const departmentCounts = useMemo(() => {
-        const counts = departments.map((d) => ({
-            department: d,
-            count: recognitions.filter((r) => r.department === d).length,
-        }));
-        return counts.sort((a, b) => b.count - a.count);
-    }, [recognitions, departments]);
-    const maxDeptCount = Math.max(...departmentCounts.map((d) => d.count), 1);
-    const recentRecognitions = useMemo(
-        () => [...recognitions].sort((a, b) => Number(b.id) - Number(a.id)).slice(0, 4),
-        [recognitions],
-    );
-    function approveRecognition(id: string) {
-        setRecognitions((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'Recognized' as const } : r)));
-        setSelected((prev) => (prev && prev.id === id ? { ...prev, status: 'Recognized' } : prev));
-    }
-    function startDecline(id: string) {
-        setDecliningId(id);
-        setDeclineReasonDraft('');
-    }
-    function confirmDecline(id: string) {
-        setRecognitions((prev) =>
-            prev.map((r) => (r.id === id ? { ...r, status: 'Declined' as const, declineReason: declineReasonDraft.trim() || undefined } : r)),
-        );
-        setSelected((prev) => (prev && prev.id === id ? { ...prev, status: 'Declined', declineReason: declineReasonDraft.trim() || undefined } : prev));
-        setDecliningId(null);
-        setDeclineReasonDraft('');
-    }
-    type CreateForm = {
-        employeeId: string;
-        title: string;
-        category: RecognitionCategory;
-        note: string;
-        date: string;
-        reviewerRole: string;
-        publishNow: boolean;
+    tone: string;
+    count: number;
+    kind: 'verified' | 'note' | 'missing';
+};
+
+function evidenceStatus(evidence: RecognitionEvidence[]): EvidenceSummary {
+    const official = evidence.filter((item) => item.sourceModule && OFFICIAL_EVIDENCE.has(item.sourceModule) && item.sourceFinalizedAt);
+    if (official.length) return {
+        label: 'Verified Context',
+        tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        count: official.length,
+        kind: 'verified',
     };
-    const emptyForm = (): CreateForm => ({
-        employeeId: '',
-        title: '',
-        category: 'Performance Excellence',
-        note: '',
-        date: todayForForm(),
-        reviewerRole: '',
-        publishNow: false,
-    });
-    const [form, setForm] = useState<CreateForm>(emptyForm());
-    function openCreateForm() {
-        setForm(emptyForm());
-        setShowCreateForm(true);
-    }
-    function closeCreateForm() {
-        setShowCreateForm(false);
-    }
-    const selectedEmployee = MOCK_EMPLOYEES.find((e) => e.id === form.employeeId) || null;
-    const canSubmitCreate = !!selectedEmployee && form.title.trim().length > 0 && !!form.date;
-    function handleCreateSubmit() {
-        if (!selectedEmployee || !canSubmitCreate) return;
-        const newRecord: RecognitionRecord = {
-            id: `${Date.now()}`,
-            recipient: selectedEmployee.name,
-            position: selectedEmployee.position,
-            department: selectedEmployee.department,
-            title: form.title.trim(),
-            category: form.category,
-            recognizedBy: currentUser?.name || 'HR/Admin',
-            recognizedByRole: form.reviewerRole.trim() || 'HR/Admin',
-            date: formatDisplayDate(form.date),
-            month: formatMonthKey(form.date),
-            status: form.publishNow ? 'Recognized' : 'Pending Review',
-            color: selectedEmployee.color,
-            note: form.note.trim() || undefined,
-            employeeId: selectedEmployee.employeeId,
-            phone: selectedEmployee.phone,
-            email: selectedEmployee.email,
-            address: selectedEmployee.address,
-            dateCreatedProfile: selectedEmployee.dateCreatedProfile,
-            lastLogin: selectedEmployee.lastLogin,
-        };
-        setRecognitions((prev) => [newRecord, ...prev]);
-        setShowCreateForm(false);
-    }
+    if (evidence.some((item) => item.description?.trim())) return {
+        label: 'Supporting Note',
+        tone: 'border-amber-200 bg-amber-50 text-amber-800',
+        count: evidence.length,
+        kind: 'note',
+    };
+    return {
+        label: 'Needs Clarification',
+        tone: 'border-slate-200 bg-slate-50 text-slate-600',
+        count: 0,
+        kind: 'missing',
+    };
+}
+
+function EvidenceIndicator({ summary, compact = false }: { summary: EvidenceSummary; compact?: boolean }) {
+    const Icon = summary.kind === 'note' ? FileText : summary.kind === 'verified' ? ShieldCheck : FileCheck2;
+
     return (
-        <AuthenticatedLayout
-            header={
-                <h1 className="truncate text-lg font-bold text-slate-900">
-                    Social Recognition
-                </h1>
-            }
-        >
+        <span className={`inline-flex items-center gap-1.5 rounded-lg border font-bold ${summary.tone} ${compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-[11px]'}`}>
+            <Icon className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+            <span className="whitespace-nowrap">{summary.label}</span>
+            {summary.count > 0 && (
+                <span className="text-[9px] font-extrabold opacity-70">· {summary.count}</span>
+            )}
+        </span>
+    );
+}
+
+function isCurrentQuarter(value: string | null | undefined, now = new Date()) {
+    if (!value) return false;
+    const date = new Date(value);
+    return !Number.isNaN(date.getTime()) && date.getFullYear() === now.getFullYear() && Math.floor(date.getMonth() / 3) === Math.floor(now.getMonth() / 3);
+}
+
+function DetailStat({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex items-start gap-2"><span className="rounded-lg bg-amber-50 p-2 text-amber-700"><Icon className="h-4 w-4" /></span><span className="min-w-0"><span className="block text-[10px] font-extrabold uppercase tracking-wide text-slate-400">{label}</span><span className="mt-1 block text-xs font-bold leading-relaxed text-slate-800">{value}</span></span></div></div>;
+}
+
+function RecordDetails({
+    record,
+    busy,
+    onApprove,
+    onDecline,
+    onRevoke,
+    onEditDraft,
+    onCorrect,
+}: {
+    record: RecognitionRecord;
+    busy: boolean;
+    onApprove: () => void;
+    onDecline: () => void;
+    onRevoke: () => void;
+    onEditDraft: () => void;
+    onCorrect: () => void;
+}) {
+    const evidence = evidenceStatus(record.evidence);
+    const actions = record.status === 'Pending Review' ? (
+        <><button type="button" className="app-button app-button-danger" onClick={onDecline} disabled={busy}><XCircle className="h-4 w-4" />Decline</button><button type="button" className={primary} onClick={onApprove} disabled={busy}><CheckCircle2 className="h-4 w-4" />Approve Recognition</button></>
+    ) : record.status === 'Recognized' ? (
+        <button type="button" className="app-button app-button-danger" onClick={onRevoke} disabled={busy}>Revoke Recognition</button>
+    ) : record.status === 'Draft' ? (
+        <button type="button" className={primary} onClick={onEditDraft}>Edit Draft</button>
+    ) : (
+        <button type="button" className={button} onClick={onCorrect}><RotateCcw className="h-4 w-4" />Create Corrected Nomination</button>
+    );
+
+    return (
+        <section>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h4 className="text-sm font-extrabold text-slate-950">{record.recipient.name}</h4>
+                    <p className="mt-1 text-xs text-slate-500">{record.recipient.position ?? 'Unassigned'} · {record.recipient.department ?? 'Unassigned'} · Achievement {formatDate(record.achievementDate)}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2"><StatusPill value={record.status} />{actions}</div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <DetailStat icon={Medal} label="Category" value={record.category?.name ?? 'Uncategorized'} />
+                <DetailStat icon={Users} label="Nominated By" value={`${record.nominator.name}${record.nominator.position ? ` · ${record.nominator.position}` : ''}`} />
+                <DetailStat icon={FileCheck2} label="Evidence" value={`${evidence.label}${evidence.count ? ` · ${evidence.count}` : ''}`} />
+                <DetailStat icon={Clock3} label="Reviewed / Published" value={formatDate(record.recognizedAt ?? record.reviewedAt)} />
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
+                    <h5 className="text-xs font-extrabold uppercase tracking-wide text-slate-400">Achievement / Contribution</h5>
+                    <p className="mt-3 text-sm font-bold text-slate-900">{record.title}</p>
+                    <p className="mt-2 text-xs leading-6 text-slate-600">{record.achievementDetails}</p>
+                    {record.replacesId && <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">This nomination is linked to a prior governed record and does not overwrite its history.</p>}
+                </section>
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h5 className="text-xs font-extrabold uppercase tracking-wide text-slate-400">Supporting Evidence</h5>
+                        <EvidenceIndicator summary={evidence} />
+                    </div>
+                    <div className="mt-3 space-y-2">
+                        {record.evidence.length ? record.evidence.map((item) => (
+                            <div key={item.id ?? `${item.type}-${item.description}`} className="rounded-lg bg-slate-50 p-3">
+                                <div className="flex flex-wrap items-center gap-2"><p className="text-xs font-bold text-slate-800">{item.type || 'Evidence'}</p>{item.sourceModule && <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500">{item.sourceModule}</span>}</div>
+                                {item.description && <p className="mt-1 text-[11px] leading-5 text-slate-500">{item.description}</p>}
+                                {item.sourceFinalizedAt && <p className="mt-1 text-[10px] font-semibold text-emerald-600">Finalized source · {formatDate(item.sourceFinalizedAt)}</p>}
+                            </div>
+                        )) : <p className="rounded-lg bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-800">No supporting evidence is attached. Review the nomination narrative before deciding.</p>}
+                    </div>
+                    {record.status === 'Declined' && record.declineReason && <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"><strong>Decline reason:</strong> {record.declineReason}</div>}
+                    {record.status === 'Revoked' && record.revocationReason && <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"><strong>Revocation reason:</strong> {record.revocationReason}</div>}
+                </section>
+            </div>
+        </section>
+    );
+}
+
+function ReasonModal({
+    title,
+    description,
+    confirmLabel,
+    busy,
+    error,
+    onClose,
+    onConfirm,
+}: {
+    title: string; description: string; confirmLabel: string; busy: boolean; error: string; onClose: () => void; onConfirm: (reason: string) => Promise<void>;
+}) {
+    const [reason, setReason] = useState('');
+    return (
+        <AppModal show title={title} description={description} onClose={onClose} maxWidth="lg" layer="confirmation" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className="app-button app-button-danger" disabled={busy || reason.trim().length < 3} onClick={() => void onConfirm(reason.trim())}>{busy ? 'Saving…' : confirmLabel}</button></>}>
+            {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+            <Field label="Reason" required hint="Required for the governance and audit history."><textarea className={`${input} min-h-28 resize-y`} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Enter a clear reason" /></Field>
+        </AppModal>
+    );
+}
+
+function ApproveModal({ record, busy, error, onClose, onConfirm }: { record: RecognitionRecord; busy: boolean; error: string; onClose: () => void; onConfirm: () => Promise<void> }) {
+    return (
+        <AppModal show title="Approve Recognition" description={`${record.recipient.name} · ${record.title}`} onClose={onClose} maxWidth="lg" layer="confirmation" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={primary} disabled={busy} onClick={() => void onConfirm()}>{busy ? 'Publishing…' : 'Approve & Publish'}</button></>}>
+            {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-900">Approving publishes this recognition to the social recognition feed and employee history. The published record becomes immutable; corrections require governed revocation and a new nomination.</div>
+        </AppModal>
+    );
+}
+
+function CategoryManager({ state, onClose, onSaved }: { state: RecognitionState; onClose: () => void; onSaved: () => Promise<void> }) {
+    const ordered = [...state.categories].sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name));
+    const [selectedId, setSelectedId] = useState<string | 'new'>(ordered[0]?.id ?? 'new');
+    const selected = ordered.find((category) => category.id === selectedId) ?? null;
+    const [form, setForm] = useState(() => categoryForm(selected));
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+
+    function choose(category: RecognitionCategory | null) {
+        setSelectedId(category?.id ?? 'new');
+        setForm(categoryForm(category));
+        setError('');
+    }
+
+    async function save() {
+        if (form.name.trim().length < 3) return;
+        setBusy(true); setError('');
+        try {
+            const payload = { ...form, code: selected ? selected.code : slugCode(form.name), name: form.name.trim(), description: form.description.trim() || null };
+            if (selected) await recognitionClient.updateCategory(selected.id, payload);
+            else await recognitionClient.createCategory(payload);
+            await onSaved();
+            onClose();
+        } catch (requestError) {
+            setError(recognitionError(requestError));
+        } finally { setBusy(false); }
+    }
+
+    return (
+        <AppModal show title="Manage Recognition Categories" description="Keep social recognition categories concise, clear, and governed." onClose={onClose} maxWidth="2xl" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Close</button><button type="button" className={primary} onClick={() => void save()} disabled={busy || form.name.trim().length < 3}>{busy ? 'Saving…' : selected ? 'Save Category' : 'Add Category'}</button></>}>
+            {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+            <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+                <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                    <button type="button" onClick={() => choose(null)} className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs font-extrabold text-amber-800"><Plus className="h-4 w-4" />Add Category</button>
+                    <div className="space-y-2">{ordered.map((category) => <button key={category.id} type="button" onClick={() => choose(category)} className={`w-full rounded-lg border px-3 py-2 text-left transition ${selectedId === category.id ? 'border-amber-300 bg-white ring-1 ring-amber-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}><div className="flex items-center justify-between gap-2"><span className="text-xs font-bold text-slate-800">{category.name}</span><span className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold ${category.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{category.isActive ? 'Active' : 'Inactive'}</span></div><p className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-400">{category.description || 'No description'}</p></button>)}</div>
+                </section>
+                <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="grid gap-4 sm:grid-cols-2"><Field label="Category name" required><input className={input} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field><Field label="Display order" required><input className={input} type="number" min={0} max={999} value={form.displayOrder} onChange={(event) => setForm({ ...form, displayOrder: Number(event.target.value) })} /></Field></div>
+                    <Field label="Description"><textarea className={`${input} min-h-24 resize-y`} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="What kind of contribution belongs in this category?" /></Field>
+                    <label className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3"><span><span className="block text-xs font-bold text-slate-700">Active category</span><span className="mt-1 block text-[11px] leading-4 text-slate-500">Inactive categories cannot be used for new nominations. Pending nominations must be resolved before deactivation.</span></span><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" /></label>
+                </section>
+            </div>
+        </AppModal>
+    );
+}
+
+function categoryForm(category: RecognitionCategory | null) {
+    return { code: category?.code ?? '', name: category?.name ?? '', description: category?.description ?? '', color: category?.color ?? 'amber', icon: category?.icon ?? 'award', isActive: category?.isActive ?? true, displayOrder: category?.displayOrder ?? 0 };
+}
+
+function slugCode(value: string) {
+    return value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 100) || 'RECOGNITION_CATEGORY';
+}
+
+export default function AdminRecognition({ initialRecognitionState }: Props) {
+    const [workspace, setWorkspace] = useHashWorkspace<RecognitionAdminWorkspace>(RECOGNITION_ADMIN_WORKSPACES, 'Overview');
+    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState));
+    const [loading, setLoading] = useState(!state);
+    const [error, setError] = useState('');
+    const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [showNomination, setShowNomination] = useState(false);
+    const [draftRecord, setDraftRecord] = useState<RecognitionRecord | null>(null);
+    const [replacementRecord, setReplacementRecord] = useState<RecognitionRecord | null>(null);
+    const [showCategories, setShowCategories] = useState(false);
+    const [approveRecord, setApproveRecord] = useState<RecognitionRecord | null>(null);
+    const [reasonAction, setReasonAction] = useState<{ type: 'decline' | 'revoke'; record: RecognitionRecord } | null>(null);
+    const [busyId, setBusyId] = useState<string | null>(null);
+    const [modalError, setModalError] = useState('');
+
+    async function reload() {
+        setLoading(true); setError('');
+        try { setState(await recognitionClient.state()); }
+        catch (requestError) { setError(recognitionError(requestError)); }
+        finally { setLoading(false); }
+    }
+
+    useEffect(() => { if (!state) void reload(); }, []);
+
+    const departments = useMemo(() => [...new Set((state?.personnel ?? []).map((person) => person.department).filter(Boolean) as string[])].sort(), [state]);
+    const nominators = useMemo(() => [...new Set((state?.records ?? []).map((record) => record.nominator.name))].sort(), [state]);
+    const categories = useMemo(() => (state?.categories ?? []).filter((category) => category.isActive), [state]);
+    const activeFilter = Object.entries(filters).some(([key, value]) => value !== EMPTY_FILTERS[key as keyof Filters]);
+
+    const baseFiltered = useMemo(() => (state?.records ?? []).filter((record) => {
+        const activity = recordActivityDate(record).slice(0, 10);
+        return (filters.department === 'all' || record.recipient.department === filters.department)
+            && (filters.category === 'all' || record.category?.id === filters.category)
+            && (filters.nominator === 'all' || record.nominator.name === filters.nominator)
+            && (!filters.from || activity >= filters.from)
+            && (!filters.to || activity <= filters.to);
+    }), [state, filters]);
+    const registerRows = useMemo(() => baseFiltered.filter((record) => filters.status === 'all' || record.status === filters.status), [baseFiltered, filters.status]);
+    const reviewRows = useMemo(() => baseFiltered.filter((record) => record.status === 'Pending Review'), [baseFiltered]);
+    const recognizedRows = useMemo(() => baseFiltered.filter((record) => record.status === 'Recognized'), [baseFiltered]);
+    const quarterRecognized = useMemo(() => recognizedRows.filter((record) => isCurrentQuarter(record.recognizedAt ?? record.achievementDate)), [recognizedRows]);
+    const quarterPeople = useMemo(() => new Set(quarterRecognized.map((record) => record.recipient.personnelKey)).size, [quarterRecognized]);
+    const quarterDepartments = useMemo(() => new Set(quarterRecognized.map((record) => record.recipient.department).filter(Boolean)).size, [quarterRecognized]);
+    const recentRecognized = useMemo(() => [...recognizedRows].sort((a, b) => recordActivityDate(b).localeCompare(recordActivityDate(a))).slice(0, 5), [recognizedRows]);
+    const categoryCounts = useMemo(() => {
+        const counts = new Map<string, number>();
+        quarterRecognized.forEach((record) => counts.set(record.category?.name ?? 'Uncategorized', (counts.get(record.category?.name ?? 'Uncategorized') ?? 0) + 1));
+        return [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    }, [quarterRecognized]);
+
+    function openRow(record: RecognitionRecord) { setExpandedId(record.id); }
+    function goto(next: RecognitionAdminWorkspace, status: string = 'all') { setFilters((current) => ({ ...current, status })); setExpandedId(null); setWorkspace(next); }
+
+    async function decide(record: RecognitionRecord, decision: 'Recognized' | 'Declined', reason?: string) {
+        setBusyId(record.id); setModalError(''); setError('');
+        try { await recognitionClient.decide(record.id, decision, reason); await reload(); setApproveRecord(null); setReasonAction(null); }
+        catch (requestError) { setModalError(recognitionError(requestError)); }
+        finally { setBusyId(null); }
+    }
+
+    async function revoke(record: RecognitionRecord, reason: string) {
+        setBusyId(record.id); setModalError(''); setError('');
+        try { await recognitionClient.revoke(record.id, reason); await reload(); setReasonAction(null); }
+        catch (requestError) { setModalError(recognitionError(requestError)); }
+        finally { setBusyId(null); }
+    }
+
+    if (!state) return <AuthenticatedLayout header={<h1 className="text-lg font-bold text-slate-950">Social Recognition</h1>}><Head title="Social Recognition" /><div className="app-card p-10 text-center text-sm text-slate-500">{loading ? 'Loading Social Recognition…' : error || 'Recognition state is unavailable.'}</div></AuthenticatedLayout>;
+
+    const details = (record: RecognitionRecord) => <RecordDetails
+        record={record}
+        busy={busyId === record.id}
+        onApprove={() => { setExpandedId(null); setModalError(''); setApproveRecord(record); }}
+        onDecline={() => { setExpandedId(null); setModalError(''); setReasonAction({ type: 'decline', record }); }}
+        onRevoke={() => { setExpandedId(null); setModalError(''); setReasonAction({ type: 'revoke', record }); }}
+        onEditDraft={() => { setExpandedId(null); setDraftRecord(record); }}
+        onCorrect={() => { setExpandedId(null); setReplacementRecord(record); }}
+    />;
+    const selectedRecord = expandedId ? state.records.find((record) => record.id === expandedId) ?? null : null;
+    const columns = [
+        { key: 'recipient', header: 'Recipient', render: (record: RecognitionRecord) => <div><p className="font-bold text-slate-900">{record.recipient.name}</p><p className="text-[11px] text-slate-400">{record.recipient.position ?? 'Unassigned'} · {record.recipient.department ?? 'Unassigned'}</p></div> },
+        { key: 'recognition', header: 'Recognition', render: (record: RecognitionRecord) => <div><p className="max-w-xs truncate font-semibold text-slate-800">{record.title}</p><p className="text-[11px] text-slate-400">{record.category?.name ?? 'Uncategorized'}</p></div> },
+        { key: 'nominator', header: 'Nominated By', render: (record: RecognitionRecord) => <div><p className="text-xs font-semibold text-slate-700">{record.nominator.name}</p><p className="text-[10px] text-slate-400">{record.nominator.position ?? record.nominator.role ?? '—'}</p></div> },
+        { key: 'date', header: 'Achievement', render: (record: RecognitionRecord) => formatDate(record.achievementDate) },
+        { key: 'evidence', header: 'Evidence', render: (record: RecognitionRecord) => { const evidence = evidenceStatus(record.evidence); return <EvidenceIndicator summary={evidence} compact />; } },
+        { key: 'status', header: 'Status', render: (record: RecognitionRecord) => <StatusPill value={record.status} /> },
+    ];
+
+    return (
+        <AuthenticatedLayout header={<h1 className="truncate text-lg font-bold text-slate-950">Social Recognition</h1>}>
             <Head title="Social Recognition" />
-            {selected && (
-                <RecognitionDetailsModal
-                    selected={selected}
-                    onClose={() => {
-                        setSelected(null);
-                        setDecliningId(null);
-                    }}
-                    onApprove={approveRecognition}
-                    onStartDecline={startDecline}
-                    decliningId={decliningId}
-                    declineReasonDraft={declineReasonDraft}
-                    setDeclineReasonDraft={setDeclineReasonDraft}
-                    onConfirmDecline={confirmDecline}
-                    setDecliningId={setDecliningId}
-                />
-            )}
-            {showAllRecent && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" onClick={() => setShowAllRecent(false)}>
-                    <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-bold text-slate-900">Recent Recognitions</h3>
-                            <button onClick={() => setShowAllRecent(false)} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="Close">
-                                <X className="h-4 w-4" />
-                            </button>
-                        </div>
-                        <div className="mt-3 space-y-1">
-                            {[...recognitions].sort((a, b) => Number(b.id) - Number(a.id)).map((r) => (
-                                <button
-                                    key={r.id}
-                                    onClick={() => {
-                                        setShowAllRecent(false);
-                                        setSelected(r);
-                                    }}
-                                    className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-slate-50"
-                                >
-                                    <div className="flex items-center gap-2.5">
-                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: r.color }}>
-                                            {initialsOf(r.recipient)}
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="truncate text-xs font-semibold text-slate-800">{r.recipient}</p>
-                                            <p className="truncate text-[11px] text-slate-400">{r.title}</p>
-                                        </div>
-                                    </div>
-                                    <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${CATEGORY_META[r.category].badge}`}>
-                                        {r.category}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+            <HeaderFilters active={activeFilter} onReset={() => setFilters(EMPTY_FILTERS)}>
+                <SystemSelect aria-label="Department" value={filters.department} onChange={(event) => setFilters({ ...filters, department: event.target.value })}><option value="all">All Departments</option>{departments.map((department) => <option key={department} value={department}>{department}</option>)}</SystemSelect>
+                <SystemSelect aria-label="Category" value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}><option value="all">All Categories</option>{state.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</SystemSelect>
+                <SystemSelect aria-label="Nominator" value={filters.nominator} onChange={(event) => setFilters({ ...filters, nominator: event.target.value })}><option value="all">All Nominators</option>{nominators.map((name) => <option key={name} value={name}>{name}</option>)}</SystemSelect>
+                {workspace === 'Recognition Register' && <SystemSelect aria-label="Status" value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="all">All Statuses</option><option>Draft</option><option>Pending Review</option><option>Recognized</option><option>Declined</option><option>Revoked</option></SystemSelect>}
+                <input aria-label="From date" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
+                <input aria-label="To date" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
+            </HeaderFilters>
+            <HeaderActions>
+                {state.actor.canManageCategories && <button type="button" className={button} onClick={() => setShowCategories(true)}><Settings2 className="h-4 w-4" />Manage Categories</button>}
+                <button type="button" className={primary} onClick={() => setShowNomination(true)}><Plus className="h-4 w-4" />Nominate Employee</button>
+            </HeaderActions>
+
+            {selectedRecord && <AppModal
+                show
+                title="Recognition Details"
+                description={`${selectedRecord.recipient.name} · ${selectedRecord.title}`}
+                onClose={() => setExpandedId(null)}
+                maxWidth="2xl"
+            >
+                {details(selectedRecord)}
+            </AppModal>}
+
+            {showNomination && <RecognitionNominationForm state={state} onClose={() => setShowNomination(false)} onSaved={reload} />}
+            {draftRecord && <RecognitionNominationForm state={state} record={draftRecord} onClose={() => setDraftRecord(null)} onSaved={reload} />}
+            {replacementRecord && <RecognitionNominationForm state={state} replacementOf={replacementRecord} onClose={() => setReplacementRecord(null)} onSaved={reload} />}
+            {showCategories && <CategoryManager state={state} onClose={() => setShowCategories(false)} onSaved={reload} />}
+            {approveRecord && <ApproveModal record={approveRecord} busy={busyId === approveRecord.id} error={modalError} onClose={() => { setApproveRecord(null); setModalError(''); }} onConfirm={() => decide(approveRecord, 'Recognized')} />}
+            {reasonAction && <ReasonModal title={reasonAction.type === 'decline' ? 'Decline Recognition' : 'Revoke Recognition'} description={reasonAction.type === 'decline' ? `${reasonAction.record.recipient.name} · ${reasonAction.record.title}` : 'The published record remains in history and is marked Revoked.'} confirmLabel={reasonAction.type === 'decline' ? 'Confirm Decline' : 'Confirm Revocation'} busy={busyId === reasonAction.record.id} error={modalError} onClose={() => { setReasonAction(null); setModalError(''); }} onConfirm={(reason) => reasonAction.type === 'decline' ? decide(reasonAction.record, 'Declined', reason) : revoke(reasonAction.record, reason)} />}
+
+            <div className="app-page app-page-enter space-y-4">
+                {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>}
+                <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    <StatCard label="Pending Review" value={reviewRows.length} icon={Clock3} onClick={() => goto('Review Queue')} />
+                    <StatCard label="Recognized This Quarter" value={quarterRecognized.length} icon={Award} onClick={() => goto('Recognition Register', 'Recognized')} />
+                    <StatCard label="People Recognized" value={quarterPeople} icon={UserRoundCheck} onClick={() => goto('Recognition Register', 'Recognized')} />
+                    <StatCard label="Departments Reached" value={quarterDepartments} icon={Building2} onClick={() => goto('Recognition Register', 'Recognized')} />
                 </div>
-            )}
-            {showCreateForm && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" onClick={closeCreateForm}>
-                    <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                                <Sparkles className="h-4 w-4 text-[#F4B400]" />
-                                <h3 className="text-sm font-bold text-slate-900">Create Recognition</h3>
-                            </div>
-                            <button onClick={closeCreateForm} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="Close">
-                                <X className="h-4 w-4" />
-                            </button>
+
+                {workspace === 'Overview' && (
+                    <>
+                        <div className="grid gap-4 xl:grid-cols-2">
+                            <DataTable title="Needs Review" data={reviewRows.slice(0, 5)} rowKey={(record) => record.id} pageSize={5} onRowClick={openRow} getRowLabel={(record) => `Open ${record.recipient.name} recognition review`} columns={columns.filter((column) => !['status'].includes(column.key))} emptyTitle="Review queue is clear" emptyDescription="New nominations awaiting governance review will appear here." />
+                            <DataTable title="Recent Recognitions" data={recentRecognized} rowKey={(record) => record.id} pageSize={5} onRowClick={openRow} getRowLabel={(record) => `Open ${record.recipient.name} recognized record`} columns={columns.filter((column) => ['recipient', 'recognition', 'date'].includes(column.key))} emptyTitle="No recognized records yet" emptyDescription="Approved social recognitions will appear here." />
                         </div>
-                        <div className="mt-4 space-y-3">
-                            <div>
-                                <label className="mb-1 block text-[11px] font-medium text-slate-500">Recipient</label>
-                                <select
-                                    value={form.employeeId}
-                                    onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
-                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                                >
-                                    <option value="">Select employee...</option>
-                                    {MOCK_EMPLOYEES.map((e) => (
-                                        <option key={e.id} value={e.id}>{e.name} — {e.position}</option>
-                                    ))}
-                                </select>
-                                {selectedEmployee && (
-                                    <p className="mt-1 text-[11px] text-slate-400">
-                                        {selectedEmployee.position} · {selectedEmployee.department}
-                                    </p>
-                                )}
-                            </div>
-                            <div>
-                                <label className="mb-1 block text-[11px] font-medium text-slate-500">Recognition Title</label>
-                                <input
-                                    value={form.title}
-                                    onChange={(e) => setForm({ ...form, title: e.target.value })}
-                                    placeholder="e.g. Outstanding Client Handling"
-                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none focus:ring-2 focus:ring-[#F4B400]/30"
-                                />
-                            </div>
-                            <div>
-                                <label className="mb-1 block text-[11px] font-medium text-slate-500">Category</label>
-                                <select
-                                    value={form.category}
-                                    onChange={(e) => setForm({ ...form, category: e.target.value as RecognitionCategory })}
-                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                                >
-                                    {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="mb-1 block text-[11px] font-medium text-slate-500">
-                                    Achievement Details <span className="text-slate-400">(optional)</span>
-                                </label>
-                                <textarea
-                                    value={form.note}
-                                    onChange={(e) => setForm({ ...form, note: e.target.value })}
-                                    rows={3}
-                                    placeholder="Briefly describe the contribution or achievement"
-                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none focus:ring-2 focus:ring-[#F4B400]/30"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="mb-1 block text-[11px] font-medium text-slate-500">Date</label>
-                                    <input
-                                        type="date"
-                                        value={form.date}
-                                        onChange={(e) => setForm({ ...form, date: e.target.value })}
-                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="mb-1 block text-[11px] font-medium text-slate-500">
-                                        Your Role/Title <span className="text-slate-400">(optional)</span>
-                                    </label>
-                                    <input
-                                        value={form.reviewerRole}
-                                        onChange={(e) => setForm({ ...form, reviewerRole: e.target.value })}
-                                        placeholder="HR/Admin"
-                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none focus:ring-2 focus:ring-[#F4B400]/30"
-                                    />
-                                </div>
-                            </div>
-                            <div className="rounded-lg bg-slate-50 p-3">
-                                <label className="flex items-start gap-2">
-                                    <input
-                                        type="checkbox"
-                                        checked={form.publishNow}
-                                        onChange={(e) => setForm({ ...form, publishNow: e.target.checked })}
-                                        className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-[#F4B400] focus:ring-[#F4B400]"
-                                    />
-                                    <span className="text-xs text-slate-600">
-                                        <span className="font-semibold text-slate-800">Publish immediately as Recognized.</span>{' '}
-                                        Leave unchecked to save as Pending Review for a second look before it's published.
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-                        <div className="mt-5 flex gap-2">
-                            <button onClick={closeCreateForm} className="flex-1 rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleCreateSubmit}
-                                disabled={!canSubmitCreate}
-                                className="flex-1 rounded-lg bg-[#F4B400] py-2 text-xs font-semibold text-black hover:bg-[#dba300] disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {form.publishNow ? 'Publish Recognition' : 'Save as Pending Review'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            <div className="flex flex-col gap-4">
-                <PageHeader
-                    title="Social Recognition"
-                    description="Track and review employee recognitions across the organization"
-                    actions={
-                        <>
-                            <select
-                                value={departmentFilter}
-                                onChange={(e) => setDepartmentFilter(e.target.value)}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none"
-                            >
-                                <option>All Departments</option>
-                                {departments.map((d) => <option key={d}>{d}</option>)}
-                            </select>
-                            <select
-                                value={categoryFilter}
-                                onChange={(e) => setCategoryFilter(e.target.value as 'All Categories' | RecognitionCategory)}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none"
-                            >
-                                <option>All Categories</option>
-                                {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                            </select>
-                            <select
-                                value={periodFilter}
-                                onChange={(e) => setPeriodFilter(e.target.value)}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none"
-                            >
-                                {PERIOD_OPTIONS.map((p) => <option key={p}>{p}</option>)}
-                            </select>
-                            <button
-                                type="button"
-                                onClick={openCreateForm}
-                                className="flex items-center gap-1.5 rounded-lg bg-[#F4B400] px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-[#dba300]"
-                            >
-                                <Plus className="h-3.5 w-3.5" /> Create Recognition
-                            </button>
-                        </>
-                    }
-                />
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                    <StatCard label="Total Recognitions" value={totalRecognitions} icon={Trophy} />
-                    <StatCard label="This Month" value={thisMonthCount} icon={Clock} />
-                    <StatCard label="Employees Recognized" value={employeesRecognized} icon={Users} />
-                    <StatCard label="Pending Review" value={pendingReviewCount} icon={Award} />
-                </div>
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                        <div>
-                            <h2 className="text-sm font-bold text-slate-900">Recognition Trend</h2>
-                            <p className="text-[11px] text-slate-400">Monthly recognition volume</p>
-                        </div>
-                        <div className="mt-3">
-                            <RecognitionTrendChart data={TREND_DATA} />
-                        </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                        <div className="flex items-center gap-1.5">
-                            <Building2 className="h-4 w-4 text-[#F4B400]" />
-                            <h2 className="text-sm font-bold text-slate-900">Recognition by Department</h2>
-                        </div>
-                        <p className="mt-0.5 text-[11px] text-slate-400">Where recognitions are coming from</p>
-                        <div className="mt-3 space-y-2.5">
-                            {departmentCounts.map((d) => (
-                                <div key={d.department}>
-                                    <div className="flex items-center justify-between text-xs">
-                                        <span className="text-slate-600">{d.department}</span>
-                                        <span className="font-semibold text-slate-800">{d.count}</span>
-                                    </div>
-                                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                                        <div
-                                            className="h-full rounded-full bg-[#F4B400]"
-                                            style={{ width: `${(d.count / maxDeptCount) * 100}%` }}
-                                        />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                        <div className="flex items-center gap-1.5">
-                            <Trophy className="h-4 w-4 text-[#F4B400]" />
-                            <h2 className="text-sm font-bold text-slate-900">Recent Recognitions</h2>
-                        </div>
-                        <div className="mt-3 space-y-1">
-                            {recentRecognitions.map((r) => (
-                                <button
-                                    key={r.id}
-                                    onClick={() => setSelected(r)}
-                                    className="flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-left hover:bg-slate-50"
-                                >
-                                    <div className="flex items-center gap-2.5">
-                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: r.color }}>
-                                            {initialsOf(r.recipient)}
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="truncate text-xs font-semibold text-slate-800">{r.recipient}</p>
-                                            <p className="truncate text-[11px] text-slate-400">{r.title}</p>
-                                        </div>
-                                    </div>
-                                    <span className="shrink-0 text-[11px] text-slate-400">{r.date}</span>
-                                </button>
-                            ))}
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowAllRecent(true)}
-                            className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                            View All <ChevronRight className="h-3 w-3" />
-                        </button>
-                    </div>
-                    <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                        <div className="flex items-center gap-1.5">
-                            <Award className="h-4 w-4 text-[#F4B400]" />
-                            <h2 className="text-sm font-bold text-slate-900">Recognition Categories</h2>
-                        </div>
-                        <p className="mt-0.5 text-[11px] text-slate-400">Recognized behaviors this period</p>
-                        <div className="mt-3 space-y-1.5">
-                            {categoryCounts.map(({ category, count }) => {
-                                const meta = CATEGORY_META[category];
-                                const Icon = meta.icon;
-                                return (
-                                    <button
-                                        key={category}
-                                        onClick={() => setCategoryFilter(category)}
-                                        className="flex w-full items-center justify-between rounded-lg px-1.5 py-1.5 text-left hover:bg-slate-50"
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <span className={`flex h-6 w-6 items-center justify-center rounded-md ${meta.badge}`}>
-                                                <Icon className="h-3 w-3" />
-                                            </span>
-                                            <span className="text-xs text-slate-700">{category}</span>
-                                        </div>
-                                        <span className="text-xs font-semibold text-slate-800">{count}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
-                <DataTable
-                    title="Recognition Activity"
-                    data={filtered}
-                    rowKey={(r) => r.id}
-                    onRowClick={(r) => setSelected(r)}
-                    filterTabs={[
-                        { label: 'All', value: 'All' },
-                        { label: 'Recognized', value: 'Recognized' },
-                        { label: 'Pending Review', value: 'Pending Review' },
-                        { label: 'Declined', value: 'Declined' },
-                    ]}
-                    activeFilter={statusFilter}
-                    onFilterChange={(v) => setStatusFilter(v as 'All' | RecognitionStatus)}
-                    columns={[
-                        {
-                            key: 'recipient',
-                            header: 'Recipient',
-                            render: (r) => (
-                                <div className="flex items-center gap-2">
-                                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: r.color }}>
-                                        {initialsOf(r.recipient)}
-                                    </div>
-                                    <div>
-                                        <p className="text-xs font-semibold text-slate-800">{r.recipient}</p>
-                                        <p className="text-[11px] text-slate-400">{r.position}</p>
-                                    </div>
-                                </div>
-                            ),
-                        },
-                        { key: 'department', header: 'Department', render: (r) => <span className="text-xs">{r.department}</span> },
-                        {
-                            key: 'title',
-                            header: 'Recognition',
-                            render: (r) => <span className="text-xs text-slate-700">{r.title}</span>,
-                        },
-                        {
-                            key: 'category',
-                            header: 'Category',
-                            render: (r) => (
-                                <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${CATEGORY_META[r.category].badge}`}>
-                                    {r.category}
-                                </span>
-                            ),
-                        },
-                        {
-                            key: 'recognizedBy',
-                            header: 'Recognized By',
-                            render: (r) => (
-                                <div>
-                                    <p className="text-xs text-slate-700">{r.recognizedBy}</p>
-                                    <p className="text-[11px] text-slate-400">{r.recognizedByRole}</p>
-                                </div>
-                            ),
-                        },
-                        { key: 'date', header: 'Date', className: 'tabular-nums', render: (r) => <span className="text-xs">{r.date}</span> },
-                        {
-                            key: 'status',
-                            header: 'Status',
-                            render: (r) => (
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusBadgeClass(r.status)}`}>
-                                    <span className={`h-1 w-1 rounded-full ${statusDotClass(r.status)}`} />
-                                    {r.status}
-                                </span>
-                            ),
-                        },
-                    ]}
-                    footer={
-                        <div className="flex items-center justify-between text-xs text-slate-500">
-                            <span>Showing {filtered.length} of {totalRecognitions} recognitions</span>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setDepartmentFilter('All Departments');
-                                    setCategoryFilter('All Categories');
-                                    setPeriodFilter('All Periods');
-                                    setStatusFilter('All');
-                                }}
-                                className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                            >
-                                Reset Filters <ChevronRight className="h-3 w-3" />
-                            </button>
-                        </div>
-                    }
-                />
+                        <section className="app-card p-5">
+                            <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><Medal className="h-4 w-4 text-amber-700" /><h2 className="text-sm font-bold text-slate-950">Recognition by Category</h2></div><p className="mt-1 text-xs text-slate-500">Simple current-quarter distribution of published recognitions.</p></div><button type="button" className="text-xs font-bold text-amber-700" onClick={() => goto('Recognition Register', 'Recognized')}>Open Register</button></div>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{categoryCounts.length ? categoryCounts.map((row) => <button key={row.name} type="button" onClick={() => { const category = state.categories.find((item) => item.name === row.name); if (category) setFilters((current) => ({ ...current, category: category.id, status: 'Recognized' })); setWorkspace('Recognition Register'); }} className="rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-amber-200 hover:bg-amber-50/30"><div className="flex items-center justify-between gap-2"><span className="text-xs font-bold text-slate-800">{row.name}</span><span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-extrabold text-amber-700">{row.count}</span></div></button>) : <p className="col-span-full py-6 text-center text-xs text-slate-400">No recognized activity in the current quarter.</p>}</div>
+                        </section>
+                    </>
+                )}
+
+                {workspace === 'Review Queue' && (
+                    <DataTable title="Review Queue" data={reviewRows} rowKey={(record) => record.id} onRowClick={openRow} getRowLabel={(record) => `Open ${record.recipient.name} recognition review`} columns={columns.filter((column) => column.key !== 'status')} emptyTitle="Review queue is clear" emptyDescription="Only nominations waiting for Admin/HR review appear here." />
+                )}
+
+                {workspace === 'Recognition Register' && (
+                    <DataTable title="Recognition Register" data={registerRows} rowKey={(record) => record.id} onRowClick={openRow} getRowLabel={(record) => `Open ${record.recipient.name} recognition record`} columns={columns} emptyTitle="No recognition records found" emptyDescription="Try changing the header filters or create a nomination." footer={<div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>{registerRows.length} record(s)</span>{activeFilter && <button type="button" className="font-bold text-amber-700" onClick={() => setFilters(EMPTY_FILTERS)}>Reset filters</button>}</div>} />
+                )}
             </div>
         </AuthenticatedLayout>
     );

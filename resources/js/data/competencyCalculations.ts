@@ -1,5 +1,6 @@
 import {
     COMPETENCY_CATEGORIES,
+    snapshotCompetencyDefinition,
     type AssessmentCycle,
     type AssessmentCycleSnapshot,
     type AssessmentStatus,
@@ -44,6 +45,7 @@ export type RequirementDetail = {
     evidenceCount: number;
     lastAssessed: string | null;
     validUntil: string | null;
+    nextReassessment?: string | null;
     reassessmentDue: boolean;
     recommendations: DevelopmentRecommendation[];
 };
@@ -56,6 +58,7 @@ export type CompetencyProfileStatus =
     | "Reassessment Due";
 
 export type CompetencyProfileRow = {
+    resolutionReason?: string;
     person: PersonnelIdentity;
     profile: RoleProfile | null;
     requirements: RequirementDetail[];
@@ -83,6 +86,7 @@ export type AssessmentTableRow = {
     assessor: PersonnelIdentity | null;
     progress: number;
     displayStatus: AssessmentStatus;
+    contextChanged: boolean;
 };
 
 export type CompetencyAnalyticsFilters = {
@@ -130,6 +134,62 @@ function normalizeIdentifier(value: string): string {
 
 export function todayIso(): string {
     return localDateValue();
+}
+
+export function effectiveCycleStatus(
+    cycle: AssessmentCycle,
+    referenceManilaDate: string = todayIso(),
+): AssessmentCycle["status"] | "Expired" {
+    if (["Draft", "Closed", "Cancelled"].includes(cycle.status))
+        return cycle.status;
+    if (referenceManilaDate < cycle.startDate) return "Scheduled";
+    if (referenceManilaDate > cycle.endDate) return "Expired";
+    return "Active";
+}
+
+export function assignmentDueDate(
+    cycle: AssessmentCycle,
+    assignedDate: string = todayIso(),
+): string {
+    const base = new Date(`${assignedDate.slice(0, 10)}T12:00:00`);
+    base.setDate(base.getDate() + cycle.dueDaysAfterAssignment);
+    const calculated = localDateValue(base);
+    const earliest = assignedDate < cycle.startDate ? cycle.startDate : assignedDate;
+    const bounded = calculated > cycle.endDate ? cycle.endDate : calculated;
+    return bounded < earliest ? earliest : bounded;
+}
+
+export function assessmentRequiresGovernanceValidation(
+    assessment: CompetencyAssessment,
+    cycle: AssessmentCycle | null = null,
+): boolean {
+    const rules = assessment.cycleSnapshot ?? cycle;
+    return Boolean(
+        rules?.requireHrValidation ||
+            assessment.roleProfileSnapshot.requirements.some(
+                (requirement) => requirement.critical,
+            ),
+    );
+}
+
+export function assessmentContextChanged(
+    state: CompetencyState,
+    assessment: CompetencyAssessment,
+): boolean {
+    if (["Finalized", "Cancelled"].includes(assessment.status)) return false;
+    const person = SHARED_PERSONNEL.find(
+        (item) => item.id === assessment.personId,
+    );
+    if (!person) return true;
+    const current = findActiveProfileForPerson(state, person);
+    return (
+        !current ||
+        current.id !== assessment.roleProfileId ||
+        normalizeIdentifier(person.position) !==
+            normalizeIdentifier(assessment.roleProfileSnapshot.position) ||
+        normalizeIdentifier(person.department) !==
+            normalizeIdentifier(assessment.roleProfileSnapshot.department)
+    );
 }
 
 export function formatDate(value: string | null | undefined): string {
@@ -187,7 +247,8 @@ export function cycleConfigurationMatches(
         previous.requireHrValidation === next.requireHrValidation &&
         previous.requireAcknowledgment === next.requireAcknowledgment &&
         previous.dueDaysAfterAssignment === next.dueDaysAfterAssignment &&
-        previous.reassessmentRule.trim() === next.reassessmentRule.trim()
+        previous.reassessmentRule.trim() === next.reassessmentRule.trim() &&
+        (previous.autoAssign !== false) === (next.autoAssign !== false)
     );
 }
 
@@ -249,11 +310,13 @@ export function findActiveProfileForPerson(
     state: CompetencyState,
     person: PersonnelIdentity,
 ): RoleProfile | null {
+    if (state.profileRows) return state.profileRows.find((row) => row.person.id === person.id)?.profile ?? null;
     const matches = state.roleProfiles.filter(
         (profile) =>
             profile.status === "Active" &&
-            profile.position === person.position &&
-            profile.department === person.department &&
+            profile.effectiveDate <= todayIso() &&
+            normalizeIdentifier(profile.position) === normalizeIdentifier(person.position) &&
+            normalizeIdentifier(profile.department) === normalizeIdentifier(person.department) &&
             (profile.appliesTo === "Both" ||
                 profile.appliesTo === person.personType),
     );
@@ -291,6 +354,8 @@ export function getAuthorizedAssessors(
             )
             .map((authorization) => authorization.assessorId),
     );
+    const manager = SHARED_PERSONNEL.find((candidate) => candidate.id === person.managerPersonnelKey && candidate.evaluatorCapable);
+    if (manager) ids.add(manager.id);
     return SHARED_PERSONNEL.filter(
         (candidate) => ids.has(candidate.id) && candidate.id !== person.id,
     );
@@ -327,7 +392,9 @@ export function resolveAssessmentAssessor(
 
     if (cycle.assignmentMethod === "Reporting Relationship") {
         const today = parseDate(todayIso());
-        const relationship = REPORTING_RELATIONSHIPS.find(
+        const relationship = person.managerPersonnelKey !== undefined
+            ? (person.managerPersonnelKey ? { supervisorId: person.managerPersonnelKey } : undefined)
+            : REPORTING_RELATIONSHIPS.find(
             (item) =>
                 item.active &&
                 item.directReportId === person.id &&
@@ -398,6 +465,166 @@ export function resolveAssessmentAssessor(
           };
 }
 
+export type AssessmentAutomationException = {
+    id: string;
+    kind: "Initial Assignment" | "Reassessment";
+    person: PersonnelIdentity;
+    profile: RoleProfile | null;
+    cycle: AssessmentCycle | null;
+    competencyIds: string[];
+    reason: string;
+};
+
+export function buildAssessmentAutomationExceptions(
+    state: CompetencyState,
+    referenceManilaDate: string = todayIso(),
+): AssessmentAutomationException[] {
+    const exceptions: AssessmentAutomationException[] = [];
+    const existingKeys = new Set(
+        state.assessments
+            .filter((assessment) => assessment.status !== "Cancelled")
+            .map((assessment) => `${assessment.personId}::${assessment.cycleId}`),
+    );
+
+    for (const cycle of state.cycles) {
+        if (
+            effectiveCycleStatus(cycle, referenceManilaDate) !== "Active" ||
+            cycle.autoAssign === false ||
+            cycle.assignmentMethod === "Manual Authorized Assignment" ||
+            cycle.type === "Post-Training Reassessment"
+        )
+            continue;
+        for (const profileId of cycle.roleProfileIds) {
+            const profile = state.roleProfiles.find(
+                (item) => item.id === profileId && item.status === "Active",
+            );
+            if (!profile) continue;
+            for (const person of SHARED_PERSONNEL) {
+                if (!cyclePopulationMatches(cycle, person, profile)) continue;
+                if (existingKeys.has(`${person.id}::${cycle.id}`)) continue;
+                const resolution = resolveAssessmentAssessor(
+                    state,
+                    cycle,
+                    person,
+                    profile,
+                );
+                if (resolution.assessor) continue;
+                exceptions.push({
+                    id: `assignment-${cycle.id}-${person.id}`,
+                    kind: "Initial Assignment",
+                    person,
+                    profile,
+                    cycle,
+                    competencyIds: profile.requirements.map(
+                        (requirement) => requirement.competencyId,
+                    ),
+                    reason:
+                        resolution.error ??
+                        "No authorized assessor could be resolved automatically.",
+                });
+            }
+        }
+    }
+
+    for (const recommendation of state.recommendations) {
+        if (
+            recommendation.status === "Reassessed" ||
+            !recommendation.integration?.completedAt ||
+            !recommendation.reassessmentDue ||
+            recommendation.reassessmentDue > referenceManilaDate ||
+            recommendation.reassessmentAssessmentId
+        )
+            continue;
+        const person = SHARED_PERSONNEL.find(
+            (item) => item.id === recommendation.personId,
+        );
+        if (!person) continue;
+        const profile = findActiveProfileForPerson(state, person);
+        if (!profile) {
+            exceptions.push({
+                id: `reassessment-${recommendation.id}`,
+                kind: "Reassessment",
+                person,
+                profile: null,
+                cycle: null,
+                competencyIds: [recommendation.competencyId],
+                reason:
+                    "No active Role Profile matches the employee’s current organizational context.",
+            });
+            continue;
+        }
+        const existingTarget = state.assessments.find(
+            (assessment) =>
+                assessment.status !== "Cancelled" &&
+                assessment.personId === person.id &&
+                (assessment.targetCompetencyIds ??
+                    assessment.roleProfileSnapshot.requirements.map(
+                        (requirement) => requirement.competencyId,
+                    )
+                ).includes(recommendation.competencyId) &&
+                state.cycles.find((cycle) => cycle.id === assessment.cycleId)
+                    ?.type === "Post-Training Reassessment",
+        );
+        if (existingTarget) continue;
+        const cycles = state.cycles.filter(
+            (cycle) =>
+                cycle.type === "Post-Training Reassessment" &&
+                effectiveCycleStatus(cycle, referenceManilaDate) === "Active" &&
+                cyclePopulationMatches(cycle, person, profile),
+        );
+        if (!cycles.length) {
+            exceptions.push({
+                id: `reassessment-${recommendation.id}`,
+                kind: "Reassessment",
+                person,
+                profile,
+                cycle: null,
+                competencyIds: [recommendation.competencyId],
+                reason:
+                    "No active Post-Training Reassessment cycle covers the employee’s current Role Profile.",
+            });
+            continue;
+        }
+        const available = cycles.find(
+            (cycle) => !existingKeys.has(`${person.id}::${cycle.id}`),
+        );
+        if (!available) {
+            exceptions.push({
+                id: `reassessment-${recommendation.id}`,
+                kind: "Reassessment",
+                person,
+                profile,
+                cycle: cycles[0] ?? null,
+                competencyIds: [recommendation.competencyId],
+                reason:
+                    "The matching reassessment cycle already has another official assignment for this person; use another governed reassessment cycle.",
+            });
+            continue;
+        }
+        const resolution = resolveAssessmentAssessor(
+            state,
+            available,
+            person,
+            profile,
+        );
+        if (!resolution.assessor) {
+            exceptions.push({
+                id: `reassessment-${recommendation.id}`,
+                kind: "Reassessment",
+                person,
+                profile,
+                cycle: available,
+                competencyIds: [recommendation.competencyId],
+                reason:
+                    resolution.error ??
+                    "No authorized assessor could be resolved for the targeted reassessment.",
+            });
+        }
+    }
+
+    return exceptions;
+}
+
 function getPersonName(personId: string): string {
     return (
         SHARED_PERSONNEL.find((item) => item.id === personId)?.fullName ??
@@ -429,7 +656,7 @@ export function canAssess(
     const profile = state.roleProfiles.find(
         (item) => item.id === assessment.roleProfileId,
     );
-    if (!person || !profile) return false;
+    if (!person || !profile || assessmentContextChanged(state, assessment)) return false;
     return state.assessorAuthorizations.some(
         (authorization) =>
             authorization.assessorId === actorId &&
@@ -460,6 +687,14 @@ export function validateAssessmentForSubmit(
         if (evidenceRequired && rating.evidence.length === 0) {
             errors.push(
                 `${requirement.competency.name}: supporting evidence is required.`,
+            );
+        }
+        if (
+            requirement.critical &&
+            rating.evidence.some((item) => item.verificationState !== "Verified")
+        ) {
+            errors.push(
+                `${requirement.competency.name}: critical competency evidence must be Verified before submission.`,
             );
         }
         if (
@@ -518,6 +753,7 @@ export function buildAssessmentRows(
                     ) ?? null,
                 progress: assessmentProgress(assessment),
                 displayStatus: getDisplayAssessmentStatus(assessment, referenceManilaDate),
+                contextChanged: assessmentContextChanged(state, assessment),
             },
         ];
     });
@@ -572,6 +808,7 @@ function latestFinalizedResultForRequirement(
 export function buildCompetencyProfiles(
     state: CompetencyState,
 ): CompetencyProfileRow[] {
+    if (state.profileRows) return state.profileRows;
     return SHARED_PERSONNEL.filter(
         (person) => person.employmentStatus !== "Inactive",
     ).map((person) => {
@@ -609,7 +846,7 @@ export function buildCompetencyProfiles(
                         (item) => item.id === requirement.competencyId,
                     ) ?? null;
                 const lastAssessed =
-                    rating?.assessedAt ?? source?.finalizedAt ?? null;
+                    sourceSnapshot?.finalizedAt ?? null;
                 const interval =
                     requirement.reassessmentIntervalMonths ??
                     competency?.reassessmentIntervalMonths ??
@@ -709,6 +946,12 @@ export function buildGapRows(state: CompetencyState): CompetencyGapRow[] {
     });
 }
 
+export function buildDevelopmentRows(state: CompetencyState): CompetencyGapRow[] {
+    return buildCompetencyProfiles(state).flatMap(row => row.profile ? row.requirements
+        .filter(detail => (detail.gap !== null && detail.gap > 0) || detail.recommendations.length > 0)
+        .map(detail => ({ ...detail, id: `${row.person.id}-${detail.requirement.competencyId}`, person: row.person, profile: row.profile!, recommendationStatus: detail.recommendations[0]?.outcome ?? detail.recommendations[0]?.status ?? "No Recommendation" })) : []);
+}
+
 export function filterAssessmentRows(
     rows: AssessmentTableRow[],
     filters: CompetencyAnalyticsFilters,
@@ -722,12 +965,12 @@ export function filterAssessmentRows(
             return false;
         if (
             filters.department !== "All" &&
-            row.assessment.roleProfileSnapshot.department !== filters.department
+            (filters.cycleId === "All" ? row.person.department : row.assessment.roleProfileSnapshot.department) !== filters.department
         )
             return false;
         if (
             filters.position !== "All" &&
-            row.assessment.roleProfileSnapshot.position !== filters.position
+            (filters.cycleId === "All" ? row.person.position : row.assessment.roleProfileSnapshot.position) !== filters.position
         )
             return false;
         if (
@@ -837,7 +1080,7 @@ export function buildOverviewMetrics(state: CompetencyState) {
     const upcomingReassessments = profiles
         .flatMap((row) => row.requirements.map((detail) => ({ row, detail })))
         .filter(({ detail }) => {
-            const due = parseDate(detail.validUntil);
+            const due = parseDate(detail.nextReassessment ?? detail.validUntil);
             return due > today && due <= upcomingLimit.getTime();
         });
     const completion = calculateCycleCompletion(
@@ -935,25 +1178,27 @@ export function buildCompetencyAnalytics(
             },
         ];
     });
-    const requirementResults =
-        filters.cycleId !== "All"
-            ? historicalRequirementResults
-            : [...historicalRequirementResults]
-                  .sort(
-                      (a, b) =>
-                          parseDate(b.finalizedSnapshot!.finalizedAt) -
-                          parseDate(a.finalizedSnapshot!.finalizedAt),
-                  )
-                  .filter(
-                      (item, index, items) =>
-                          items.findIndex(
-                              (candidate) =>
-                                  candidate.row.assessment.personId ===
-                                      item.row.assessment.personId &&
-                                  candidate.requirement.competencyId ===
-                                      item.requirement.competencyId,
-                          ) === index,
-                  );
+    const currentProfiles = buildCompetencyProfiles(state).filter(row =>
+        (filters.department === "All" || row.person.department === filters.department) &&
+        (filters.position === "All" || row.person.position === filters.position) &&
+        (filters.personType === "All" || row.person.personType === filters.personType) &&
+        (filters.roleProfileVersion === "All" || (row.profile && `${row.profile.id}::${row.profile.version}` === filters.roleProfileVersion)));
+    const currentRequirements = currentProfiles.flatMap(profile => profile.requirements
+        .filter(detail => (filters.competencyId === "All" || detail.requirement.competencyId === filters.competencyId) &&
+            (filters.category === "All" || detail.competency?.category === filters.category) &&
+            (filters.status === "All" || (detail.sourceAssessment && getDisplayAssessmentStatus(detail.sourceAssessment) === filters.status)))
+        .map(detail => ({ profile, detail })));
+    const currentValidatedResults: typeof historicalRequirementResults = currentRequirements.flatMap(({profile, detail}) => {
+        if (!detail.sourceAssessment || !detail.sourceFinalizedSnapshot || !detail.competency || detail.currentLevel === null) return [];
+        const row = buildAssessmentRows(state).find(row => row.assessment.id === detail.sourceAssessment!.id);
+        const rating = detail.sourceFinalizedSnapshot.ratings.find(rating => rating.competencyId === detail.requirement.competencyId) ?? detail.sourceFinalizedSnapshot.ratings.find(rating => {
+            const definition = state.competencies.find(c => c.id === rating.competencyId);
+            return definition?.lineageId === detail.competency!.lineageId;
+        });
+        if (!row || !rating) return [];
+        return [{ row, requirement: {...detail.requirement, competency: snapshotCompetencyDefinition(detail.competency)}, competency: snapshotCompetencyDefinition(detail.competency), rating, finalizedSnapshot: detail.sourceFinalizedSnapshot, result: detail.result }];
+    });
+    const requirementResults = filters.cycleId !== "All" ? historicalRequirementResults : currentValidatedResults;
 
     const resultLabels: RequirementResult[] = [
         "Exceeds Requirement",
@@ -997,14 +1242,14 @@ export function buildCompetencyAnalytics(
 
     const gapsByDepartment = [
         ...new Set(
-            rows.map((row) => row.assessment.roleProfileSnapshot.department),
+            rows.map((row) => (filters.cycleId === "All" ? row.person.department : row.assessment.roleProfileSnapshot.department)),
         ),
     ]
         .map((department) => ({
             department,
             gaps: gapResults.filter(
                 (item) =>
-                    item.row.assessment.roleProfileSnapshot.department ===
+                    (filters.cycleId === "All" ? item.row.person.department : item.row.assessment.roleProfileSnapshot.department) ===
                     department,
             ).length,
         }))
@@ -1012,14 +1257,14 @@ export function buildCompetencyAnalytics(
 
     const gapsByPosition = [
         ...new Set(
-            rows.map((row) => row.assessment.roleProfileSnapshot.position),
+            rows.map((row) => (filters.cycleId === "All" ? row.person.position : row.assessment.roleProfileSnapshot.position)),
         ),
     ]
         .map((position) => ({
             position,
             gaps: gapResults.filter(
                 (item) =>
-                    item.row.assessment.roleProfileSnapshot.position ===
+                    (filters.cycleId === "All" ? item.row.person.position : item.row.assessment.roleProfileSnapshot.position) ===
                     position,
             ).length,
         }))
@@ -1051,20 +1296,15 @@ export function buildCompetencyAnalytics(
                                       item.requirement.competencyId,
                           ) === index,
                   );
-    const profileCoverage = currentSlots.length
-        ? Math.round((assessedSlots.length / currentSlots.length) * 100)
-        : 0;
-    const currentProfileCount = new Set(
-        completionRows.map(
-            (row) =>
-                `${row.assessment.personId}::${roleProfileVersionKey(row.assessment)}`,
-        ),
-    ).size;
-    const totalCurrentRequirements = currentSlots.length;
-    const notAssessed = Math.max(currentSlots.length - assessedSlots.length, 0);
+    const denominator = filters.cycleId === "All" ? currentRequirements.length : currentSlots.length;
+    const assessmentCoverage = denominator ? Math.round((assessedSlots.length / denominator) * 100) : 0;
+    const currentProfileCount = currentProfiles.filter(row => row.profile).length;
+    const profileCoverage = currentProfiles.length ? Math.round(currentProfileCount / currentProfiles.length * 100) : 0;
+    const totalCurrentRequirements = denominator;
+    const notAssessed = Math.max(denominator - assessedSlots.length, 0);
+    attainment.find(item => item.name === "Not Assessed")!.value = notAssessed;
     const expiredSlots = assessedSlots.filter((slot) => {
         const lastAssessed =
-            slot.rating?.assessedAt ??
             slot.finalizedSnapshot?.finalizedAt ??
             null;
         const interval =
@@ -1088,6 +1328,7 @@ export function buildCompetencyAnalytics(
             );
             return {
                 cycle: cycle.name,
+                cycleStart: cycle.startDate,
                 attainment: cycleResults.length
                     ? Math.round(
                           (cycleResults.filter(
@@ -1100,7 +1341,9 @@ export function buildCompetencyAnalytics(
                 sample: cycleRows.size,
             };
         })
-        .filter((item) => item.sample > 0);
+        .filter((item) => item.sample > 0)
+        .sort((a, b) => a.cycleStart.localeCompare(b.cycleStart))
+        .map(({ cycleStart: _cycleStart, ...item }) => item);
 
     const scopedAssessmentIds = new Set(
         completionRows.map((row) => row.assessment.id),
@@ -1151,13 +1394,16 @@ export function buildCompetencyAnalytics(
         gapsByDepartment,
         gapsByPosition,
         profileCoverage,
+        assessmentCoverage,
         currentProfileCount,
         totalCurrentRequirements,
         notAssessed,
         expired: expiredSlots.length,
         openCriticalGaps: gapResults.filter((item) => item.requirement.critical)
             .length,
-        reassessmentsDue: expiredSlots.length,
+        reassessmentsDue: filters.cycleId === "All"
+            ? new Set(currentRequirements.filter(({detail}) => detail.reassessmentDue).map(({profile}) => profile.person.id)).size
+            : new Set(expiredSlots.map(slot => slot.row.assessment.personId)).size,
         comparableCycles,
         recommendationOutcomes,
         validationQuality: {

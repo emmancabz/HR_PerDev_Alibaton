@@ -14,6 +14,6 @@ class LearningMaterial extends Model
 
     protected function casts(): array
     {
-        return ['revoked_at' => 'immutable_datetime'];
+        return ['revoked_at' => 'immutable_datetime', 'cleanup_attempted_at' => 'immutable_datetime'];
     }
 }

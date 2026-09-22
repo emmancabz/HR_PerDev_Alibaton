@@ -1,51 +1,21 @@
-import {
-    AlertCircle,
-    AlertTriangle,
-    Briefcase,
-    Building2,
-    CalendarDays,
-    Check,
-    CheckCircle2,
-    ChevronDown,
-    ClipboardList,
-    Clock3,
-    ExternalLink,
-    FileText,
-    GraduationCap,
-    Lock,
-    Mail,
-    MapPin,
-    MessageSquare,
-    MoreVertical,
-    Phone,
-    RefreshCw,
-    ShieldAlert,
-    ShieldCheck,
-    SlidersHorizontal,
-    Sparkles,
-    UserCircle2,
-    UserPlus,
-    Users,
-    X,
-    type LucideIcon
+import SystemSelect from '@/Components/SystemSelect';
+import { AlertCircle, AlertTriangle, Briefcase, Building2, CalendarDays, Check, CheckCircle2, ClipboardList, Clock3, ExternalLink, FileText, GraduationCap, Lock, Mail, MapPin, MessageSquare, MoreVertical, Phone, RefreshCw, ShieldAlert, ShieldCheck, Sparkles, UserCircle2, UserPlus, Users, X, type LucideIcon
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { router, usePage } from '@inertiajs/react';
+import axios from 'axios';
+import { createPortal } from 'react-dom';
 
 import DataTable from '@/Components/DataTable';
-import PageHeader from '@/Components/PageHeader';
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { ChartDateRangeControl, DEFAULT_CHART_DATE_RANGE, dateFallsInChartRange, type ChartDateRangeValue } from '@/Components/ChartDateRange';
+import AuthenticatedLayout, { HeaderFilters } from '@/Layouts/AuthenticatedLayout';
+import { useHashWorkspace } from '@/workspaceNavigation';
 
 type AccessRole = 'Admin' | 'HR' | 'User';
+type AccessRoleFilter = 'All' | 'Admin & HR' | AccessRole;
 type PersonType = 'Employee' | 'Trainee';
-type EmploymentStatus = 'Incoming' | 'Trainee' | 'Employee' | 'Inactive';
-type AccountStatus =
-    | 'Not Provisioned'
-    | 'Provisioning'
-    | 'Pending Activation'
-    | 'Active'
-    | 'Suspended'
-    | 'Inactive'
-    | 'Archived';
+type EmploymentStatus = string;
+type AccountStatus = 'Not Provisioned' | 'Provisioning' | 'Pending Activation' | 'Active' | 'Suspended' | 'Inactive' | 'Archived';
 type SourceSystem = 'HR1' | 'Manual';
 type SyncStatus =
     | 'Received'
@@ -58,12 +28,13 @@ type ActivationStatus = 'Not Sent' | 'Invitation Pending' | 'Invitation Sent' | 
 type IssuePriority = 'High' | 'Medium' | 'Low';
 type IssueStatus = 'Open' | 'In Progress' | 'Resolved';
 type MajorTab = 'All Users' | 'Incoming Trainees' | 'Account Issues';
-type WorkspaceTab = 'Overview' | 'Account & Access' | 'Development Overview' | 'Communication & Support' | 'Activity';
+const USER_MANAGEMENT_WORKSPACES: MajorTab[] = ['All Users', 'Incoming Trainees', 'Account Issues'];
+type WorkspaceTab = 'Overview' | 'Account & Access' | 'Development Profile' | 'Activity & Audit';
 type RecommendationStatus = 'Recommended' | 'Under Review' | 'Dismissed';
 type ToastTone = 'success' | 'info' | 'warning';
 type BadgeType = 'role' | 'person' | 'account' | 'source' | 'sync' | 'priority' | 'issue' | 'communication' | 'verification';
 
-/** Normal (non-privileged) roles that can be assigned through Invite Existing Personnel. Admin is intentionally excluded and only reachable via Manage Access / Create Internal Account. */
+/** Normal (non-privileged) roles that can be assigned through Invite Existing Personnel. Admin is intentionally excluded from ordinary invitation flows; privileged roles are provisioned only from authorized personnel data. */
 type InvitableRole = Exclude<AccessRole, 'Admin'>;
 
 /** Status of a manually-submitted account request awaiting confirmation that the claimed person legitimately exists in HR1/Core HR. */
@@ -109,20 +80,62 @@ type AIRecommendation = {
     targetModule: 'learning' | 'training' | 'competency';
     status: RecommendationStatus;
 };
+type LearningCourseProgress = {
+    courseCode: string;
+    title: string;
+    progressPercent: number;
+    stage: string;
+    status: string;
+    assignedAt?: string | null;
+    dueAt?: string | null;
+    completedAt?: string | null;
+    preTest: {
+        status: string;
+        scorePercent?: number | null;
+        attemptNumber: number;
+        submittedAt?: string | null;
+    };
+    postTest: {
+        status: string;
+        scorePercent?: number | null;
+        attemptsUsed: number;
+        attemptsAllowed: number;
+        submittedAt?: string | null;
+    };
+    modules: { order: number; title: string }[];
+    certificateEnabled: boolean;
+    certificate?: {
+        certificate_number?: string;
+        status?: string;
+        issued_on?: string;
+        expires_on?: string | null;
+    } | null;
+};
+type DevelopmentModuleSummary = {
+    headline: string;
+    detail: string;
+    metric?: string | null;
+};
 type DevelopmentOverview = {
-    performance: string;
-    competencies: string;
-    learning: string;
-    training: string;
-    recognition: string;
-    succession: string;
-    mandatoryCoursesAssigned: number;
-    recommendedCoursesAvailable: number;
-    assignedCourses: number;
+    performance: DevelopmentModuleSummary;
+    competencies: DevelopmentModuleSummary;
+    learning: DevelopmentModuleSummary & { currentCourse?: LearningCourseProgress | null };
+    training: DevelopmentModuleSummary;
+    recognition: DevelopmentModuleSummary;
+    succession: DevelopmentModuleSummary;
     recommendations: AIRecommendation[];
+};
+type CareerSummary = {
+    personClass?: string | null;
+    developmentStatus?: string | null;
+    promotionTrack?: string | null;
+    successionRole?: string | null;
+    readiness?: string | null;
+    careerNote?: string | null;
 };
 type UserRecord = {
     id: string;
+    databaseId?: number;
     corePersonId: string;
     employeeOrTraineeId: string;
     fullName: string;
@@ -133,22 +146,34 @@ type UserRecord = {
     personType: PersonType;
     employmentStatus: EmploymentStatus;
     accountStatus: AccountStatus;
-    sourceSystem: SourceSystem;
-    syncStatus?: SyncStatus;
     activationStatus: ActivationStatus;
+    authenticationStatus: 'Enabled' | 'Restricted' | 'Pending Setup';
     createdAt: string;
     lastLogin: string;
-    archivedAt?: string;
-    archiveReason?: string;
-    archiveNotes?: string;
-    startDate: string;
-    phone: string;
-    location: string;
     failedSignInCount: number;
-    locked: boolean;
+    locked?: boolean;
+    mfaStatus: 'Enabled' | 'Not Enrolled';
+    mfaMethod: string;
+    directManagerName: string;
+    directManagerPosition?: string | null;
+    evaluatorCapable: boolean;
+    accessChangedAt?: string | null;
+    accessReason?: string | null;
+    accessReference?: string | null;
+    accessAuthorizedBy?: string | null;
+    career: CareerSummary;
     development: DevelopmentOverview;
     activity: ActivityEvent[];
     communications: CommunicationEvent[];
+    // Legacy/local-only fields remain optional while Incoming/verification flows are finalized later.
+    sourceSystem?: SourceSystem;
+    syncStatus?: SyncStatus;
+    startDate?: string;
+    phone?: string;
+    location?: string;
+    archivedAt?: string;
+    archiveReason?: string;
+    archiveNotes?: string;
 };
 type IncomingRecord = {
     id: string;
@@ -161,7 +186,7 @@ type IncomingRecord = {
     receivedOn: string;
     syncStatus: SyncStatus;
     accountStatus: AccountStatus;
-    sourceSystem: 'HR1';
+    sourceSystem: SourceSystem;
     officialEmail: string;
     linkedUserId?: string;
     duplicateWithUserId?: string;
@@ -219,7 +244,7 @@ type PendingAction =
     | {
           entity: 'user';
           entityId: string;
-          action: 'resendActivation' | 'sendPasswordReset' | 'unlock' | 'activate' | 'archive' | 'restore' | 'changeRole';
+          action: 'resendActivation' | 'sendPasswordReset' | 'unlock' | 'activate' | 'archive' | 'restore';
           title: string;
           description: string;
           payload?: string;
@@ -275,22 +300,13 @@ type ManualForm = {
     reason: string;
     notes: string;
 };
-type ManageAccessStep = 'select' | 'confirmHR' | 'confirmAdmin';
 type InviteExistingStep = 'role' | 'personnel' | 'confirm';
 
 const ITEMS_PER_PAGE = 10;
 const ACCESS_ROLE_OPTIONS: AccessRole[] = ['Admin', 'HR', 'User'];
-// Admin is never a normal invitation role — it is only reachable through the separate Manage Access / Privileged Access Assignment workflow.
+// Admin is never a normal invitation role. Privileged P&D roles must come from authorized personnel/governance data.
 const INVITE_ROLE_OPTIONS: InvitableRole[] = ['User', 'HR'];
-const ACCOUNT_STATUS_OPTIONS: AccountStatus[] = [
-    'Not Provisioned',
-    'Provisioning',
-    'Pending Activation',
-    'Active',
-    'Suspended',
-    'Inactive',
-    'Archived',
-];
+const ACCOUNT_STATUS_OPTIONS: AccountStatus[] = ['Pending Activation', 'Active', 'Suspended', 'Inactive'];
 const PERSON_TYPE_OPTIONS: PersonType[] = ['Employee', 'Trainee'];
 const ISSUE_CATEGORIES = [
     'Login Issue',
@@ -325,8 +341,6 @@ const DEACTIVATION_BASIS_OPTIONS: DeactivationBasis[] = [
     'Other legitimate organizational reason',
 ];
 const VERIFICATION_WINDOW_LABEL = 'Up to 48 hours';
-// Placeholder for the signed-in Admin performing sensitive actions in this frontend-only phase.
-const CURRENT_ADMIN_NAME = 'Current Admin';
 
 function buildHref(routeName: string, params?: Record<string, string | number | undefined>): string {
     if (typeof route === 'undefined') return '#';
@@ -345,6 +359,12 @@ function nowLabel(): string {
         minute: '2-digit',
     });
 }
+function dateLabel(value?: string | null): string {
+    if (!value) return 'Not set';
+    const parsed = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 function initials(name: string): string {
     return name.split(' ').map((v) => v[0]).slice(0, 2).join('').toUpperCase();
 }
@@ -356,7 +376,7 @@ function avatarTone(seed: string): string {
 function badgeClass(type: BadgeType, value: string): string {
     const maps: Record<string, Record<string, string>> = {
         role: { Admin: 'bg-slate-900 text-white', HR: 'bg-amber-100 text-amber-800', User: 'bg-sky-100 text-sky-700' },
-        person: { Employee: 'bg-violet-100 text-violet-700', Trainee: 'bg-emerald-100 text-emerald-700' },
+        person: { Employee: 'bg-violet-100 text-violet-700', Trainee: 'bg-emerald-100 text-emerald-700', 'System Account': 'bg-slate-900 text-white' },
         account: {
             'Not Provisioned': 'bg-slate-100 text-slate-700',
             Provisioning: 'bg-sky-100 text-sky-700',
@@ -406,33 +426,22 @@ function activity(label: string, detail: string, occurredAt: string): ActivityEv
 function recommendation(title: string, reason: string, targetModule: AIRecommendation['targetModule']): AIRecommendation {
     return { id: makeId('rec'), title, reason, targetModule, status: 'Recommended' };
 }
-function development(personType: PersonType, department: string, accessRole: AccessRole): DevelopmentOverview {
-    const trainee = personType === 'Trainee';
+function development(_personType: PersonType, _department: string, _accessRole: AccessRole): DevelopmentOverview {
     return {
-        performance: trainee ? 'Awaiting baseline' : '4.3 / 5',
-        competencies: trainee ? '2 of 10 planned' : '8 of 10 achieved',
-        learning: trainee ? '0 of 2 courses completed' : '4 of 5 courses completed',
-        training: trainee ? '0 completed' : '2 completed',
-        recognition: trainee ? '0 records' : '3 records',
-        succession: trainee ? 'Not authorized' : accessRole === 'Admin' || accessRole === 'HR' ? 'Authorized review' : 'Role-based review',
-        mandatoryCoursesAssigned: trainee ? (department === 'Operations' ? 2 : 1) : 0,
-        recommendedCoursesAvailable: trainee ? 2 : 1,
-        assignedCourses: trainee ? (department === 'Operations' ? 2 : 1) : 2,
-        recommendations: trainee
-            ? [
-                  recommendation('Company orientation', 'Supports the trainee onboarding path.', 'learning'),
-                  recommendation(`${department} readiness`, 'Helps the trainee start with the right role context.', 'training'),
-              ]
-            : [
-                  recommendation(`${department} refresher`, 'Supports stronger day-to-day execution for the current role.', 'learning'),
-                  recommendation('Competency review', 'Keeps development aligned to the current role profile.', 'competency'),
-              ],
+        performance: { headline: 'No finalized review', detail: 'No finalized performance evidence.', metric: '0 active goals' },
+        competencies: { headline: 'Competency profile', detail: 'Open Competency for governed proficiency evidence.', metric: null },
+        learning: { headline: '0 completed · 0 in progress', detail: '0 not started', metric: '0 certificates' },
+        training: { headline: 'No training record', detail: 'No persisted training enrollment.', metric: '0 certificates' },
+        recognition: { headline: '0 recognized records', detail: 'No approved recognition recorded.', metric: null },
+        succession: { headline: 'Not in succession pipeline', detail: 'No active succession role', metric: null },
+        recommendations: [],
     };
 }
+
 function appendActivity(user: UserRecord, label: string, detail: string, occurredAt: string): UserRecord {
     return { ...user, activity: [activity(label, detail, occurredAt), ...user.activity] };
 }
-function makeUser(input: Omit<UserRecord, 'development' | 'activity' | 'communications'>): UserRecord {
+function makeUser(input: Omit<UserRecord, 'development' | 'activity' | 'communications' | 'authenticationStatus' | 'mfaStatus' | 'mfaMethod' | 'directManagerName' | 'evaluatorCapable' | 'career'>): UserRecord {
     const items = [
         activity('Account provisioned', `${input.sourceSystem} account setup completed.`, input.createdAt),
         input.activationStatus === 'Activated'
@@ -443,10 +452,16 @@ function makeUser(input: Omit<UserRecord, 'development' | 'activity' | 'communic
         items.unshift(activity('Account archived', input.archiveReason ?? 'Archived for lifecycle management.', input.archivedAt ?? input.createdAt));
     }
     if (input.locked) {
-        items.unshift(activity('Account suspended', 'Suspended after repeated failed sign-in attempts.', 'Aug 2, 2026 7:02 PM'));
+        items.unshift(activity('Account access restricted', 'Access restriction recorded for this account.', input.createdAt));
     }
     return {
         ...input,
+        authenticationStatus: input.accountStatus === 'Pending Activation' ? 'Pending Setup' : 'Enabled',
+        mfaStatus: 'Not Enrolled',
+        mfaMethod: 'Not configured',
+        directManagerName: 'No direct supervisor recorded',
+        evaluatorCapable: false,
+        career: {},
         communications: [],
         development: development(input.personType, input.department, input.accessRole),
         activity: items,
@@ -480,73 +495,34 @@ function moduleRoute(key: 'performance' | 'competency' | 'learning' | 'training'
     }[key];
 }
 
-// hrEligible reflects trusted HR1/Core HR information only — never inferred from Performance, Competency,
-// Succession, AI recommendations, or manual guessing. Non-HR personnel must never be assignable HR access.
-const personnelDirectory: PersonnelOption[] = [
-    { id: 'person-1', corePersonId: 'CORE-171', employeeOrTraineeId: 'EMP-171', fullName: 'Grace Mercado', email: 'grace.mercado@alibaton.com', position: 'Contracts Analyst', department: 'Contracts', hrEligible: false },
-    { id: 'person-2', corePersonId: 'CORE-173', employeeOrTraineeId: 'EMP-173', fullName: 'Noel Sarmiento', email: 'noel.sarmiento@alibaton.com', position: 'Warehouse Supervisor', department: 'Logistics', hrEligible: false },
-    { id: 'person-3', corePersonId: 'CORE-177', employeeOrTraineeId: 'EMP-177', fullName: 'Camille Paredes', email: 'camille.paredes@alibaton.com', position: 'Payroll Specialist', department: 'Finance', hrEligible: false },
-    { id: 'person-4', corePersonId: 'CORE-183', employeeOrTraineeId: 'EMP-183', fullName: 'Vince Javier', email: 'vince.javier@alibaton.com', position: 'IT Support Analyst', department: 'Information Technology', hrEligible: false },
-    { id: 'person-5', corePersonId: 'CORE-191', employeeOrTraineeId: 'EMP-191', fullName: 'Ainah Sta. Maria', email: 'ainah.stamaria@alibaton.com', position: 'HR Officer', department: 'Human Resources', hrEligible: true },
-    { id: 'person-6', corePersonId: 'CORE-196', employeeOrTraineeId: 'EMP-196', fullName: 'Kaye Caagusan', email: 'kaye.caagusan@alibaton.com', position: 'HR Coordinator', department: 'Human Resources', hrEligible: true },
-    { id: 'person-7', corePersonId: 'CORE-199', employeeOrTraineeId: 'EMP-199', fullName: 'Lisa Montero', email: 'lisa.montero@alibaton.com', position: 'Recruitment Supervisor', department: 'Human Resources', hrEligible: true },
-];
-
-const BASE_8_USERS = [
-    makeUser({ id: 'user-1', corePersonId: 'CORE-001', employeeOrTraineeId: 'EMP-001', fullName: 'Mara Villanueva', email: 'mara.villanueva@alibaton.com', position: 'System Administrator', department: 'Administration', accessRole: 'Admin', personType: 'Employee', employmentStatus: 'Employee', accountStatus: 'Active', sourceSystem: 'Manual', activationStatus: 'Activated', createdAt: 'Jan 15, 2024', lastLogin: 'Aug 7, 2026 8:18 AM', startDate: 'Jan 8, 2024', phone: '+63 917 111 1021', location: 'Head Office', failedSignInCount: 0, locked: false }),
-    makeUser({ id: 'user-2', corePersonId: 'CORE-002', employeeOrTraineeId: 'EMP-002', fullName: 'Alvin Custodio', email: 'alvin.custodio@alibaton.com', position: 'System Administrator', department: 'Information Technology', accessRole: 'Admin', personType: 'Employee', employmentStatus: 'Employee', accountStatus: 'Active', sourceSystem: 'Manual', activationStatus: 'Activated', createdAt: 'Feb 3, 2024', lastLogin: 'Aug 7, 2026 7:55 AM', startDate: 'Jan 29, 2024', phone: '+63 917 111 1022', location: 'Head Office', failedSignInCount: 0, locked: false }),
-    makeUser({ id: 'user-4', corePersonId: 'CORE-014', employeeOrTraineeId: 'EMP-004', fullName: 'Celso Ramirez', email: 'celso.ramirez@alibaton.com', position: 'HR Business Partner', department: 'Human Resources', accessRole: 'HR', personType: 'Employee', employmentStatus: 'Employee', accountStatus: 'Active', sourceSystem: 'HR1', syncStatus: 'Synced', activationStatus: 'Activated', createdAt: 'Feb 20, 2024', lastLogin: 'Aug 7, 2026 7:42 AM', startDate: 'Feb 1, 2024', phone: '+63 917 111 1035', location: 'Head Office', failedSignInCount: 0, locked: false }),
-    makeUser({ id: 'user-5', corePersonId: 'CORE-112', employeeOrTraineeId: 'EMP-005', fullName: 'Nina Soriano', email: 'nina.soriano@alibaton.com', position: 'Finance Staff', department: 'Finance', accessRole: 'User', personType: 'Employee', employmentStatus: 'Employee', accountStatus: 'Active', sourceSystem: 'HR1', syncStatus: 'Synced', activationStatus: 'Activated', createdAt: 'Jun 11, 2024', lastLogin: 'Aug 5, 2026 9:19 AM', startDate: 'Jun 3, 2024', phone: '+63 917 111 1112', location: 'Head Office', failedSignInCount: 0, locked: false }),
-    makeUser({ id: 'user-6', corePersonId: 'CORE-204', employeeOrTraineeId: 'TRN-001', fullName: 'Elaine Bautista', email: 'elaine.bautista@alibaton.com', position: 'Graduate Trainee', department: 'Operations', accessRole: 'User', personType: 'Trainee', employmentStatus: 'Trainee', accountStatus: 'Active', sourceSystem: 'HR1', syncStatus: 'Synced', activationStatus: 'Activated', createdAt: 'Jul 4, 2026', lastLogin: 'Aug 6, 2026 1:23 PM', startDate: 'Jul 1, 2026', phone: 'On file with HR1', location: 'Operations Training Hub', failedSignInCount: 0, locked: false }),
-    makeUser({ id: 'user-8', corePersonId: 'CORE-154', employeeOrTraineeId: 'EMP-006', fullName: 'Miguel Santos', email: 'miguel.santos@alibaton.com', position: 'Safety Officer', department: 'Safety & Compliance', accessRole: 'User', personType: 'Employee', employmentStatus: 'Employee', accountStatus: 'Suspended', sourceSystem: 'Manual', activationStatus: 'Activated', createdAt: 'Nov 12, 2024', lastLogin: 'Jul 29, 2026 6:14 PM', startDate: 'Nov 4, 2024', phone: '+63 917 111 1154', location: 'South Project Site', failedSignInCount: 5, locked: true }),
-    makeUser({ id: 'user-10', corePersonId: 'CORE-027', employeeOrTraineeId: 'EMP-008', fullName: 'Grace Fernandez', email: 'grace.fernandez@alibaton.com', position: 'Training Officer', department: 'Human Resources', accessRole: 'HR', personType: 'Employee', employmentStatus: 'Employee', accountStatus: 'Active', sourceSystem: 'HR1', syncStatus: 'Synced', activationStatus: 'Activated', createdAt: 'May 6, 2024', lastLogin: 'Aug 5, 2026 3:12 PM', startDate: 'Apr 29, 2024', phone: '+63 917 111 1042', location: 'Head Office', failedSignInCount: 0, locked: false }),
-    makeUser({ id: 'user-12', corePersonId: 'CORE-238', employeeOrTraineeId: 'EMP-010', fullName: 'Katrina Buenaventura', email: 'katrina.buenaventura@alibaton.com', position: 'HR Business Partner', department: 'Human Resources', accessRole: 'HR', personType: 'Employee', employmentStatus: 'Employee', accountStatus: 'Pending Activation', sourceSystem: 'Manual', activationStatus: 'Invitation Sent', createdAt: 'Aug 5, 2026', lastLogin: 'No login yet', startDate: 'Aug 10, 2026', phone: '+63 917 111 1044', location: 'Head Office', failedSignInCount: 0, locked: false }),
-];
-
-const GEN_NAMES = ["Luis Gomez", "Sofia Reyes", "Mateo Cruz", "Isabella Torres", "Lucas Flores", "Mia Ramos", "Gabriel Morales", "Camila Ortiz", "Jose Castillo", "Elena Chavez", "Antonio Ruiz", "Valeria Herrera", "Carlos Medina", "Mariana Aguilar", "Jorge Vargas", "Lucia Castro", "Pedro Salazar", "Valentina Guzman", "Juan Pena", "Ximena Rojas", "Diego Mendez", "Mariana Silva", "Alejandro Rios", "Daniela Navarro", "Fernando Delgado", "Victoria Nunez", "Ricardo Padilla"];
-const GEN_DEPARTMENTS = ["Crane Operations", "Logistics", "Operations", "Finance", "Contracts", "Safety & Compliance", "Administration", "Information Technology", "Crane Operations", "Logistics", "Operations", "Finance", "Contracts", "Safety & Compliance", "Administration", "Information Technology", "Crane Operations", "Logistics", "Operations", "Finance", "Contracts", "Safety & Compliance", "Administration", "Information Technology", "Crane Operations", "Operations", "Logistics"];
-const GEN_POSITIONS = GEN_NAMES.map(() => 'Staff Professional');
-GEN_POSITIONS[8] = 'Crane Operations Supervisor';
-GEN_POSITIONS[9] = 'Logistics Supervisor';
-GEN_POSITIONS[10] = 'Operations Supervisor';
-GEN_POSITIONS[11] = 'Finance Manager';
-GEN_POSITIONS[13] = 'Safety Supervisor';
-
-const GENERATED_USERS = GEN_NAMES.map((name, i) => makeUser({
-    id: `user-gen-${i}`,
-    corePersonId: `CORE-GEN-${i}`,
-    employeeOrTraineeId: `EMP-1${i.toString().padStart(2, '0')}`,
-    fullName: name,
-    email: `${name.toLowerCase().replace(' ', '.')}@alibaton.com`,
-    position: GEN_POSITIONS[i],
-    department: GEN_DEPARTMENTS[i],
-    accessRole: 'User',
-    personType: 'Employee',
-    employmentStatus: 'Employee',
-    accountStatus: 'Active',
-    sourceSystem: 'HR1',
-    syncStatus: 'Synced',
-    activationStatus: 'Activated',
-    createdAt: 'Mar 10, 2024',
-    lastLogin: 'Aug 6, 2026 10:15 AM',
-    startDate: 'Mar 1, 2024',
-    phone: '+63 917 000 0000',
-    location: 'Project Site',
-    failedSignInCount: 0,
-    locked: false
-}));
-
+// User Management is hydrated from the persistent users/security/module records supplied by Laravel.
+// No frontend personnel directory or generated employee list is used as a source of truth.
 const initialState: DirectoryState = {
-    users: [...BASE_8_USERS, ...GENERATED_USERS], // Exactly 35 active users
-    incomingRecords: [
-        { id: 'incoming-1', corePersonId: 'CORE-231', employeeOrTraineeId: 'TRN-231', fullName: 'Sophia Mendoza', position: 'Operations Intern', department: 'Operations', startDate: 'Sep 1, 2026', receivedOn: 'Aug 6, 2026', syncStatus: 'Received', accountStatus: 'Not Provisioned', sourceSystem: 'HR1', officialEmail: 'sophia.mendoza@alibaton.com', note: 'Waiting for validation and duplicate checks.' },
-    ],
-    issues: [
-        { id: 'issue-2', issue: 'Account locked', source: 'System', detectedOn: 'Aug 7, 2026', priority: 'High', status: 'Open', userId: 'user-8' },
-        { id: 'issue-6', issue: 'Forgotten password', source: 'System', detectedOn: 'Aug 4, 2026', priority: 'Low', status: 'Open', userId: 'user-5' },
-    ],
+    users: [],
+    incomingRecords: [],
+    issues: [],
     pendingVerifications: [],
 };
+
+type UserManagementPageProps = {
+    initialUserDirectoryState?: DirectoryState;
+    availablePersonnel?: PersonnelOption[];
+    userDirectorySource?: {
+        label: string;
+        personnelSource: string;
+        incomingSourceConnected: boolean;
+    };
+};
+
+function normalizeDirectoryState(value?: DirectoryState): DirectoryState {
+    if (!value) return initialState;
+    return {
+        users: Array.isArray(value.users) ? value.users : [],
+        incomingRecords: Array.isArray(value.incomingRecords) ? value.incomingRecords : [],
+        issues: Array.isArray(value.issues) ? value.issues : [],
+        pendingVerifications: Array.isArray(value.pendingVerifications) ? value.pendingVerifications : [],
+    };
+}
 
 /* ---------------------------------------------------------------------- */
 /* Small shared UI pieces                                                 */
@@ -581,20 +557,25 @@ function Badge({ type, value }: { type: BadgeType; value: string }) {
     return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass(type, value)}`}>{value}</span>;
 }
 
-function SummaryCard({ icon, label, value }: { icon: LucideIcon; label: string; value: number | string }) {
+function SummaryCard({ icon, label, value, onClick }: { icon: LucideIcon; label: string; value: number | string; onClick: () => void }) {
     const Icon = icon;
     return (
-        <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-300 hover:border-[#F4B400]/40 hover:shadow-md">
+        <button
+            type="button"
+            onClick={onClick}
+            aria-label={`Open ${label}`}
+            className="app-kpi-card group w-full p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-2"
+        >
             <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                    <p className="truncate text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
-                    <p className="mt-1.5 text-2xl font-bold text-slate-900">{value}</p>
+                    <p className="truncate text-xs font-semibold text-slate-500">{label}</p>
+                    <p className="mt-2 text-2xl font-extrabold tabular-nums tracking-tight text-slate-950">{value}</p>
                 </div>
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#F4B400]/10 text-[#F4B400]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 transition-colors group-hover:bg-amber-100">
                     <Icon className="h-5 w-5" />
                 </div>
             </div>
-        </div>
+        </button>
     );
 }
 
@@ -629,7 +610,7 @@ function ConfirmDialog({ action, onCancel, onConfirm }: { action: PendingAction;
     return (
         <Modal title={action.title} onClose={onCancel}>
             <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F4B400]/10 text-[#F4B400]">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
                     <AlertTriangle className="h-4 w-4" />
                 </div>
                 <p className="text-sm text-slate-600 mt-1">{action.description}</p>
@@ -661,7 +642,7 @@ function ArchiveConfirmDialog({
     return (
         <Modal title="Archive User Account" onClose={onCancel}>
             <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F4B400]/10 text-[#F4B400]">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
                     <AlertTriangle className="h-4 w-4" />
                 </div>
                 <p className="text-sm text-slate-600 mt-1">
@@ -770,7 +751,7 @@ function SuspendAccountDialog({
                     <label className="mb-1 block text-xs font-semibold text-slate-500">
                         Suspension Basis <span className="text-rose-500">*</span>
                     </label>
-                    <select
+                    <SystemSelect
                         value={form.basis}
                         onChange={(e) => setForm({ ...form, basis: e.target.value as SuspensionBasis })}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none"
@@ -780,7 +761,7 @@ function SuspendAccountDialog({
                                 {b}
                             </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </div>
 
                 <div>
@@ -893,7 +874,7 @@ function DeactivateAccessDialog({
                     <label className="mb-1 block text-xs font-semibold text-slate-500">
                         Authorization / Source <span className="text-rose-500">*</span>
                     </label>
-                    <select
+                    <SystemSelect
                         value={form.basis}
                         onChange={(e) => setForm({ ...form, basis: e.target.value as DeactivationBasis })}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none"
@@ -903,7 +884,7 @@ function DeactivateAccessDialog({
                                 {b}
                             </option>
                         ))}
-                    </select>
+                    </SystemSelect>
                 </div>
 
                 <div>
@@ -1027,7 +1008,7 @@ function VerificationOutcomeDialog({
                 {outcome === 'Needs Review' && (
                     <div className="animate-in fade-in duration-200">
                         <label className="mb-1 block text-xs font-semibold text-slate-500">Reason</label>
-                        <select
+                        <SystemSelect
                             value={failureReason}
                             onChange={(e) => setFailureReason(e.target.value as VerificationFailureReason)}
                             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-rose-400 focus:ring-1 focus:ring-rose-400 focus:outline-none"
@@ -1037,7 +1018,7 @@ function VerificationOutcomeDialog({
                                     {r}
                                 </option>
                             ))}
-                        </select>
+                        </SystemSelect>
                     </div>
                 )}
             </div>
@@ -1060,171 +1041,95 @@ function VerificationOutcomeDialog({
     );
 }
 
-function ManageAccessModal({
-    user,
-    onClose,
-    onGrantHR,
-    onGrantAdmin,
-}: {
-    user: UserRecord;
-    onClose: () => void;
-    onGrantHR: () => void;
-    onGrantAdmin: (justification: string) => void;
-}) {
-    const [step, setStep] = useState<ManageAccessStep>('select');
-    const [justification, setJustification] = useState('');
-    const hrRoleFitsRecord = user.department === 'Human Resources';
-
-    return (
-        <Modal title="Manage Access" onClose={onClose} wide={step !== 'select'}>
-            {step === 'select' && (
-                <div className="space-y-4 animate-in fade-in duration-300">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {infoTile(UserCircle2, 'User', user.fullName)}
-                        {infoTile(ShieldCheck, 'Current Access Role', <Badge type="role" value={user.accessRole} />)}
-                        {infoTile(Briefcase, 'Position', user.position)}
-                        {infoTile(Building2, 'Department', user.department)}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-2">Privileged access changes require a deliberate confirmation step.</p>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mt-4">
-                        {user.accessRole === 'User' && (
-                            <button
-                                type="button"
-                                onClick={() => setStep('confirmHR')}
-                                className="rounded-xl border border-slate-200 p-4 text-left transition hover:border-[#F4B400]/40 hover:bg-[#F4B400]/5 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
-                            >
-                                <p className="text-sm font-bold text-slate-900">Grant HR Access</p>
-                                <p className="mt-1 text-xs text-slate-500">Give this person HR-level access to personnel records.</p>
-                            </button>
-                        )}
-                        {user.accessRole !== 'Admin' && (
-                            <button
-                                type="button"
-                                onClick={() => setStep('confirmAdmin')}
-                                className="rounded-xl border border-rose-200 p-4 text-left transition hover:border-rose-300 hover:bg-rose-50/40 focus-visible:ring-2 focus-visible:ring-rose-500 focus:outline-none"
-                            >
-                                <p className="text-sm font-bold text-slate-900">Grant Administrator Access</p>
-                                <p className="mt-1 text-xs text-slate-500">Full system privilege. Requires explicit justification.</p>
-                            </button>
-                        )}
-                        {user.accessRole === 'Admin' && (
-                            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 sm:col-span-2">
-                                <p className="text-sm font-bold text-emerald-800 flex items-center gap-2">
-                                    <ShieldCheck className="h-4 w-4" />
-                                    Highest Privilege Level
-                                </p>
-                                <p className="mt-1 text-xs text-emerald-700">This user already has full Administrator access.</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {step === 'confirmHR' && (
-                <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {infoTile(Building2, 'Department', user.department)}
-                        {infoTile(Briefcase, 'Position', user.position)}
-                        {infoTile(ShieldCheck, 'Current Access Role', <Badge type="role" value={user.accessRole} />)}
-                    </div>
-                    {!hrRoleFitsRecord && (
-                        <div className="flex items-start gap-2 rounded-xl border border-[#F4B400]/30 bg-[#F4B400]/10 p-3 text-xs text-amber-900">
-                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#F4B400]" />
-                            <p>
-                                This person&apos;s department and position don&apos;t obviously correspond to HR responsibilities. Double-check
-                                before granting HR access.
-                            </p>
-                        </div>
-                    )}
-                    <div className="flex justify-between pt-2">
-                        <button type="button" onClick={() => setStep('select')} className="text-xs font-semibold text-slate-400 transition hover:text-slate-600 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none rounded-md px-2 py-1">
-                            Back
-                        </button>
-                        <button type="button" onClick={onGrantHR} className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e0a600] focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none">
-                            Confirm Grant HR Access
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {step === 'confirmAdmin' && (
-                <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {infoTile(UserCircle2, 'User', user.fullName)}
-                        {infoTile(Briefcase, 'Position', user.position)}
-                        {infoTile(Building2, 'Department', user.department)}
-                        {infoTile(ShieldCheck, 'Requested Access', <Badge type="role" value="Admin" />)}
-                    </div>
-                    <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-rose-700">Privilege Summary</p>
-                        <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs text-rose-800">
-                            <li>Full system configuration access</li>
-                            <li>Ability to manage all user accounts, including other Admins</li>
-                            <li>Access to security, audit, and compliance settings</li>
-                        </ul>
-                    </div>
-                    <div>
-                        <label className="mb-1 block text-xs font-semibold text-slate-500">Justification (required)</label>
-                        <textarea
-                            value={justification}
-                            onChange={(e) => setJustification(e.target.value)}
-                            rows={3}
-                            placeholder="Explain why this person needs Administrator access."
-                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none"
-                        />
-                    </div>
-                    <div className="flex justify-between pt-2">
-                        <button type="button" onClick={() => setStep('select')} className="text-xs font-semibold text-slate-400 transition hover:text-slate-600 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none rounded-md px-2 py-1">
-                            Back
-                        </button>
-                        <button
-                            type="button"
-                            disabled={!justification.trim()}
-                            onClick={() => onGrantAdmin(justification.trim())}
-                            className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1 focus:outline-none"
-                        >
-                            Confirm Grant Administrator Access
-                        </button>
-                    </div>
-                </div>
-            )}
-        </Modal>
-    );
-}
-
-// ✨ UPDATE: Custom ActionMenu Component to match "image_4f5131.png"
 function ActionMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
     const [open, setOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const [position, setPosition] = useState({ right: 12, top: 12, bottom: undefined as number | undefined });
+    const [scrollState, setScrollState] = useState({ canUp: false, canDown: items.length > 8 });
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const update = () => {
+            const rect = triggerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const menuHeight = Math.min(items.length, 8) * 40 + 12;
+            const below = window.innerHeight - rect.bottom - 12;
+            const above = rect.top - 12;
+            const openAbove = below < Math.min(menuHeight, 180) && above > below;
+            setPosition(openAbove
+                ? { right: Math.max(12, window.innerWidth - rect.right), top: 12, bottom: window.innerHeight - rect.top + 6 }
+                : { right: Math.max(12, window.innerWidth - rect.right), top: rect.bottom + 6, bottom: undefined });
+        };
+        update();
+        window.addEventListener('resize', update);
+        window.addEventListener('scroll', update, true);
+        return () => {
+            window.removeEventListener('resize', update);
+            window.removeEventListener('scroll', update, true);
+        };
+    }, [open, items.length]);
+
+    const updateScrollState = () => {
+        const node = scrollRef.current;
+        if (!node) return;
+        setScrollState({
+            canUp: node.scrollTop > 2,
+            canDown: node.scrollTop + node.clientHeight < node.scrollHeight - 2,
+        });
+    };
+
     if (items.length === 0) return null;
     return (
-        <div className="relative">
-            <button type="button" aria-label="Open action menu" onClick={() => setOpen((v) => !v)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none">
+        <>
+            <button
+                ref={triggerRef}
+                type="button"
+                aria-label="Open action menu"
+                aria-expanded={open}
+                onClick={() => setOpen((value) => !value)}
+                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
+            >
                 <MoreVertical className="h-4 w-4" />
             </button>
-            {open && (
+            {open && typeof document !== 'undefined' && createPortal(
                 <>
-                    {/* Fixed z-40 para sumalo ng clicks sa likod nang walang tinatakpan */}
-                    <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-                    {/* Fixed z-50 at shadow-xl para angat na angat, pinalitan ang animaton sa mas smooth na slide in */}
-                    <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-slate-100 bg-white shadow-xl animate-in fade-in zoom-in-95 slide-in-from-top-1 duration-200">
-                        {items.map((item) => (
-                            <button
-                                key={item.label}
-                                type="button"
-                                onClick={() => {
-                                    setOpen(false);
-                                    item.onClick();
-                                }}
-                                // Ginawang bold, may maayos na gap/borders, at tamang text-rose color para sa mapanganib na actions
-                                className={`block w-full border-b border-slate-100 last:border-none px-4 py-2.5 text-left text-[13px] font-semibold transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none ${item.danger ? 'text-rose-600 hover:text-rose-700' : 'text-slate-600 hover:text-slate-900'}`}
-                            >
-                                {item.label}
-                            </button>
-                        ))}
+                    <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        className="fixed inset-0 cursor-default bg-transparent"
+                        style={{ zIndex: 2147482999 }}
+                        onMouseDown={() => setOpen(false)}
+                    />
+                    <div
+                        className="pd-theme-portal fixed w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl shadow-slate-950/20"
+                        style={{ zIndex: 2147483000, right: position.right, top: position.bottom ? undefined : position.top, bottom: position.bottom }}
+                    >
+                        <div className="relative overflow-hidden rounded-lg">
+                            {scrollState.canUp && <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-7 bg-gradient-to-b from-white via-white/85 to-transparent backdrop-blur-[1.5px]" />}
+                            <div ref={scrollRef} onScroll={updateScrollState} className="system-dropdown-scroll max-h-[20rem] overflow-y-auto overscroll-contain">
+                                {items.map((item) => (
+                                    <button
+                                        key={item.label}
+                                        type="button"
+                                        onClick={() => {
+                                            setOpen(false);
+                                            item.onClick();
+                                        }}
+                                        className={`block min-h-10 w-full rounded-lg px-3 py-2.5 text-left text-[13px] font-semibold transition-colors focus:outline-none ${item.danger ? 'text-rose-600 hover:bg-rose-50 hover:text-rose-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
+                                    >
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </div>
+                            {scrollState.canDown && <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-9 bg-gradient-to-t from-white via-white/80 to-transparent backdrop-blur-[2px]" />}
+                        </div>
                     </div>
-                </>
+                </>,
+                document.body,
             )}
-        </div>
+        </>
     );
 }
 
@@ -1233,27 +1138,42 @@ function ActionMenu({ items }: { items: { label: string; onClick: () => void; da
 /* ---------------------------------------------------------------------- */
 
 function DepartmentAnalytics({ users, currentFilter, onSelect, onClear }: { users: UserRecord[]; currentFilter: string; onSelect: (d: string) => void; onClear: () => void }) {
+    const [dateRange, setDateRange] = useState<ChartDateRangeValue>({ ...DEFAULT_CHART_DATE_RANGE, preset: 'all' });
+    const scopedUsers = useMemo(() => users.filter((user) => {
+        if (dateRange.preset === 'all') return true;
+        const parsed = new Date(user.createdAt);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const iso = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+        return dateFallsInChartRange(iso, dateRange);
+    }), [users, dateRange]);
     const counts = useMemo(() => {
         const map = new Map<string, number>();
-        users.forEach(u => map.set(u.department, (map.get(u.department) || 0) + 1));
+        scopedUsers.forEach(u => map.set(u.department, (map.get(u.department) || 0) + 1));
         return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
-    }, [users]);
+    }, [scopedUsers]);
 
     const max = Math.max(...counts.map(c => c[1]), 1);
 
     return (
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="mb-5 flex items-center justify-between border-b border-slate-100 pb-4">
-                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    <Users className="h-4 w-4 text-[#F4B400]" /> Users by Department
-                </h3>
-                {currentFilter !== 'All' && (
-                    <button type="button" onClick={onClear} className="text-xs font-semibold text-[#F4B400] hover:underline focus-visible:ring-2 focus-visible:ring-[#F4B400] rounded-md px-1 focus:outline-none transition-colors">
-                        Clear Filter
-                    </button>
-                )}
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-4">
+                <div>
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                        <Users className="h-4 w-4 text-[#F4B400]" /> Users by Department
+                    </h3>
+                    <p className="mt-0.5 text-[11px] text-slate-400">Account creation date scope</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <ChartDateRangeControl compact label="User account creation date" value={dateRange} onChange={setDateRange} />
+                    {currentFilter !== 'All' && (
+                        <button type="button" onClick={onClear} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none transition-colors">
+                            Clear Filter
+                        </button>
+                    )}
+                </div>
             </div>
             <div className="space-y-4">
+                {!counts.length && <p className="py-8 text-center text-xs text-slate-400">No user accounts were created in this date range.</p>}
                 {counts.map(([dept, count]) => {
                     const isActive = currentFilter === dept;
                     return (
@@ -1285,10 +1205,10 @@ function DepartmentAnalytics({ users, currentFilter, onSelect, onClear }: { user
 }
 
 /* ---------------------------------------------------------------------- */
-/* ✨ User Details Drawer (STYLED TO MATCH REFERENCE IMAGE)              */
+/* User Record Details — integrated table morph panel                     */
 /* ---------------------------------------------------------------------- */
 
-const CLOSE_ANIMATION_MS = 280;
+const CLOSE_ANIMATION_MS = 360;
 
 function UserDetailsDrawer({
     user,
@@ -1296,9 +1216,6 @@ function UserDetailsDrawer({
     onTabChange,
     onClose,
     onRequestAction,
-    onManageAccess,
-    onAddCommunication,
-    onCreateIssue,
     onRequestSuspend,
     onRequestDeactivate,
 }: {
@@ -1307,16 +1224,41 @@ function UserDetailsDrawer({
     onTabChange: (t: WorkspaceTab) => void;
     onClose: () => void;
     onRequestAction: (action: PendingAction) => void;
-    onManageAccess: (userId: string) => void;
-    onAddCommunication: (userId: string, data: Omit<CommunicationEvent, 'id' | 'occurredAt'>) => void;
-    onCreateIssue: (userId: string, category: string, notes: string) => void;
     onRequestSuspend: (userId: string) => void;
     onRequestDeactivate: (userId: string) => void;
 }) {
-    const tabs: WorkspaceTab[] = ['Overview', 'Account & Access', 'Development Overview', 'Communication & Support', 'Activity'];
+    const tabs: WorkspaceTab[] = ['Overview', 'Account & Access', 'Development Profile', 'Activity & Audit'];
     const prefersReducedMotion = usePrefersReducedMotion();
     const [isClosing, setIsClosing] = useState(false);
     const closeTimer = useRef<number | null>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
+    const [contentScrollState, setContentScrollState] = useState({ canUp: false, canDown: false });
+
+    function updateContentScrollState() {
+        const node = contentRef.current;
+        if (!node) return;
+        setContentScrollState({
+            canUp: node.scrollTop > 3,
+            canDown: node.scrollTop + node.clientHeight < node.scrollHeight - 3,
+        });
+    }
+
+    useEffect(() => {
+        const frame = window.requestAnimationFrame(() => {
+            const node = contentRef.current;
+            if (node) node.scrollTop = 0;
+            updateContentScrollState();
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [tab, user.id]);
+
+    useEffect(() => {
+        const node = contentRef.current;
+        if (!node) return;
+        const resizeObserver = new ResizeObserver(updateContentScrollState);
+        resizeObserver.observe(node);
+        return () => resizeObserver.disconnect();
+    }, []);
 
     useEffect(() => {
         return () => {
@@ -1333,526 +1275,548 @@ function UserDetailsDrawer({
         closeTimer.current = window.setTimeout(onClose, CLOSE_ANIMATION_MS);
     }
 
-    function handleBackdropClick(e: React.MouseEvent<HTMLDivElement>) {
-        if (e.target === e.currentTarget) {
-            handleClose();
-        }
-    }
-
-    // Forms state for Communication & Support
-    const [commView, setCommView] = useState<'feed' | 'message' | 'note' | 'issue'>('feed');
-    const [msgChannel, setMsgChannel] = useState<'In-App' | 'Email' | 'Call Note'>('In-App');
-    const [msgSubject, setMsgSubject] = useState('');
-    const [msgBody, setMsgBody] = useState('');
-    const [msgOutcome, setMsgOutcome] = useState('Reached User');
-    const [noteBody, setNoteBody] = useState('');
-    const [issueCategory, setIssueCategory] = useState(ISSUE_CATEGORIES[0]);
-    const [issueNotes, setIssueNotes] = useState('');
-
-    function handleSendMessage() {
-        if (!msgBody.trim() || (msgChannel !== 'Call Note' && !msgSubject.trim())) return;
-        onAddCommunication(user.id, {
-            type: msgChannel,
-            subject: msgChannel === 'Call Note' ? 'Call Log' : msgSubject,
-            body: msgBody,
-            outcome: msgChannel === 'Call Note' ? msgOutcome : undefined
-        });
-        setCommView('feed');
-        setMsgSubject(''); setMsgBody('');
-    }
-
-    function handleAddNote() {
-        if (!noteBody.trim()) return;
-        onAddCommunication(user.id, {
-            type: 'Internal Note',
-            subject: 'Internal Note',
-            body: noteBody
-        });
-        setCommView('feed');
-        setNoteBody('');
-    }
-
-    function handleCreateAccountIssue() {
-        if (!issueCategory) return;
-        onCreateIssue(user.id, issueCategory, issueNotes);
-        setCommView('feed');
-        setIssueCategory(ISSUE_CATEGORIES[0]);
-        setIssueNotes('');
-    }
+    const moduleCards: { key: 'performance' | 'competency' | 'learning' | 'training' | 'succession' | 'recognition'; label: string; summary: DevelopmentModuleSummary }[] = [
+        { key: 'performance', label: 'Performance', summary: user.development.performance },
+        { key: 'competency', label: 'Competency', summary: user.development.competencies },
+        { key: 'learning', label: 'Learning', summary: user.development.learning },
+        { key: 'training', label: 'Training', summary: user.development.training },
+        { key: 'succession', label: 'Succession', summary: user.development.succession },
+        { key: 'recognition', label: 'Recognition', summary: user.development.recognition },
+    ];
 
     return (
-        <div
-            onClick={handleBackdropClick}
-            className={`fixed inset-0 z-40 flex justify-end bg-slate-900/60 backdrop-blur-sm transition-opacity ease-out ${
-                prefersReducedMotion ? '' : 'duration-300'
-            } ${isClosing ? 'opacity-0' : 'opacity-100'} ${!isClosing && !prefersReducedMotion ? 'animate-in fade-in' : ''}`}
+        <aside
+            aria-label={`${user.fullName} user record details`}
+            className={`absolute left-0 right-0 top-0 bottom-0 z-30 flex flex-col overflow-hidden bg-white/97 backdrop-blur-[8px] lg:left-[49%] lg:bottom-[53px] lg:border-l lg:border-slate-200 transition-[opacity,filter,transform] ease-out ${
+                prefersReducedMotion ? '' : 'duration-[360ms]'
+            } ${isClosing ? 'translate-x-2 opacity-0 blur-sm' : 'translate-x-0 opacity-100 blur-0'} ${
+                !isClosing && !prefersReducedMotion ? 'animate-in fade-in duration-300' : ''
+            }`}
         >
-            <div
-                className={`flex h-full w-full max-w-full sm:max-w-[800px] flex-col bg-slate-50 shadow-2xl transition-all ease-out ${
-                    prefersReducedMotion ? '' : 'duration-300'
-                } ${isClosing ? 'translate-x-full opacity-0' : 'translate-x-0 opacity-100'} ${
-                    !isClosing && !prefersReducedMotion ? 'animate-in slide-in-from-right-full' : ''
-                }`}
-            >
-                {/* ✨ DARK HEADER MATCHING THE IMAGE ✨ */}
-                <div className="relative z-20 bg-[#1a1d21] px-6 pt-6 shadow-sm flex-shrink-0">
-                    <div className="flex items-center justify-between mb-5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#F4B400]">User Record Details</p>
+                <div className="relative z-20 flex-shrink-0 border-b border-slate-200 bg-white">
+                    <div className="flex min-h-14 items-center justify-between border-b border-slate-200 px-4">
+                        <div className="flex items-center gap-2">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#F4B400]" aria-hidden="true" />
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">User Record Details</p>
+                        </div>
                         <button
                             type="button"
                             onClick={handleClose}
                             aria-label="Close user details"
-                            className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:text-white focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
+                            className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
                         >
-                            <X className="h-5 w-5" />
+                            <X className="h-4.5 w-4.5" />
                         </button>
                     </div>
 
-                    <div className="flex items-start gap-4">
-                        <Avatar name={user.fullName} size="lg" />
-                        <div className="min-w-0 flex-1">
-                            <h3 className="truncate text-xl font-extrabold text-white">{user.fullName}</h3>
-                            <p className="mt-1 truncate text-sm font-semibold text-slate-400">
-                                {user.position} &middot; {user.department}
-                            </p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                                <Badge type="role" value={user.accessRole} />
-                                <Badge type="person" value={user.personType} />
-                                <Badge type="account" value={user.accountStatus} />
+                    <div className="flex items-start justify-between gap-4 px-4 py-4">
+                        <div className="flex min-w-0 items-start gap-3">
+                            <Avatar name={user.fullName} size="lg" />
+                            <div className="min-w-0 flex-1">
+                                <h3 className="truncate text-lg font-extrabold text-slate-950">{user.fullName}</h3>
+                                <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">
+                                    {user.position} &middot; {user.department}
+                                </p>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+                                    <span className="font-mono text-[10px] font-semibold text-slate-400">{user.employeeOrTraineeId}</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        <Badge type="role" value={user.accessRole} />
+                                        <Badge type="person" value={user.personType} />
+                                        <Badge type="account" value={user.accountStatus} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="hidden min-w-[280px] max-w-[360px] shrink-0 items-center justify-end xl:flex">
+                            <div className="min-w-0 text-right">
+                                <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Career Context</p>
+                                <div className="mt-1.5 flex flex-wrap items-center justify-end gap-1.5">
+                                    {user.career.promotionTrack && (
+                                        <span className="max-w-[245px] truncate rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">
+                                            {user.career.promotionTrack}
+                                        </span>
+                                    )}
+                                    {user.career.readiness && (
+                                        <span
+                                            className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold ${
+                                                user.career.readiness === 'Ready Now'
+                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                    : user.career.readiness === 'Ready Soon'
+                                                      ? 'bg-amber-100 text-amber-700'
+                                                      : 'bg-slate-100 text-slate-600'
+                                            }`}
+                                        >
+                                            {user.career.readiness}
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="mt-2 truncate text-[12px] font-extrabold text-slate-900">
+                                    {user.career.successionRole ?? user.career.developmentStatus ?? user.position}
+                                </p>
+                                <p className="mt-0.5 text-[10px] font-medium text-slate-400">
+                                    {user.career.successionRole ? 'Target role' : 'Current development focus'}
+                                </p>
                             </div>
                         </div>
                     </div>
 
-                    {/* Tab Navigation (Integrated cleanly in dark area) */}
-                    <div className="mt-8 flex gap-2 border-b border-slate-700/60 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                        {tabs.map((t) => (
+                    <div className="flex gap-1 overflow-x-auto border-t border-slate-100 px-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                        {tabs.map((item) => (
                             <button
-                                key={t}
+                                key={item}
                                 type="button"
-                                onClick={() => onTabChange(t)}
-                                className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-3 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:text-white ${
-                                    tab === t ? 'border-[#F4B400] text-white' : 'border-transparent text-slate-400 hover:text-slate-200'
+                                onClick={() => onTabChange(item)}
+                                className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-3 text-[11px] font-bold transition-colors focus-visible:outline-none ${
+                                    tab === item ? 'border-[#F4B400] text-slate-950' : 'border-transparent text-slate-500 hover:text-slate-800'
                                 }`}
                             >
-                                {t}
+                                {item}
                             </button>
                         ))}
                     </div>
                 </div>
 
-                {/* ✨ LIGHT BODY MATCHING THE IMAGE ✨ */}
-                <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar bg-slate-50">
+                <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+                    {contentScrollState.canUp && (
+                        <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-x-0 top-0 z-20 h-10 bg-gradient-to-b from-white via-white/80 to-transparent backdrop-blur-[2px]"
+                        />
+                    )}
+                    <div
+                        ref={contentRef}
+                        onScroll={updateContentScrollState}
+                        className="h-full overflow-y-auto overscroll-contain bg-white px-4 py-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                    >
                     {tab === 'Overview' && (
                         <div key="overview" className="animate-in fade-in duration-200">
-                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Contact Information</h4>
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-8">
-                                {infoTile(ClipboardList, 'Employee ID', user.employeeOrTraineeId)}
+                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Personnel Identity</h4>
+                            <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                {infoTile(ClipboardList, 'Employee / Trainee ID', user.employeeOrTraineeId)}
                                 {infoTile(Mail, 'Email', user.email)}
-                                {infoTile(Phone, 'Phone', user.phone)}
-                                {infoTile(MapPin, 'Location', user.location)}
+                                {infoTile(UserCircle2, 'Person Type', <Badge type="person" value={user.personType} />)}
+                                {infoTile(Clock3, 'Employment Status', user.employmentStatus)}
                             </div>
 
-                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Employment Details</h4>
+                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Organization</h4>
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                {infoTile(UserCircle2, 'Full Name', user.fullName)}
                                 {infoTile(Briefcase, 'Position', user.position)}
                                 {infoTile(Building2, 'Department', user.department)}
-                                {infoTile(Clock3, 'Employment Status', user.employmentStatus)}
-                                {infoTile(CalendarDays, 'Start Date', user.startDate)}
-                                {infoTile(RefreshCw, 'Source', <Badge type="source" value={user.sourceSystem} />)}
+                                {infoTile(UserCircle2, 'Direct Supervisor', (
+                                    <span>
+                                        {user.directManagerName}
+                                        {user.directManagerPosition && <span className="mt-0.5 block text-[11px] font-medium text-slate-500">{user.directManagerPosition}</span>}
+                                    </span>
+                                ))}
+                                {infoTile(ShieldCheck, 'Evaluator Capability', user.evaluatorCapable ? 'Authorized evaluator' : 'Not an evaluator')}
+                            </div>
+
+                            <div className="mt-6 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Core Person Reference</span>
+                                    <span className="font-mono text-xs font-semibold text-slate-600">{user.corePersonId}</span>
+                                </div>
                             </div>
                         </div>
                     )}
 
                     {tab === 'Account & Access' && (
                         <div key="account-access" className="animate-in fade-in duration-200">
-                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Access Information</h4>
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-8">
-                                {infoTile(ShieldCheck, 'Access Role', <Badge type="role" value={user.accessRole} />)}
-                                {infoTile(Check, 'Account Status', <Badge type="account" value={user.accountStatus} />)}
-                                {infoTile(Mail, 'Activation Status', user.activationStatus)}
-                                {infoTile(CalendarDays, 'Date Created', user.createdAt)}
-                                {infoTile(Clock3, 'Last Login', user.lastLogin)}
-                                {infoTile(Lock, 'Sign-in Status', user.locked ? <span className="text-rose-600 font-bold">Locked ({user.failedSignInCount} failed)</span> : 'Not locked')}
+                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Account Information</h4>
+                            <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                {infoTile(ShieldCheck, 'P&D Role', <Badge type="role" value={user.accessRole} />)}
+                                {infoTile(Check, 'P&D Access Status', <Badge type="account" value={user.accountStatus} />)}
+                                {infoTile(Lock, 'Authentication Status', user.authenticationStatus)}
+                                {infoTile(ShieldCheck, 'MFA Status', user.mfaStatus)}
+                                {infoTile(Mail, 'MFA Method', user.mfaMethod)}
+                                {infoTile(Clock3, 'Last Sign-In', user.lastLogin)}
+                                {infoTile(CalendarDays, 'Account Created', user.createdAt)}
+                                {user.failedSignInCount > 0 && infoTile(AlertCircle, 'Failed Sign-Ins · 30 Days', String(user.failedSignInCount))}
                             </div>
 
-                            {user.accountStatus === 'Archived' && (
+                            {user.accessChangedAt && (
                                 <>
-                                    <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Archive Details</h4>
-                                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm mb-8">
-                                        <p className="text-sm font-semibold text-slate-800">{user.archiveReason ?? 'No reason on file.'}</p>
-                                        {user.archiveNotes && <p className="mt-1 text-xs text-slate-500">{user.archiveNotes}</p>}
-                                        {user.archivedAt && <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Archived on {user.archivedAt}</p>}
+                                    <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Access Governance</h4>
+                                    <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                            <div>
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Last Access Change</p>
+                                                <p className="mt-1 text-sm font-bold text-slate-900">{user.accessChangedAt}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Authorized By</p>
+                                                <p className="mt-1 text-sm font-bold text-slate-900">{user.accessAuthorizedBy || 'Not recorded'}</p>
+                                            </div>
+                                            {user.accessReason && (
+                                                <div className="sm:col-span-2">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reason</p>
+                                                    <p className="mt-1 text-sm text-slate-700">{user.accessReason}</p>
+                                                </div>
+                                            )}
+                                            {user.accessReference && (
+                                                <div className="sm:col-span-2">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reference</p>
+                                                    <p className="mt-1 font-mono text-xs font-semibold text-slate-700">{user.accessReference}</p>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </>
                             )}
 
-                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Management Actions</h4>
-                            <div className="flex flex-wrap gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                                {user.accountStatus === 'Pending Activation' && (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onRequestAction({
-                                                entity: 'user',
-                                                entityId: user.id,
-                                                action: 'resendActivation',
-                                                title: 'Resend Activation',
-                                                description: `Resend the activation invitation to ${user.fullName}?`,
-                                            })
-                                        }
-                                        className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-slate-300 focus:outline-none"
-                                    >
-                                        Resend Activation
-                                    </button>
-                                )}
-                                {(user.accountStatus === 'Active' || user.accountStatus === 'Suspended') && (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onRequestAction({
-                                                entity: 'user',
-                                                entityId: user.id,
-                                                action: 'sendPasswordReset',
-                                                title: 'Send Password Reset',
-                                                description: `Send a password reset link to ${user.fullName}?`,
-                                            })
-                                        }
-                                        className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-slate-300 focus:outline-none"
-                                    >
-                                        Send Password Reset
-                                    </button>
-                                )}
-                                {user.locked && (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onRequestAction({
-                                                entity: 'user',
-                                                entityId: user.id,
-                                                action: 'unlock',
-                                                title: 'Unlock Account',
-                                                description: `Unlock ${user.fullName}'s account?`,
-                                            })
-                                        }
-                                        className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-slate-300 focus:outline-none"
-                                    >
-                                        Unlock Account
-                                    </button>
-                                )}
-                                {(user.accountStatus === 'Suspended' || user.accountStatus === 'Inactive') && (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onRequestAction({
-                                                entity: 'user',
-                                                entityId: user.id,
-                                                action: 'activate',
-                                                title: 'Activate Account',
-                                                description: `Activate ${user.fullName}'s account?`,
-                                            })
-                                        }
-                                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100 focus-visible:ring-2 focus-visible:ring-emerald-400 focus:outline-none"
-                                    >
-                                        Activate Account
-                                    </button>
-                                )}
-                                {user.accountStatus === 'Active' && (
-                                    <>
+                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Account Management</h4>
+                            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                                <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-900">Credentials &amp; account setup</p>
+                                        <p className="mt-1 text-xs leading-relaxed text-slate-500">Send only the account link appropriate to the current account state.</p>
+                                    </div>
+                                    <div className="shrink-0">
+                                        {user.accountStatus === 'Pending Activation' ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => onRequestAction({
+                                                    entity: 'user', entityId: user.id, action: 'resendActivation', title: 'Resend Account Setup',
+                                                    description: `Resend the account setup link to ${user.fullName}?`,
+                                                })}
+                                                className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
+                                            >
+                                                Resend Account Setup
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => onRequestAction({
+                                                    entity: 'user', entityId: user.id, action: 'sendPasswordReset', title: 'Send Password Reset',
+                                                    description: `Send a password reset link to ${user.fullName}?`,
+                                                })}
+                                                className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
+                                            >
+                                                Send Password Reset
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-slate-100 px-4 py-4">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <p className="text-sm font-bold text-slate-900">P&amp;D access status</p>
+                                                <Badge type="account" value={user.accountStatus} />
+                                            </div>
+                                            <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-500">Suspend access temporarily, deactivate P&amp;D access when authorized, or restore access after the governing condition is resolved.</p>
+                                        </div>
+                                        <div className="flex shrink-0 flex-wrap gap-2">
+                                            {user.accountStatus === 'Active' && (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onRequestSuspend(user.id)}
+                                                        className="rounded-lg border border-rose-200 bg-white px-3.5 py-2 text-xs font-bold text-rose-600 transition hover:bg-rose-50 focus-visible:ring-2 focus-visible:ring-rose-400 focus:outline-none"
+                                                    >
+                                                        Suspend
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onRequestDeactivate(user.id)}
+                                                        className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
+                                                    >
+                                                        Deactivate P&amp;D
+                                                    </button>
+                                                </>
+                                            )}
+                                            {(user.accountStatus === 'Suspended' || user.accountStatus === 'Inactive') && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onRequestAction({
+                                                        entity: 'user', entityId: user.id, action: 'activate', title: 'Restore P&D Access',
+                                                        description: `Restore active P&D access for ${user.fullName}?`,
+                                                    })}
+                                                    className="rounded-lg border border-emerald-200 bg-white px-3.5 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-50 focus-visible:ring-2 focus-visible:ring-emerald-400 focus:outline-none"
+                                                >
+                                                    Restore P&amp;D Access
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-slate-100 px-4 py-4">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-900">Personnel account lifecycle</p>
+                                            <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-500">Archive only when the active personnel record should leave the directory. Historical P&amp;D evidence remains retained.</p>
+                                        </div>
                                         <button
                                             type="button"
-                                            onClick={() => onRequestSuspend(user.id)}
-                                            className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-bold text-rose-700 shadow-sm transition hover:bg-rose-100 focus-visible:ring-2 focus-visible:ring-rose-400 focus:outline-none"
+                                            onClick={() => onRequestAction({
+                                                entity: 'user', entityId: user.id, action: 'archive', title: 'Archive User Account',
+                                                description: 'Move this personnel account into governed retention. Historical P&D records remain preserved.',
+                                            })}
+                                            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:ring-2 focus-visible:ring-rose-300 focus:outline-none"
                                         >
-                                            Suspend Account
+                                            Archive Account
                                         </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => onRequestDeactivate(user.id)}
-                                            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-slate-300 focus:outline-none"
-                                        >
-                                            Deactivate P&amp;D Access
-                                        </button>
-                                    </>
-                                )}
-                                {user.accountStatus !== 'Archived' && (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onRequestAction({
-                                                entity: 'user',
-                                                entityId: user.id,
-                                                action: 'archive',
-                                                title: 'Archive User Account',
-                                                description: 'The account will lose normal system access, but historical records will be retained.',
-                                            })
-                                        }
-                                        className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-slate-300 focus:outline-none"
-                                    >
-                                        Archive Account
-                                    </button>
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={() => onManageAccess(user.id)}
-                                    className="rounded-lg border border-slate-900 bg-slate-900 px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800 ml-auto focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 focus:outline-none"
-                                >
-                                    Manage Access
-                                </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3">
+                                <p className="text-xs leading-relaxed text-slate-600">
+                                    <span className="font-bold text-slate-700">Role governance:</span> P&amp;D roles are read-only in this directory and come from authorized personnel/governance records. An ordinary employee is not elevated to HR or Administrator access from User Management.
+                                </p>
                             </div>
                         </div>
                     )}
 
-                    {tab === 'Development Overview' && (
-                        <div key="development" className="animate-in fade-in duration-200">
+                    {tab === 'Development Profile' && (
+                        <div key="development-profile" className="animate-in fade-in duration-200">
+                            {(user.career.developmentStatus || user.career.promotionTrack || user.career.successionRole || user.career.careerNote || user.development.learning.currentCourse) && (
+                                <>
+                                    <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Career & Development Context</h4>
+                                    <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                            <div>
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Development Status</p>
+                                                <p className="mt-1 text-sm font-bold text-slate-900">{user.career.developmentStatus || 'No development status recorded'}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Career / Promotion Track</p>
+                                                <p className="mt-1 text-sm font-bold text-slate-900">{user.career.promotionTrack || 'No active promotion track'}</p>
+                                            </div>
+                                            {user.career.successionRole && (
+                                                <div>
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Succession Target</p>
+                                                    <p className="mt-1 text-sm font-bold text-slate-900">{user.career.successionRole}</p>
+                                                </div>
+                                            )}
+                                            {user.career.readiness && (
+                                                <div>
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Readiness</p>
+                                                    <p className="mt-1 text-sm font-bold text-slate-900">{user.career.readiness}</p>
+                                                </div>
+                                            )}
+                                            {user.career.careerNote && (
+                                                <div className="sm:col-span-2">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Development Note</p>
+                                                    <p className="mt-1 text-sm leading-relaxed text-slate-700">{user.career.careerNote}</p>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {user.development.learning.currentCourse && (() => {
+                                            const course = user.development.learning.currentCourse;
+                                            const preComplete = course.preTest.status === 'Submitted';
+                                            const contentComplete = course.stage === 'Post-Test Retake' || course.progressPercent >= 100;
+                                            const contentActive = !contentComplete && course.status === 'In Progress';
+                                            const postComplete = course.postTest.status === 'Passed';
+                                            const postActive = course.postTest.status === 'Retake Required';
+                                            const completionComplete = course.status === 'Completed';
+                                            const steps = [
+                                                {
+                                                    key: 'pre',
+                                                    label: 'Pre-Test',
+                                                    detail: preComplete
+                                                        ? `Submitted${course.preTest.scorePercent != null ? ` · ${course.preTest.scorePercent}%` : ''}`
+                                                        : 'Not started',
+                                                    state: preComplete ? 'complete' : 'pending',
+                                                    icon: ClipboardList,
+                                                },
+                                                {
+                                                    key: 'content',
+                                                    label: 'Course Content',
+                                                    detail: contentComplete ? 'Required content completed' : `${course.progressPercent}% in progress`,
+                                                    state: contentComplete ? 'complete' : (contentActive ? 'active' : 'pending'),
+                                                    icon: GraduationCap,
+                                                },
+                                                {
+                                                    key: 'post',
+                                                    label: 'Post-Test',
+                                                    detail: postComplete
+                                                        ? `Passed${course.postTest.scorePercent != null ? ` · ${course.postTest.scorePercent}%` : ''}`
+                                                        : postActive
+                                                            ? `Retake required · ${course.postTest.attemptsUsed}/${course.postTest.attemptsAllowed} attempts used`
+                                                            : course.postTest.status,
+                                                    state: postComplete ? 'complete' : (postActive ? 'active' : 'pending'),
+                                                    icon: FileText,
+                                                },
+                                                {
+                                                    key: 'completion',
+                                                    label: 'Completion',
+                                                    detail: completionComplete ? 'Course completed' : 'Pending Post-Test completion',
+                                                    state: completionComplete ? 'complete' : 'pending',
+                                                    icon: CheckCircle2,
+                                                },
+                                                ...(course.certificateEnabled ? [{
+                                                    key: 'certificate',
+                                                    label: 'Certificate',
+                                                    detail: course.certificate ? (course.certificate.status || 'Issued') : 'Issued after completion',
+                                                    state: course.certificate ? 'complete' : 'pending',
+                                                    icon: ShieldCheck,
+                                                }] : []),
+                                            ] as const;
+
+                                            return (
+                                                <div className="mt-5 border-t border-slate-100 pt-5">
+                                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                        <div className="min-w-0">
+                                                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Current Learning Path</p>
+                                                            <p className="mt-1 text-sm font-extrabold text-slate-900">{course.title}</p>
+                                                            <p className="mt-1 text-[11px] font-semibold text-slate-500">{course.courseCode} · Due {dateLabel(course.dueAt)}</p>
+                                                        </div>
+                                                        <div className="shrink-0 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-extrabold text-amber-700">
+                                                            {course.progressPercent}% course progress
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="mt-5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                                        <div className="flex min-w-[620px] items-start">
+                                                            {steps.map((step, index) => {
+                                                                const Icon = step.icon;
+                                                                const completed = step.state === 'complete';
+                                                                const active = step.state === 'active';
+                                                                return (
+                                                                    <div key={step.key} className="relative flex flex-1 flex-col items-center px-1 text-center">
+                                                                        {index > 0 && (
+                                                                            <div className={`absolute right-1/2 top-4 h-0.5 w-full ${completed || active ? 'bg-amber-300' : 'bg-slate-200'}`} />
+                                                                        )}
+                                                                        <div className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 ${
+                                                                            completed
+                                                                                ? 'border-emerald-500 bg-emerald-50 text-emerald-600'
+                                                                                : active
+                                                                                    ? 'border-[#F4B400] bg-amber-50 text-amber-700'
+                                                                                    : 'border-slate-200 bg-white text-slate-400'
+                                                                        }`}>
+                                                                            {completed ? <Check className="h-4 w-4" strokeWidth={2.5} /> : <Icon className="h-4 w-4" />}
+                                                                        </div>
+                                                                        <p className={`mt-2 text-[10px] font-extrabold ${active ? 'text-amber-700' : 'text-slate-700'}`}>{step.label}</p>
+                                                                        <p className="mt-1 max-w-36 text-[9px] leading-snug text-slate-500">{step.detail}</p>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+
+                                                    {course.modules.length > 0 && (
+                                                        <div className="mt-4 rounded-lg bg-slate-50/80 px-3.5 py-3">
+                                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Course Outline</p>
+                                                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                                                {course.modules.map((module) => (
+                                                                    <div key={`${course.courseCode}-${module.order}`} className="flex items-start gap-2 text-[10px] leading-snug text-slate-600">
+                                                                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[9px] font-extrabold text-slate-500 ring-1 ring-slate-200">{module.order}</span>
+                                                                        <span className="pt-0.5 font-semibold">{module.title}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                </>
+                            )}
+
                             <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Development Modules</h4>
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 mb-8">
-                                {[
-                                    { key: 'performance', label: 'Performance', val: user.development.performance },
-                                    { key: 'competency', label: 'Competency', val: user.development.competencies },
-                                    { key: 'learning', label: 'Learning', val: user.development.learning },
-                                    { key: 'training', label: 'Training', val: user.development.training },
-                                    { key: 'recognition', label: 'Recognition', val: user.development.recognition },
-                                    { key: 'succession', label: 'Succession', val: user.development.succession },
-                                ].map(mod => (
+                            <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                {moduleCards.map((module) => (
                                     <a
-                                        key={mod.key}
-                                        href={buildHref(moduleRoute(mod.key as any), { user: user.id })}
-                                        className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:border-[#F4B400]/50 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none outline-none group"
+                                        key={module.key}
+                                        href={buildHref(moduleRoute(module.key), { user: user.id })}
+                                        className="group flex min-h-40 flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-sm outline-none transition-all hover:border-[#F4B400]/50 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#F4B400]"
                                     >
                                         <div>
-                                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 transition-colors group-hover:text-slate-500">{mod.label}</p>
-                                            <p className="mt-1.5 text-sm font-bold text-slate-900 leading-tight">{mod.val}</p>
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 group-hover:text-slate-500">{module.label}</p>
+                                            <p className="mt-2 text-sm font-extrabold leading-snug text-slate-900">{module.summary.headline}</p>
+                                            <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{module.summary.detail}</p>
+                                            {module.summary.metric && <p className="mt-2 text-[11px] font-bold text-slate-700">{module.summary.metric}</p>}
                                         </div>
-                                        <div className="mt-4 flex items-center gap-1 text-[10px] font-bold text-[#F4B400] uppercase opacity-80 group-hover:opacity-100">
+                                        <div className="mt-4 flex items-center gap-1 text-[10px] font-bold uppercase text-[#F4B400]">
                                             Open <ExternalLink className="h-3 w-3" />
                                         </div>
                                     </a>
                                 ))}
                             </div>
 
-                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">AI Recommendations</h4>
-                            <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-5 shadow-sm">
-                                <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-sky-800">
-                                    <Sparkles className="h-4 w-4 text-sky-600" />
-                                    AI Development Recommendations
-                                </div>
-                                <p className="text-xs text-sky-700 mb-4">AI-assisted recommendations mapped to the current role and competency gaps.</p>
-                                <div className="space-y-3">
-                                    {user.development.recommendations.map((rec) => (
-                                        <div key={rec.id} className="rounded-lg border border-sky-100 bg-white p-4 shadow-sm transition hover:border-sky-200">
-                                            <div className="flex items-start justify-between">
-                                                <p className="text-sm font-bold text-slate-900">{rec.title}</p>
-                                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                                                    rec.status === 'Recommended' ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'
-                                                }`}>
-                                                    {rec.status}
-                                                </span>
-                                            </div>
-                                            <p className="mt-1 text-xs text-slate-600 leading-relaxed">{rec.reason}</p>
-                                            <div className="mt-3 flex items-center gap-4">
-                                                <a href={buildHref(moduleRoute(rec.targetModule), { user: user.id })} className="text-[11px] font-bold text-sky-600 transition hover:text-sky-700 hover:underline outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded">
-                                                    Review in {rec.targetModule.charAt(0).toUpperCase() + rec.targetModule.slice(1)}
-                                                </a>
-                                                <button type="button" className="text-[11px] font-bold text-slate-400 transition hover:text-slate-600 focus-visible:ring-2 focus-visible:ring-slate-400 rounded focus:outline-none">
-                                                    Dismiss
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {tab === 'Communication & Support' && (
-                        <div key="communication" className="animate-in fade-in duration-200">
-                            {commView === 'feed' && (
-                                <div>
-                                    <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">New Action</h4>
-                                    <div className="grid grid-cols-1 gap-3 mb-8 sm:grid-cols-3">
-                                        <button type="button" onClick={() => setCommView('message')} className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:border-[#F4B400]/50 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none">
-                                            <MessageSquare className="h-5 w-5 text-[#F4B400]" />
-                                            <span className="text-xs font-bold text-slate-800">Send Message</span>
-                                        </button>
-                                        <button type="button" onClick={() => setCommView('note')} className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:border-[#F4B400]/50 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none">
-                                            <FileText className="h-5 w-5 text-[#F4B400]" />
-                                            <span className="text-xs font-bold text-slate-800">Add Internal Note</span>
-                                        </button>
-                                        <button type="button" onClick={() => setCommView('issue')} className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:border-rose-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-rose-400 focus:outline-none">
-                                            <AlertCircle className="h-5 w-5 text-rose-500" />
-                                            <span className="text-xs font-bold text-slate-800">Create Account Issue</span>
-                                        </button>
-                                    </div>
-
-                                    <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Communication History</h4>
+                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Active Development Actions</h4>
+                            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                                {user.development.recommendations.length === 0 ? (
+                                    <p className="text-sm font-medium text-slate-500">No persisted Learning or Training development action is currently linked to this person.</p>
+                                ) : (
                                     <div className="space-y-3">
-                                        {user.communications.length === 0 ? (
-                                            <div className="rounded-xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm font-medium text-slate-400">
-                                                No communication or support history.
-                                            </div>
-                                        ) : (
-                                            user.communications.map(comm => (
-                                                <div key={comm.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-[#F4B400]/40">
-                                                    <div className="flex items-start justify-between mb-3">
-                                                        <Badge type="communication" value={comm.type} />
-                                                        <span className="text-[10px] font-semibold text-slate-400">{comm.occurredAt}</span>
+                                        {user.development.recommendations.map((rec) => (
+                                            <div key={rec.id} className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-900">{rec.title}</p>
+                                                        <p className="mt-1 text-xs leading-relaxed text-slate-600">{rec.reason}</p>
                                                     </div>
-                                                    <p className="text-sm font-bold text-slate-900">{comm.subject}</p>
-                                                    {comm.outcome && <p className="text-xs font-semibold text-slate-500 mt-1 flex items-center gap-1.5"><Phone className="h-3 w-3" /> Outcome: {comm.outcome}</p>}
-                                                    <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{comm.body}</p>
+                                                    <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600">{rec.status}</span>
                                                 </div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {commView === 'message' && (
-                                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm animate-in slide-in-from-bottom-4 duration-300">
-                                    <h4 className="mb-4 text-sm font-bold text-slate-800 flex items-center gap-2">
-                                        <MessageSquare className="h-4 w-4 text-[#F4B400]" /> Send User Message
-                                    </h4>
-                                    <div className="mb-4 flex gap-4 border-b border-slate-100 pb-4">
-                                        <label className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 cursor-pointer hover:text-[#F4B400]">
-                                            <input type="radio" checked={msgChannel === 'In-App'} onChange={() => setMsgChannel('In-App')} className="accent-[#F4B400] focus:ring-[#F4B400]" /> In-App
-                                        </label>
-                                        <label className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 cursor-pointer hover:text-[#F4B400]">
-                                            <input type="radio" checked={msgChannel === 'Email'} onChange={() => setMsgChannel('Email')} className="accent-[#F4B400] focus:ring-[#F4B400]" /> Email
-                                        </label>
-                                        <label className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 cursor-pointer hover:text-[#F4B400]">
-                                            <input type="radio" checked={msgChannel === 'Call Note'} onChange={() => setMsgChannel('Call Note')} className="accent-[#F4B400] focus:ring-[#F4B400]" /> Call Note
-                                        </label>
-                                    </div>
-
-                                    {msgChannel === 'Email' && (
-                                        <div className="mb-4">
-                                            <label className="mb-1 block text-xs font-semibold text-slate-500">To</label>
-                                            <input readOnly value={user.email} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 focus:outline-none" />
-                                        </div>
-                                    )}
-
-                                    {msgChannel === 'Call Note' ? (
-                                        <>
-                                            <div className="mb-4">
-                                                <label className="mb-1 block text-xs font-semibold text-slate-500">Contact Date/Time</label>
-                                                <input type="text" readOnly value={nowLabel()} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 focus:outline-none" />
+                                                <a
+                                                    href={buildHref(moduleRoute(rec.targetModule), { user: user.id })}
+                                                    className="mt-3 inline-flex items-center gap-1 text-[11px] font-bold text-[#C88F00] hover:underline focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
+                                                >
+                                                    Open {rec.targetModule.charAt(0).toUpperCase() + rec.targetModule.slice(1)} <ExternalLink className="h-3 w-3" />
+                                                </a>
                                             </div>
-                                            <div className="mb-4">
-                                                <label className="mb-1 block text-xs font-semibold text-slate-500">Outcome</label>
-                                                <select value={msgOutcome} onChange={(e) => setMsgOutcome(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none">
-                                                    <option>Reached User</option>
-                                                    <option>No Answer</option>
-                                                    <option>Follow-up Required</option>
-                                                    <option>Resolved</option>
-                                                </select>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="mb-4">
-                                            <label className="mb-1 block text-xs font-semibold text-slate-500">Subject</label>
-                                            <input type="text" value={msgSubject} onChange={e => setMsgSubject(e.target.value)} placeholder="Message subject..." className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none" />
-                                        </div>
-                                    )}
-
-                                    <div className="mb-5">
-                                        <label className="mb-1 block text-xs font-semibold text-slate-500">Message / Notes</label>
-                                        <textarea rows={4} value={msgBody} onChange={e => setMsgBody(e.target.value)} placeholder="Type here..." className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none custom-scrollbar" />
+                                        ))}
                                     </div>
-
-                                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                                        <button type="button" onClick={() => setCommView('feed')} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 transition-colors focus-visible:ring-2 focus-visible:ring-slate-300 focus:outline-none">
-                                            Cancel
-                                        </button>
-                                        <button type="button" onClick={handleSendMessage} disabled={!msgBody.trim()} className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e0a600] disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none">
-                                            {msgChannel === 'Call Note' ? 'Log Note' : 'Send Message'}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {commView === 'note' && (
-                                <div className="rounded-xl border border-[#F4B400]/40 bg-[#F4B400]/5 p-5 shadow-sm animate-in slide-in-from-bottom-4 duration-300">
-                                    <h4 className="mb-2 text-sm font-bold text-amber-800 flex items-center gap-2">
-                                        <AlertTriangle className="h-4 w-4" /> Add Internal Note
-                                    </h4>
-                                    <p className="mb-4 text-xs font-medium text-amber-700">This note is NOT sent to the employee. It is only visible to Admin/HR staff.</p>
-
-                                    <div className="mb-5">
-                                        <textarea rows={5} value={noteBody} onChange={e => setNoteBody(e.target.value)} placeholder="Internal remarks..." className="w-full rounded-lg border border-[#F4B400]/40 px-3 py-2 text-sm bg-white transition focus:border-[#F4B400] focus:outline-none focus:ring-1 focus:ring-[#F4B400] custom-scrollbar" />
-                                    </div>
-
-                                    <div className="flex justify-end gap-2 pt-2">
-                                        <button type="button" onClick={() => setCommView('feed')} className="rounded-lg px-3 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 transition-colors focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none">
-                                            Cancel
-                                        </button>
-                                        <button type="button" onClick={handleAddNote} disabled={!noteBody.trim()} className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e0a600] disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none">
-                                            Save Internal Note
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {commView === 'issue' && (
-                                <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 shadow-sm animate-in slide-in-from-bottom-4 duration-300">
-                                    <h4 className="mb-2 text-sm font-bold text-rose-800 flex items-center gap-2">
-                                        <AlertCircle className="h-4 w-4" /> Create Account Issue
-                                    </h4>
-                                    <p className="mb-4 text-xs font-medium text-rose-700">Open a trackable support case for this account.</p>
-
-                                    <div className="mb-4">
-                                        <label className="mb-1 block text-xs font-semibold text-rose-800">Issue Category</label>
-                                        <select value={issueCategory} onChange={e => setIssueCategory(e.target.value)} className="w-full rounded-lg border border-rose-200 px-3 py-2 text-sm bg-white transition focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-400">
-                                            {ISSUE_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div className="mb-5">
-                                        <label className="mb-1 block text-xs font-semibold text-rose-800">Additional Notes</label>
-                                        <textarea rows={4} value={issueNotes} onChange={e => setIssueNotes(e.target.value)} placeholder="Context regarding the issue..." className="w-full rounded-lg border border-rose-200 px-3 py-2 text-sm bg-white transition focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-400 custom-scrollbar" />
-                                    </div>
-
-                                    <div className="flex justify-end gap-2 pt-2">
-                                        <button type="button" onClick={() => setCommView('feed')} className="rounded-lg px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 focus:outline-none">
-                                            Cancel
-                                        </button>
-                                        <button type="button" onClick={handleCreateAccountIssue} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1 focus:outline-none">
-                                            Create Support Case
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
                     )}
 
-                    {tab === 'Activity' && (
-                        <div key="activity" className="animate-in fade-in duration-200">
-                            <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Activity Log</h4>
-                            <div className="rounded-xl border border-slate-200 bg-white px-5 py-6 shadow-sm">
-                                <ul className="relative space-y-6 before:absolute before:top-2 before:bottom-2 before:left-[11px] before:w-0.5 before:bg-slate-100">
-                                    {user.activity.map((ev) => (
-                                        <li key={ev.id} className="relative flex gap-4 group">
-                                            <div className="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-50 ring-4 ring-white border border-[#F4B400]/40">
-                                                <div className="h-2 w-2 rounded-full bg-[#F4B400]" />
+                    {tab === 'Activity & Audit' && (
+                        <div key="activity-audit" className="animate-in fade-in duration-200">
+                            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Account Lifecycle & Administrative Activity</h4>
+                                    <p className="mt-1 text-xs text-slate-500">Only personnel/account governance events are summarized here.</p>
+                                </div>
+                                <a
+                                    href={`${buildHref('admin.settings.index')}#Security%20Logs`}
+                                    className="text-xs font-bold text-[#C88F00] hover:underline focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
+                                >
+                                    View Full Security Logs
+                                </a>
+                            </div>
+
+                            <div className="space-y-3">
+                                {user.activity.map((event) => (
+                                    <div key={event.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                                        <div className="flex gap-4">
+                                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                                                <CheckCircle2 className="h-4 w-4" />
                                             </div>
-                                            <div className="min-w-0 flex-1 pt-0.5">
-                                                <p className="text-sm font-bold text-slate-900">{ev.label}</p>
-                                                <p className="text-xs font-medium text-slate-600 mt-1 leading-relaxed">{ev.detail}</p>
-                                                <p className="mt-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">{ev.occurredAt}</p>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                                    <p className="text-sm font-bold text-slate-900">{event.label}</p>
+                                                    <span className="text-[10px] font-semibold text-slate-400">{event.occurredAt}</span>
+                                                </div>
+                                                {event.detail && <p className="mt-1 text-xs leading-relaxed text-slate-600">{event.detail}</p>}
                                             </div>
-                                        </li>
-                                    ))}
-                                </ul>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
+                    )}
+                    </div>
+                    {contentScrollState.canDown && (
+                        <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-12 bg-gradient-to-t from-white via-white/82 to-transparent backdrop-blur-[2px]"
+                        />
                     )}
                 </div>
-            </div>
-        </div>
+        </aside>
     );
 }
 
-/* ---------------------------------------------------------------------- */
+
 /* Add / Invite User modal                                                */
 /* ---------------------------------------------------------------------- */
 
@@ -1860,7 +1824,7 @@ function UserDetailsDrawer({
  * Invite Existing Personnel is role-aware: the requested access role is chosen first, and the personnel list is
  * then filtered to only people eligible for that specific role. HR eligibility comes strictly from trusted
  * HR1/Core HR information (the `hrEligible` flag) — never inferred from Performance, Competency, Succession, AI
- * recommendations, or manual guessing. Admin is never offered here; it only exists via Manage Access.
+ * recommendations, or manual guessing. Administrator access is never offered through ordinary invitation or User Management elevation.
  */
 function InviteUserModal({
     mode,
@@ -1877,6 +1841,7 @@ function InviteUserModal({
     onManualFormChange,
     onSubmitManual,
     existingUsers = [],
+    personnelDirectory = [],
 }: {
     mode: InviteMode;
     onModeChange: (m: InviteMode) => void;
@@ -1892,6 +1857,7 @@ function InviteUserModal({
     onManualFormChange: (f: ManualForm) => void;
     onSubmitManual: () => void;
     existingUsers: UserRecord[];
+    personnelDirectory: PersonnelOption[];
 }) {
     const [existingStep, setExistingStep] = useState<InviteExistingStep>('role');
 
@@ -1967,7 +1933,7 @@ function InviteUserModal({
                             <p className="mt-1 text-xs text-slate-500">Only personnel whose trusted HR1/Core HR record confirms HR membership or approved HR responsibility.</p>
                         </button>
                     </div>
-                    <p className="text-[11px] text-slate-400">Administrator access is not offered here. It is granted separately through Manage Access with an explicit justification.</p>
+                    <p className="text-[11px] text-slate-400">Administrator access is not offered here. Privileged roles must be provisioned from authorized personnel and governance records.</p>
                 </div>
             )}
 
@@ -2028,7 +1994,7 @@ function InviteUserModal({
                             type="button"
                             disabled={!selectedPersonValid}
                             onClick={() => setExistingStep('confirm')}
-                            className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e0a600] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none"
+                            className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-black shadow-sm transition hover:bg-[#e0a600] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none"
                         >
                             Continue
                         </button>
@@ -2056,7 +2022,7 @@ function InviteUserModal({
                             <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none">
                                 Cancel
                             </button>
-                            <button type="button" onClick={onSubmitExisting} className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e0a600] focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none">
+                            <button type="button" onClick={onSubmitExisting} className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-black shadow-sm transition hover:bg-[#e0a600] focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none">
                                 Confirm Invitation
                             </button>
                         </div>
@@ -2093,23 +2059,23 @@ function InviteUserModal({
                         </div>
                         <div>
                             <label className="mb-1 block text-xs font-semibold text-slate-500">Requested Access Role</label>
-                            <select value={manualForm.accessRole} onChange={(e) => onManualFormChange({ ...manualForm, accessRole: e.target.value as AccessRole })} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none">
+                            <SystemSelect value={manualForm.accessRole} onChange={(e) => onManualFormChange({ ...manualForm, accessRole: e.target.value as AccessRole })} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none">
                                 {ACCESS_ROLE_OPTIONS.map((r) => (
                                     <option key={r} value={r}>
                                         {r}
                                     </option>
                                 ))}
-                            </select>
+                            </SystemSelect>
                         </div>
                         <div>
                             <label className="mb-1 block text-xs font-semibold text-slate-500">Person Type</label>
-                            <select value={manualForm.personType} onChange={(e) => onManualFormChange({ ...manualForm, personType: e.target.value as PersonType })} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none">
+                            <SystemSelect value={manualForm.personType} onChange={(e) => onManualFormChange({ ...manualForm, personType: e.target.value as PersonType })} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none">
                                 {PERSON_TYPE_OPTIONS.map((p) => (
                                     <option key={p} value={p}>
                                         {p}
                                     </option>
                                 ))}
-                            </select>
+                            </SystemSelect>
                         </div>
                     </div>
 
@@ -2148,7 +2114,7 @@ function InviteUserModal({
                             type="button"
                             disabled={!manualRequiredValid}
                             onClick={onSubmitManual}
-                            className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e0a600] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none"
+                            className="rounded-lg bg-[#F4B400] px-4 py-2 text-sm font-semibold text-black shadow-sm transition hover:bg-[#e0a600] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-1 focus:outline-none"
                         >
                             Submit for Verification
                         </button>
@@ -2164,20 +2130,31 @@ function InviteUserModal({
 /* ---------------------------------------------------------------------- */
 
 function UserManagement() {
-    const [state, setState] = useState<DirectoryState>(initialState);
-    const [activeMajorTab, setActiveMajorTab] = useState<MajorTab>('All Users');
+    const inertiaPage = usePage();
+    const props = inertiaPage.props as typeof inertiaPage.props & UserManagementPageProps;
+    const availablePersonnel = props.availablePersonnel ?? [];
+    const currentAdminName = (inertiaPage.props.auth.user as { name?: string }).name ?? 'Current Admin';
+    const [state, setState] = useState<DirectoryState>(() => normalizeDirectoryState(props.initialUserDirectoryState));
+    useEffect(() => {
+        setState(normalizeDirectoryState(props.initialUserDirectoryState));
+    }, [props.initialUserDirectoryState]);
+    const [activeMajorTab, setActiveMajorTab] = useHashWorkspace<MajorTab>(USER_MANAGEMENT_WORKSPACES, 'All Users');
     
     // Filters
-    const [roleFilter, setRoleFilter] = useState<'All' | AccessRole>('All');
+    const [roleFilter, setRoleFilter] = useState<AccessRoleFilter>('All');
     const [statusFilter, setStatusFilter] = useState<'All' | AccountStatus>('All');
     const [personTypeFilter, setPersonTypeFilter] = useState<'All' | PersonType>('All');
     const [departmentFilter, setDepartmentFilter] = useState<string>('All');
-    const [sourceFilter, setSourceFilter] = useState<'All' | SourceSystem>('All');
-    const [showMoreFilters, setShowMoreFilters] = useState(false);
+    const [positionFilter, setPositionFilter] = useState<string>('All');
     
     const [page, setPage] = useState(1);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [detailsTab, setDetailsTab] = useState<WorkspaceTab>('Overview');
+
+    useEffect(() => {
+        setSelectedUserId(null);
+        setDetailsTab('Overview');
+    }, [activeMajorTab]);
     
     const [inviteOpen, setInviteOpen] = useState(false);
     const [inviteMode, setInviteMode] = useState<InviteMode>('choice');
@@ -2197,7 +2174,6 @@ function UserManagement() {
     });
 
     const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-    const [manageAccessUserId, setManageAccessUserId] = useState<string | null>(null);
     const [suspendTargetUserId, setSuspendTargetUserId] = useState<string | null>(null);
     const [deactivateTargetUserId, setDeactivateTargetUserId] = useState<string | null>(null);
     const [verificationTargetId, setVerificationTargetId] = useState<string | null>(null);
@@ -2210,35 +2186,73 @@ function UserManagement() {
 
     const nonArchivedUsers = useMemo(() => state.users.filter((u) => u.accountStatus !== 'Archived'), [state.users]);
     const departments = useMemo(() => Array.from(new Set(nonArchivedUsers.map((u) => u.department))).sort(), [nonArchivedUsers]);
+    const positions = useMemo(() => Array.from(new Set(nonArchivedUsers.map((u) => u.position))).sort(), [nonArchivedUsers]);
     const openIssues = useMemo(() => state.issues.filter((i) => i.status !== 'Resolved'), [state.issues]);
 
     const summary = useMemo(
         () => ({
             total: nonArchivedUsers.length,
-            hrAdmin: nonArchivedUsers.filter((u) => u.accessRole === 'Admin' || u.accessRole === 'HR').length,
+            privileged: nonArchivedUsers.filter((u) => u.accessRole === 'Admin' || u.accessRole === 'HR').length,
+            employees: nonArchivedUsers.filter((u) => u.personType === 'Employee').length,
             trainees: nonArchivedUsers.filter((u) => u.personType === 'Trainee').length,
-            active: nonArchivedUsers.filter((u) => u.accountStatus === 'Active').length,
         }),
         [nonArchivedUsers],
     );
 
+    const aevynUsersEntrySentRef = useRef(false);
+
+    useEffect(() => {
+        if (aevynUsersEntrySentRef.current) return;
+
+        const timer = window.setTimeout(() => {
+            if (aevynUsersEntrySentRef.current) return;
+
+            const message =
+                openIssues.length > 0
+                    ? `${openIssues.length} account ${openIssues.length === 1 ? 'issue needs' : 'issues need'} attention · ${summary.total} governed accounts`
+                    : `${summary.total} accounts · ${summary.employees} employees · ${summary.trainees} trainees · ${summary.privileged} privileged`;
+
+            window.dispatchEvent(
+                new CustomEvent('aevyn:module-whisper', {
+                    detail: {
+                        module: 'Users',
+                        message,
+                        tone: openIssues.length > 0 ? 'warning' : 'info',
+                    },
+                }),
+            );
+
+            aevynUsersEntrySentRef.current = true;
+        }, 450);
+
+        return () => window.clearTimeout(timer);
+    }, [
+        openIssues.length,
+        summary.total,
+        summary.employees,
+        summary.trainees,
+        summary.privileged,
+    ]);
+
     const filteredUsers = useMemo(() => {
-        return nonArchivedUsers.filter((u) => {
-            if (roleFilter !== 'All' && u.accessRole !== roleFilter) return false;
-            if (statusFilter !== 'All' && u.accountStatus !== statusFilter) return false;
-            if (personTypeFilter !== 'All' && u.personType !== personTypeFilter) return false;
-            if (departmentFilter !== 'All' && u.department !== departmentFilter) return false;
-            if (sourceFilter !== 'All' && u.sourceSystem !== sourceFilter) return false;
-            return true;
-        });
-    }, [nonArchivedUsers, roleFilter, statusFilter, personTypeFilter, departmentFilter, sourceFilter]);
+        return nonArchivedUsers
+            .filter((u) => {
+                if (roleFilter === 'Admin & HR' && !['Admin', 'HR'].includes(u.accessRole)) return false;
+                if (roleFilter !== 'All' && roleFilter !== 'Admin & HR' && u.accessRole !== roleFilter) return false;
+                if (statusFilter !== 'All' && u.accountStatus !== statusFilter) return false;
+                if (personTypeFilter !== 'All' && u.personType !== personTypeFilter) return false;
+                if (departmentFilter !== 'All' && u.department !== departmentFilter) return false;
+                if (positionFilter !== 'All' && u.position !== positionFilter) return false;
+                return true;
+            })
+            .sort((a, b) => a.fullName.localeCompare(b.fullName));
+    }, [nonArchivedUsers, roleFilter, statusFilter, personTypeFilter, departmentFilter, positionFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filteredUsers.length / ITEMS_PER_PAGE));
     const currentPage = Math.min(page, totalPages);
     const pagedUsers = filteredUsers.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
     const selectedUser = state.users.find((u) => u.id === selectedUserId) ?? null;
-    const manageAccessUser = state.users.find((u) => u.id === manageAccessUserId) ?? null;
     const suspendTargetUser = state.users.find((u) => u.id === suspendTargetUserId) ?? null;
     const deactivateTargetUser = state.users.find((u) => u.id === deactivateTargetUserId) ?? null;
     const verificationTargetRecord = state.pendingVerifications.find((r) => r.id === verificationTargetId) ?? null;
@@ -2256,31 +2270,52 @@ function UserManagement() {
         setPendingAction(action);
     }
 
-    function confirmSuspend(form: SuspendFormState) {
-        if (!suspendTargetUser) return;
-        const ts = nowLabel();
-        const detailParts = [
-            `Basis: ${form.basis}`,
-            form.isSecurityEmergency ? 'Emergency security action.' : undefined,
-            form.referenceNumber ? `Reference: ${form.referenceNumber}` : undefined,
-            `Performed by: ${form.authorizedBy || CURRENT_ADMIN_NAME}`,
-        ]
-            .filter(Boolean)
-            .join(' · ');
-        updateUser(suspendTargetUser.id, (u) =>
-            appendActivity({ ...u, accountStatus: 'Suspended' }, 'Account suspended', `${form.justification} (${detailParts})`, ts),
-        );
-        pushToast('warning', `${suspendTargetUser.fullName}'s account was suspended. Notification prepared (email delivery pending integration).`);
-        setSuspendTargetUserId(null);
+    function directoryApiError(error: unknown): string {
+        if (axios.isAxiosError(error)) {
+            const errors = error.response?.data?.errors as Record<string, string[]> | undefined;
+            const first = errors ? Object.values(errors).flat()[0] : undefined;
+            return first ?? error.response?.data?.message ?? 'The account change could not be saved.';
+        }
+        return 'The account change could not be saved.';
     }
 
-    function confirmDeactivate(form: DeactivateFormState) {
-        if (!deactivateTargetUser) return;
-        const ts = nowLabel();
-        const detail = `Basis: ${form.basis} · ${form.reason}${form.referenceNumber ? ` · Reference: ${form.referenceNumber}` : ''} · Performed by: ${CURRENT_ADMIN_NAME}`;
-        updateUser(deactivateTargetUser.id, (u) => appendActivity({ ...u, accountStatus: 'Inactive' }, 'P&D access deactivated', detail, ts));
-        pushToast('info', `${deactivateTargetUser.fullName}'s P&D access was deactivated. Notification prepared (email delivery pending integration).`);
-        setDeactivateTargetUserId(null);
+    function reloadDirectory(): void {
+        router.reload({ only: ['initialUserDirectoryState', 'availablePersonnel', 'userDirectorySource'] });
+    }
+
+    async function confirmSuspend(form: SuspendFormState) {
+        if (!suspendTargetUser?.databaseId) return;
+        try {
+            await axios.patch(`/admin/users/${suspendTargetUser.databaseId}/access`, {
+                status: 'Suspended',
+                reason: `${form.basis}: ${form.justification}${form.supportingNotes ? ` · ${form.supportingNotes}` : ''}`,
+                reference: form.referenceNumber || null,
+                authorizedBy: form.authorizedBy || currentAdminName,
+                securityEmergency: form.isSecurityEmergency,
+            });
+            setSuspendTargetUserId(null);
+            pushToast('warning', `${suspendTargetUser.fullName}'s P&D access was suspended and active sessions were revoked.`);
+            reloadDirectory();
+        } catch (error) {
+            pushToast('warning', directoryApiError(error));
+        }
+    }
+
+    async function confirmDeactivate(form: DeactivateFormState) {
+        if (!deactivateTargetUser?.databaseId) return;
+        try {
+            await axios.patch(`/admin/users/${deactivateTargetUser.databaseId}/access`, {
+                status: 'Inactive',
+                reason: `${form.basis}: ${form.reason}${form.notes ? ` · ${form.notes}` : ''}`,
+                reference: form.referenceNumber || null,
+                authorizedBy: currentAdminName,
+            });
+            setDeactivateTargetUserId(null);
+            pushToast('info', `${deactivateTargetUser.fullName}'s P&D access was deactivated and active sessions were revoked.`);
+            reloadDirectory();
+        } catch (error) {
+            pushToast('warning', directoryApiError(error));
+        }
     }
 
     function handleVerificationOutcome(outcome: 'Verified' | 'Needs Review', failureReason?: VerificationFailureReason) {
@@ -2415,56 +2450,87 @@ function UserManagement() {
         pushToast('success', 'Account issue created successfully.');
     }
 
-    function performArchive(userId: string, reason: string, notes: string) {
-        const ts = nowLabel();
-        updateUser(userId, (u) =>
-            appendActivity(
-                { ...u, accountStatus: 'Archived', archivedAt: ts, archiveReason: reason, archiveNotes: notes || undefined },
-                'Account archived',
-                reason,
-                ts,
-            ),
-        );
-        pushToast('info', 'Account archived.');
-        setPendingAction(null);
+    async function performArchive(userId: string, reason: string, notes: string) {
+        const user = state.users.find((candidate) => candidate.id === userId);
+        if (!user?.databaseId) return;
+        try {
+            const fullReason = notes.trim() ? `${reason}. ${notes.trim()}` : reason;
+            await axios.post(`/governance/api/settings/accounts/${user.databaseId}/archive`, { reason: fullReason });
+            setPendingAction(null);
+            pushToast('info', `${user.fullName}'s account was archived with retention governance preserved.`);
+            reloadDirectory();
+        } catch (error) {
+            pushToast('warning', directoryApiError(error));
+        }
     }
 
-    function confirmPendingAction() {
+    async function confirmPendingAction() {
         if (!pendingAction) return;
         const ts = nowLabel();
 
         if (pendingAction.entity === 'user') {
             const { entityId, action } = pendingAction;
             switch (action) {
-                case 'resendActivation':
-                    updateUser(entityId, (u) => appendActivity({ ...u, activationStatus: 'Invitation Sent' }, 'Activation invitation resent', 'Admin resent the activation invitation.', ts));
-                    pushToast('success', 'Activation invitation resent.');
+                case 'resendActivation': {
+                    const user = state.users.find((candidate) => candidate.id === entityId);
+                    if (!user?.databaseId) break;
+                    try {
+                        await axios.post(`/admin/users/${user.databaseId}/access-link`, { purpose: 'account_setup' });
+                        pushToast('success', 'Account setup link sent through the configured mail channel.');
+                    } catch (error) {
+                        pushToast('warning', directoryApiError(error));
+                    }
                     break;
-                case 'sendPasswordReset':
-                    updateUser(entityId, (u) => appendActivity(u, 'Password reset sent', 'Admin sent a password reset link.', ts));
-                    pushToast('success', 'Password reset link sent.');
+                }
+                case 'sendPasswordReset': {
+                    const user = state.users.find((candidate) => candidate.id === entityId);
+                    if (!user?.databaseId) break;
+                    try {
+                        await axios.post(`/admin/users/${user.databaseId}/access-link`, { purpose: 'password_reset' });
+                        pushToast('success', 'Password reset link sent through the configured mail channel.');
+                    } catch (error) {
+                        pushToast('warning', directoryApiError(error));
+                    }
                     break;
+                }
                 case 'unlock':
                     updateUser(entityId, (u) => appendActivity({ ...u, locked: false, failedSignInCount: 0 }, 'Account unlocked', 'Admin unlocked the account.', ts));
                     pushToast('success', 'Account unlocked.');
                     break;
-                case 'activate':
-                    updateUser(entityId, (u) => appendActivity({ ...u, accountStatus: 'Active', activationStatus: 'Activated' }, 'Account activated', 'Admin activated the account.', ts));
-                    pushToast('success', 'Account activated.');
+                case 'activate': {
+                    const user = state.users.find((candidate) => candidate.id === entityId);
+                    if (!user?.databaseId) break;
+                    try {
+                        await axios.patch(`/admin/users/${user.databaseId}/access`, {
+                            status: 'Active',
+                            reason: 'Administrator restored P&D access from User Management.',
+                            authorizedBy: currentAdminName,
+                        });
+                        pushToast('success', 'P&D access restored.');
+                        reloadDirectory();
+                    } catch (error) {
+                        pushToast('warning', directoryApiError(error));
+                    }
                     break;
+                }
                 case 'archive':
                     // Handled by the dedicated ArchiveConfirmDialog / performArchive flow.
                     break;
-                case 'restore':
-                    updateUser(entityId, (u) => appendActivity({ ...u, accountStatus: 'Active', archivedAt: undefined, archiveReason: undefined, archiveNotes: undefined }, 'Account restored', 'Admin restored the account from archive.', ts));
-                    pushToast('success', 'Account restored.');
+                case 'restore': {
+                    const user = state.users.find((candidate) => candidate.id === entityId);
+                    if (!user?.databaseId) break;
+                    try {
+                        await axios.post(`/governance/api/settings/accounts/${user.databaseId}/restore`, {
+                            reason: 'Administrator restored this retained account from User Management.',
+                        });
+                        pushToast('success', 'Account restored.');
+                        reloadDirectory();
+                    } catch (error) {
+                        pushToast('warning', directoryApiError(error));
+                    }
                     break;
-                case 'changeRole':
-                    updateUser(entityId, (u) =>
-                        appendActivity({ ...u, accessRole: (pendingAction.payload as AccessRole) ?? u.accessRole }, 'Access role changed', `Access role changed to ${pendingAction.payload}.`, ts),
-                    );
-                    pushToast('success', 'Access role updated.');
-                    break;
+                }
+
             }
         }
 
@@ -2535,78 +2601,6 @@ function UserManagement() {
         setPendingAction(null);
     }
 
-    function userMenuItems(user: UserRecord) {
-        const items: { label: string; onClick: () => void; danger?: boolean }[] = [
-            {
-                label: 'View Profile',
-                onClick: () => {
-                    setSelectedUserId(user.id);
-                    setDetailsTab('Overview');
-                },
-            },
-            {
-                label: 'Edit Account',
-                onClick: () => {
-                    setSelectedUserId(user.id);
-                    setDetailsTab('Account & Access');
-                },
-            },
-        ];
-        if (user.accountStatus === 'Pending Activation') {
-            items.push({
-                label: 'Resend Activation',
-                onClick: () => requestAction({ entity: 'user', entityId: user.id, action: 'resendActivation', title: 'Resend Activation', description: `Resend the activation invitation to ${user.fullName}?` }),
-            });
-        }
-        if (user.accountStatus === 'Active' || user.accountStatus === 'Suspended') {
-            items.push({
-                label: 'Send Password Reset',
-                onClick: () => requestAction({ entity: 'user', entityId: user.id, action: 'sendPasswordReset', title: 'Send Password Reset', description: `Send a password reset link to ${user.fullName}?` }),
-            });
-        }
-        if (user.locked) {
-            items.push({
-                label: 'Unlock Account',
-                onClick: () => requestAction({ entity: 'user', entityId: user.id, action: 'unlock', title: 'Unlock Account', description: `Unlock ${user.fullName}'s account?` }),
-            });
-        }
-        if (user.accountStatus === 'Suspended' || user.accountStatus === 'Inactive') {
-            items.push({
-                label: 'Activate Account',
-                onClick: () => requestAction({ entity: 'user', entityId: user.id, action: 'activate', title: 'Activate Account', description: `Activate ${user.fullName}'s account?` }),
-            });
-        }
-        if (user.accountStatus === 'Active') {
-            items.push({
-                label: 'Suspend Account',
-                onClick: () => setSuspendTargetUserId(user.id),
-            });
-            items.push({
-                label: 'Deactivate P&D Access',
-                onClick: () => setDeactivateTargetUserId(user.id),
-            });
-        }
-        items.push({
-            label: 'Manage Access',
-            onClick: () => setManageAccessUserId(user.id),
-        });
-        if (user.accountStatus !== 'Archived') {
-            items.push({
-                label: 'Archive Account',
-                danger: true,
-                onClick: () =>
-                    requestAction({
-                        entity: 'user',
-                        entityId: user.id,
-                        action: 'archive',
-                        title: 'Archive User Account',
-                        description: 'The account will lose normal system access, but historical records will be retained.',
-                    }),
-            });
-        }
-        return items;
-    }
-
     function incomingMenuItems(record: IncomingRecord) {
         const items: { label: string; onClick: () => void; danger?: boolean }[] = [
             { label: 'View Incoming Record', onClick: () => pushToast('info', `Viewing ${record.fullName}'s incoming record.`) },
@@ -2629,8 +2623,8 @@ function UserManagement() {
         }
         if (record.accountStatus === 'Pending Activation') {
             items.push({
-                label: 'Resend Activation',
-                onClick: () => requestAction({ entity: 'incoming', entityId: record.id, action: 'resendActivation', title: 'Resend Activation', description: `Resend the activation invitation to ${record.fullName}?` }),
+                label: 'Resend Account Setup',
+                onClick: () => requestAction({ entity: 'incoming', entityId: record.id, action: 'resendActivation', title: 'Resend Account Setup', description: `Resend the account setup link to ${record.fullName}?` }),
             });
         }
         if (record.syncStatus === 'Failed') {
@@ -2661,8 +2655,8 @@ function UserManagement() {
             const lowered = issue.issue.toLowerCase();
             if (lowered.includes('activation')) {
                 items.push({
-                    label: 'Resend Activation',
-                    onClick: () => requestAction({ entity: 'issue', entityId: issue.id, action: 'resendActivation', title: 'Resend Activation', description: `Resend activation invitation for ${subject}?` }),
+                    label: 'Resend Account Setup',
+                    onClick: () => requestAction({ entity: 'issue', entityId: issue.id, action: 'resendActivation', title: 'Resend Account Setup', description: `Resend activation invitation for ${subject}?` }),
                 });
             }
             if (lowered.includes('password')) {
@@ -2713,7 +2707,7 @@ function UserManagement() {
     }
 
     function submitExistingInvite() {
-        const person = personnelDirectory.find((p) => p.id === invitePersonId);
+        const person = availablePersonnel.find((p) => p.id === invitePersonId);
         if (!person) {
             pushToast('warning', 'Select a person to invite first.');
             return;
@@ -2773,7 +2767,7 @@ function UserManagement() {
             department: manualForm.department || 'Unassigned',
             requestedRole: manualForm.accessRole,
             personType: manualForm.personType,
-            requestedBy: CURRENT_ADMIN_NAME,
+            requestedBy: currentAdminName,
             reason: manualForm.reason,
             notes: manualForm.notes || undefined,
             submittedAt: ts,
@@ -2792,36 +2786,25 @@ function UserManagement() {
 
     const userColumns = [
         {
-            key: 'user',
-            header: 'User',
+            key: 'employee',
+            header: 'Employee',
+            className: 'w-[24%]',
             render: (u: UserRecord) => (
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                     <Avatar name={u.fullName} />
                     <div className="min-w-0">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setSelectedUserId(u.id);
-                                setDetailsTab('Overview');
-                            }}
-                            className="block truncate text-sm font-semibold text-slate-900 transition hover:text-[#F4B400] focus-visible:outline-none focus-visible:underline rounded-sm"
-                        >
-                            {u.fullName}
-                        </button>
+                        <p className="truncate text-sm font-semibold text-slate-900">{u.fullName}</p>
                         <p className="truncate text-xs text-slate-400">{u.position}</p>
                     </div>
                 </div>
             ),
         },
-        { key: 'id', header: 'ID', render: (u: UserRecord) => <span className="font-mono text-xs font-medium text-slate-500">{u.employeeOrTraineeId}</span> },
-        { key: 'email', header: 'Email', render: (u: UserRecord) => <span className="text-xs text-slate-500">{u.email}</span> },
-        { key: 'role', header: 'Access Role', render: (u: UserRecord) => <Badge type="role" value={u.accessRole} /> },
-        { key: 'personType', header: 'Person Type', render: (u: UserRecord) => <Badge type="person" value={u.personType} /> },
-        { key: 'department', header: 'Department', render: (u: UserRecord) => <span className="text-xs text-slate-500">{u.department}</span> },
-        { key: 'source', header: 'Source', render: (u: UserRecord) => <Badge type="source" value={u.sourceSystem} /> },
-        { key: 'status', header: 'Account Status', render: (u: UserRecord) => <Badge type="account" value={u.accountStatus} /> },
-        { key: 'lastLogin', header: 'Last Login', render: (u: UserRecord) => <span className="text-xs text-slate-500">{u.lastLogin}</span> },
-        { key: 'actions', header: '', className: 'text-right', render: (u: UserRecord) => <div className="flex justify-end"><ActionMenu items={userMenuItems(u)} /></div> },
+        { key: 'id', header: 'Personnel ID', className: 'w-[11%]', render: (u: UserRecord) => <span className="font-mono text-xs font-medium text-slate-500">{u.employeeOrTraineeId}</span> },
+        { key: 'department', header: 'Department', className: 'w-[14%]', render: (u: UserRecord) => <span className="block truncate text-xs text-slate-600">{u.department}</span> },
+        { key: 'personType', header: 'Person Type', className: 'w-[10%] text-center', render: (u: UserRecord) => <div className="flex justify-center"><Badge type="person" value={u.personType} /></div> },
+        { key: 'role', header: 'P&D Role', className: 'w-[8%] text-center', render: (u: UserRecord) => <div className="flex justify-center"><Badge type="role" value={u.accessRole} /></div> },
+        { key: 'status', header: 'Account Status', className: 'w-[10%] text-center', render: (u: UserRecord) => <div className="flex justify-center"><Badge type="account" value={u.accountStatus} /></div> },
+        { key: 'lastLogin', header: 'Last Sign-In', className: 'w-[23%]', render: (u: UserRecord) => <span className="block truncate text-xs text-slate-500">{u.lastLogin}</span> },
     ];
 
     const incomingColumns = [
@@ -2870,7 +2853,7 @@ function UserManagement() {
                 <span className="font-semibold text-slate-700">
                     {filteredUsers.length === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)}
                 </span>{' '}
-                of <span className="font-semibold text-slate-700">{filteredUsers.length}</span> users
+                of <span className="font-semibold text-slate-700">{filteredUsers.length}</span> personnel
             </span>
             <div className="flex items-center justify-center gap-1 sm:justify-end">
                 <button
@@ -2887,7 +2870,7 @@ function UserManagement() {
                         type="button"
                         onClick={() => setPage(p)}
                         className={`min-w-[28px] rounded-md border px-2 py-1.5 font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[#F4B400] ${
-                            p === currentPage ? 'border-[#F4B400] bg-[#F4B400] text-white shadow-sm' : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                            p === currentPage ? 'border-[#F4B400] bg-[#F4B400] text-black shadow-sm' : 'border-slate-200 text-slate-500 hover:bg-slate-50'
                         }`}
                     >
                         {p}
@@ -2906,214 +2889,150 @@ function UserManagement() {
     );
 
     return (
-        <div className="w-full min-w-0 max-w-full space-y-6 p-4 transition-[margin,width] duration-300 ease-in-out sm:p-6 animate-in fade-in duration-500">
-            <PageHeader
-                title="User Management"
-                description="Manage user accounts, access roles, HR1 provisioning, and account status."
-                actions={
-                    <button
-                        type="button"
-                        onClick={openInvite}
-                        className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-[#F4B400] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e0a600] focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-2 focus:outline-none"
-                    >
-                        <UserPlus className="h-4 w-4" />
-                        Add / Invite User
-                    </button>
-                }
-            />
-
-            {/* FILTERS SECTION */}
-            <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center">
-                <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                    <select
-                        aria-label="Filter by Access Role"
-                        value={roleFilter}
-                        onChange={(e) => {
-                            setRoleFilter(e.target.value as 'All' | AccessRole);
-                            setPage(1);
-                        }}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none sm:w-auto"
-                    >
-                        <option value="All">Access Role</option>
-                        {ACCESS_ROLE_OPTIONS.map((r) => (
-                            <option key={r} value={r}>
-                                {r}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        aria-label="Filter by Account Status"
-                        value={statusFilter}
-                        onChange={(e) => {
-                            setStatusFilter(e.target.value as 'All' | AccountStatus);
-                            setPage(1);
-                        }}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none sm:w-auto"
-                    >
-                        <option value="All">Account Status</option>
-                        {ACCOUNT_STATUS_OPTIONS.map((s) => (
-                            <option key={s} value={s}>
-                                {s}
-                            </option>
-                        ))}
-                    </select>
-                    
-                    <select
-                        aria-label="Filter by Person Type"
-                        value={personTypeFilter}
-                        onChange={(e) => {
-                            setPersonTypeFilter(e.target.value as 'All' | PersonType);
-                            setPage(1);
-                        }}
-                        className={`w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none sm:w-auto ${showMoreFilters ? 'block' : 'hidden sm:block'}`}
-                    >
-                        <option value="All">Person Type</option>
-                        {PERSON_TYPE_OPTIONS.map((p) => (
-                            <option key={p} value={p}>
-                                {p}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        aria-label="Filter by Department"
-                        value={departmentFilter}
-                        onChange={(e) => {
-                            setDepartmentFilter(e.target.value);
-                            setPage(1);
-                        }}
-                        className={`w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none sm:w-auto ${showMoreFilters ? 'block' : 'hidden sm:block'}`}
-                    >
-                        <option value="All">Department</option>
-                        {departments.map((d) => (
-                            <option key={d} value={d}>
-                                {d}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        aria-label="Filter by Source"
-                        value={sourceFilter}
-                        onChange={(e) => {
-                            setSourceFilter(e.target.value as 'All' | SourceSystem);
-                            setPage(1);
-                        }}
-                        className={`w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 transition focus:border-[#F4B400] focus:ring-1 focus:ring-[#F4B400] focus:outline-none sm:w-auto ${showMoreFilters ? 'block' : 'hidden sm:block'}`}
-                    >
-                        <option value="All">Source</option>
-                        <option value="HR1">HR1</option>
-                        <option value="Manual">Manual</option>
-                    </select>
-
-                    <button
-                        type="button"
-                        onClick={() => setShowMoreFilters((v) => !v)}
-                        className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 sm:hidden focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
-                    >
-                        <SlidersHorizontal className="h-3.5 w-3.5" />
-                        {showMoreFilters ? 'Less Filters' : 'More Filters'}
-                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showMoreFilters ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    {(roleFilter !== 'All' || statusFilter !== 'All' || personTypeFilter !== 'All' || departmentFilter !== 'All' || sourceFilter !== 'All') && (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setRoleFilter('All');
-                                setStatusFilter('All');
-                                setPersonTypeFilter('All');
-                                setDepartmentFilter('All');
-                                setSourceFilter('All');
-                            }}
-                            className="text-xs font-semibold text-[#F4B400] transition hover:underline focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none rounded-md px-2 py-1 ml-auto"
+        <div className="app-page app-page-enter space-y-5">
+            <HeaderFilters>
+                {activeMajorTab === 'All Users' && (
+                    <>
+                        <SystemSelect
+                            aria-label="Filter by Department"
+                            value={departmentFilter}
+                            onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none"
                         >
-                            Clear All
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {/* SUMMARY CARDS */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                <SummaryCard icon={Users} label="Total Users" value={summary.total} />
-                <SummaryCard icon={ShieldCheck} label="HR & Admin Accounts" value={summary.hrAdmin} />
-                <SummaryCard icon={GraduationCap} label="Trainee Accounts" value={summary.trainees} />
-                <SummaryCard icon={CheckCircle2} label="Active Accounts" value={summary.active} />
-            </div>
-
-            {/* MAJOR TABS */}
-            <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0 custom-scrollbar">
-                <div className="flex min-w-max gap-1 border-b border-slate-200">
-                    {(['All Users', 'Incoming Trainees', 'Account Issues'] as MajorTab[]).map((tab) => (
-                        <button
-                            key={tab}
-                            type="button"
-                            onClick={() => {
-                                setActiveMajorTab(tab);
-                                setPage(1);
-                            }}
-                            className={`relative -mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:text-slate-900 ${
-                                activeMajorTab === tab ? 'border-[#F4B400] text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-700'
-                            }`}
+                            <option value="All">All Departments</option>
+                            {departments.map((department) => <option key={department} value={department}>{department}</option>)}
+                        </SystemSelect>
+                        <SystemSelect
+                            aria-label="Filter by Position"
+                            value={positionFilter}
+                            onChange={(e) => { setPositionFilter(e.target.value); setPage(1); }}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none"
                         >
-                            {tab}
-                            {tabCounts[tab] > 0 && (
-                                <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${activeMajorTab === tab ? 'bg-[#F4B400]/10 text-[#F4B400]' : 'bg-slate-100 text-slate-500'}`}>
-                                    {tabCounts[tab]}
-                                </span>
-                            )}
-                        </button>
-                    ))}
-                </div>
-            </div>
+                            <option value="All">All Positions</option>
+                            {positions.map((position) => <option key={position} value={position}>{position}</option>)}
+                        </SystemSelect>
+                        <SystemSelect
+                            aria-label="Filter by P&D Role"
+                            value={roleFilter}
+                            onChange={(e) => { setRoleFilter(e.target.value as AccessRoleFilter); setPage(1); }}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none"
+                        >
+                            <option value="All">All P&amp;D Roles</option>
+                            <option value="Admin & HR">Admin &amp; HR</option>
+                            {ACCESS_ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
+                        </SystemSelect>
+                        <SystemSelect
+                            aria-label="Filter by Person Type"
+                            value={personTypeFilter}
+                            onChange={(e) => { setPersonTypeFilter(e.target.value as 'All' | PersonType); setPage(1); }}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none"
+                        >
+                            <option value="All">All Person Types</option>
+                            {PERSON_TYPE_OPTIONS.map((personType) => <option key={personType} value={personType}>{personType}</option>)}
+                        </SystemSelect>
+                        <SystemSelect
+                            aria-label="Filter by Account Status"
+                            value={statusFilter}
+                            onChange={(e) => { setStatusFilter(e.target.value as 'All' | AccountStatus); setPage(1); }}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none"
+                        >
+                            <option value="All">All Account Statuses</option>
+                            {ACCOUNT_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+                        </SystemSelect>
+                        {(roleFilter !== 'All' || statusFilter !== 'All' || personTypeFilter !== 'All' || departmentFilter !== 'All' || positionFilter !== 'All') && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setRoleFilter('All');
+                                    setStatusFilter('All');
+                                    setPersonTypeFilter('All');
+                                    setDepartmentFilter('All');
+                                    setPositionFilter('All');
+                                    setPage(1);
+                                }}
+                                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                                Clear Filters
+                            </button>
+                        )}
+                    </>
+                )}
+            </HeaderFilters>
 
-            {/* TAB CONTENT / TABLES */}
-            <div className="animate-in fade-in duration-300">
-                {activeMajorTab === 'All Users' && <DataTable title="All Users" columns={userColumns} data={pagedUsers} rowKey={(u) => u.id} footer={usersFooter} />}
-                {activeMajorTab === 'Incoming Trainees' && <DataTable title="Incoming Trainees" columns={incomingColumns} data={state.incomingRecords} rowKey={(r) => r.id} />}
-                {activeMajorTab === 'Account Issues' && <DataTable title="Account Issues" columns={issueColumns} data={state.issues} rowKey={(i) => i.id} />}
-            </div>
-
-            {/* ANALYTICS SECTION (Visible on All Users tab to provide context) */}
             {activeMajorTab === 'All Users' && (
-                <DepartmentAnalytics 
-                    users={nonArchivedUsers} 
-                    currentFilter={departmentFilter} 
-                    onSelect={(d) => { setDepartmentFilter(d); setPage(1); }} 
-                    onClear={() => { setDepartmentFilter('All'); setPage(1); }} 
-                />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <SummaryCard icon={Users} label="Total Personnel" value={summary.total} onClick={() => {
+                        setRoleFilter('All'); setStatusFilter('All'); setPersonTypeFilter('All'); setDepartmentFilter('All'); setPositionFilter('All'); setPage(1);
+                    }} />
+                    <SummaryCard icon={ShieldCheck} label="Privileged Accounts" value={summary.privileged} onClick={() => {
+                        setRoleFilter('Admin & HR'); setStatusFilter('All'); setPersonTypeFilter('All'); setDepartmentFilter('All'); setPositionFilter('All'); setPage(1);
+                    }} />
+                    <SummaryCard icon={UserCircle2} label="Employee Accounts" value={summary.employees} onClick={() => {
+                        setRoleFilter('All'); setStatusFilter('All'); setPersonTypeFilter('Employee'); setDepartmentFilter('All'); setPositionFilter('All'); setPage(1);
+                    }} />
+                    <SummaryCard icon={GraduationCap} label="Trainee Accounts" value={summary.trainees} onClick={() => {
+                        setRoleFilter('All'); setStatusFilter('All'); setPersonTypeFilter('Trainee'); setDepartmentFilter('All'); setPositionFilter('All'); setPage(1);
+                    }} />
+                </div>
             )}
 
-            {/* WORKSPACES & MODALS */}
-            {selectedUser && (
-                <UserDetailsDrawer 
-                    user={selectedUser} 
-                    tab={detailsTab} 
-                    onTabChange={setDetailsTab} 
-                    onClose={() => setSelectedUserId(null)} 
-                    onRequestAction={requestAction}
-                    onManageAccess={setManageAccessUserId}
-                    onAddCommunication={handleAddCommunication}
-                    onCreateIssue={handleCreateIssue}
-                    onRequestSuspend={setSuspendTargetUserId}
-                    onRequestDeactivate={setDeactivateTargetUserId}
-                />
-            )}
+            <div className="relative animate-in fade-in duration-300">
+                {activeMajorTab === 'All Users' && (
+                    <DataTable
+                        title="All Users"
+                        columns={userColumns}
+                        data={pagedUsers}
+                        rowKey={(user) => user.id}
+                        footer={usersFooter}
+                        onRowClick={(user) => { setSelectedUserId(user.id); setDetailsTab('Overview'); }}
+                        getRowLabel={(user) => `Open ${user.fullName} record`}
+                        getRowClassName={(user) => user.id === selectedUserId ? 'bg-amber-50/70 ring-1 ring-inset ring-[#F4B400]/50' : ''}
+                        tableLayout="fixed"
+                        overlay={selectedUser ? (
+                            <>
+                                <div
+                                    aria-hidden="true"
+                                    className="pointer-events-none absolute right-0 top-0 bottom-[53px] z-20 hidden bg-white/35 backdrop-blur-[7px] lg:left-[49%] lg:block animate-in fade-in duration-300"
+                                />
+                                <UserDetailsDrawer
+                                    user={selectedUser}
+                                    tab={detailsTab}
+                                    onTabChange={setDetailsTab}
+                                    onClose={() => setSelectedUserId(null)}
+                                    onRequestAction={requestAction}
+                                    onRequestSuspend={setSuspendTargetUserId}
+                                    onRequestDeactivate={setDeactivateTargetUserId}
+                                />
+                            </>
+                        ) : null}
+                    />
+                )}
+                {activeMajorTab === 'Incoming Trainees' && (
+                    <DataTable
+                        title="Incoming Trainees"
+                        columns={incomingColumns}
+                        data={state.incomingRecords}
+                        rowKey={(r) => r.id}
+                        onRowClick={(record) => { const user = state.users.find((candidate) => candidate.employeeOrTraineeId === record.employeeOrTraineeId); if (user) { setSelectedUserId(user.id); setDetailsTab('Overview'); } }}
+                        getRowLabel={(record) => `Open ${record.fullName} record`}
+                        emptyTitle="No incoming trainees"
+                        emptyDescription="There are currently no trainee records awaiting P&D onboarding or account activation."
+                    />
+                )}
+                {activeMajorTab === 'Account Issues' && (
+                    <DataTable
+                        title="Account Issues"
+                        columns={issueColumns}
+                        data={state.issues}
+                        rowKey={(i) => i.id}
+                        onRowClick={(issue) => { if (issue.userId) { setSelectedUserId(issue.userId); setDetailsTab('Account & Access'); } }}
+                        getRowLabel={(issue) => `Open ${issue.subjectName ?? issue.issue} issue`}
+                        emptyTitle="No open account issues"
+                        emptyDescription="There are currently no unresolved P&D access, sign-in, MFA, or account-related issues."
+                    />
+                )}
 
-            {manageAccessUser && (
-                <ManageAccessModal
-                    user={manageAccessUser}
-                    onClose={() => setManageAccessUserId(null)}
-                    onGrantHR={() => {
-                        requestAction({ entity: 'user', entityId: manageAccessUser.id, action: 'changeRole', title: 'Change Role', description: `Change ${manageAccessUser.fullName}'s role to HR?`, payload: 'HR' });
-                        setManageAccessUserId(null);
-                    }}
-                    onGrantAdmin={(justification) => {
-                        requestAction({ entity: 'user', entityId: manageAccessUser.id, action: 'changeRole', title: 'Change Role', description: `Change ${manageAccessUser.fullName}'s role to Admin? (Justification: ${justification})`, payload: 'Admin' });
-                        setManageAccessUserId(null);
-                    }}
-                />
-            )}
-
+            </div>
             {inviteOpen && (
                 <InviteUserModal
                     mode={inviteMode}
@@ -3130,6 +3049,7 @@ function UserManagement() {
                     onManualFormChange={setManualForm}
                     onSubmitManual={submitManualCreate}
                     existingUsers={state.users}
+                    personnelDirectory={availablePersonnel}
                 />
             )}
             {pendingAction && pendingAction.entity === 'user' && pendingAction.action === 'archive' && (
@@ -3147,7 +3067,15 @@ function UserManagement() {
     );
 }
 UserManagement.layout = (page: ReactNode) => (
-    <AuthenticatedLayout>{page}</AuthenticatedLayout>
+    <AuthenticatedLayout
+        header={
+            <h1 className="truncate text-sm font-bold text-slate-900">
+                User Management
+            </h1>
+        }
+    >
+        {page}
+    </AuthenticatedLayout>
 );
 
 export default UserManagement;

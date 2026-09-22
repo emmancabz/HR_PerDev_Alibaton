@@ -1,0 +1,33 @@
+{
+  "scenario_id": "DEFENSE_PERFORMANCE_REVIEW_WORKFLOW_SCENARIO_V1",
+  "scenario_type": "demonstration_only",
+  "source_of_truth": false,
+  "authoritative_workforce_source": "DEFENSE_WORKFORCE_PERSONAS_V1_2026_POLICY_FINAL",
+  "authoritative_policy": "ALB-PND-POL-014",
+  "cycle_id": "period-q3-2026",
+  "simulated_system_date": "2026-10-10",
+  "purpose": "Demonstrate the complete post-period Q3 review workflow without changing authoritative Data B dates or current-quarter truth.",
+  "target_counts": {
+    "Finalized": 29,
+    "Calibration Pending": 2,
+    "Calibration In Review": 1,
+    "Revision In Progress": 1,
+    "Manager Review": 1,
+    "360 Feedback Collection": 1
+  },
+  "unfinished": [
+    { "personnel_key": "user-8", "workflow_state": "Calibration Pending" },
+    { "personnel_key": "user-gen-23", "workflow_state": "Calibration Pending" },
+    { "personnel_key": "user-gen-3", "workflow_state": "Calibration In Review" },
+    { "personnel_key": "user-gen-20", "workflow_state": "Revision In Progress" },
+    { "personnel_key": "user-gen-2", "workflow_state": "Manager Review" },
+    { "personnel_key": "user-gen-10", "workflow_state": "360 Feedback Collection" }
+  ],
+  "data_rules": [
+    "Do not alter Data B.",
+    "Do not alter Q3 Goal/KPI progress; read the live governed Q3 goals from PostgreSQL.",
+    "Formal criterion scores in this fixture are demonstration evaluator inputs, not an automatic conversion of Goal/KPI percentages.",
+    "Finalized and calibration records are simulated inside the valid Oct 1-Oct 15 Q3 review window.",
+    "Admin/HR governs calibration and may return a review for revision; Admin does not casually overwrite evaluator ratings."
+  ]
+}

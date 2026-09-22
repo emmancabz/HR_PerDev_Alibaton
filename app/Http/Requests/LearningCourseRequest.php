@@ -12,11 +12,13 @@ class LearningCourseRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'workingStage'=>['sometimes','integer','between:0,6'],
             'title'=>['nullable','string','max:255'], 'description'=>['nullable','string','max:20000'],
             'category'=>['required','string','max:100'], 'difficulty'=>['required','in:Beginner,Intermediate,Advanced'], 'language'=>['required','string','max:80'],
             'learningObjectives'=>['present','array','max:30'], 'learningObjectives.*'=>['nullable','string','max:1000'],
-            'ownerId'=>['required','integer','exists:users,id'], 'subjectMatterExpertId'=>['nullable','integer','exists:users,id'], 'durationOverrideMinutes'=>['nullable','integer','between:1,100000'],
-            'authorIds'=>['present','array','max:50'], 'authorIds.*'=>['integer','distinct','exists:users,id'], 'reviewerIds'=>['present','array','max:20'], 'reviewerIds.*'=>['integer','distinct','exists:users,id'], 'publisherId'=>['nullable','integer','exists:users,id'],
+            'ownerId'=>['sometimes','nullable','integer','exists:users,id'], 'subjectMatterExpertId'=>['nullable','integer','exists:users,id'], 'durationOverrideMinutes'=>['nullable','integer','between:1,100000'],
+            'authorIds'=>['sometimes','array','max:50'], 'authorIds.*'=>['integer','distinct','exists:users,id'], 'reviewerIds'=>['sometimes','array','max:20'], 'reviewerIds.*'=>['integer','distinct','exists:users,id'], 'publisherId'=>['sometimes','nullable','integer','exists:users,id'],
+            'sourceDocumentIds'=>['sometimes','array','max:50'], 'sourceDocumentIds.*'=>['string','distinct','max:160'],
             'audience'=>['required','array'], 'audience.personTypes'=>['present','array'], 'audience.personTypes.*'=>['string','distinct','max:160'], 'audience.allDepartments'=>['required','boolean'],
             'audience.departments'=>['present','array'], 'audience.departments.*'=>['string','max:160'], 'audience.positions'=>['present','array'], 'audience.positions.*'=>['string','max:160'],
             'audience.roleProfileIds'=>['present','array','max:50'], 'audience.roleProfileIds.*'=>['string','distinct','max:160'],
@@ -28,7 +30,7 @@ class LearningCourseRequest extends FormRequest
             'modules.*.lessons'=>['present','array','max:200'], 'modules.*.lessons.*.id'=>['nullable','uuid'], 'modules.*.lessons.*.title'=>['nullable','string','max:255'], 'modules.*.lessons.*.objective'=>['nullable','string','max:2000'],
             'modules.*.lessons.*.contentType'=>['required','in:Text/Reading,Video,PDF/Document,Downloadable File,External Resource'], 'modules.*.lessons.*.estimatedMinutes'=>['required','integer','between:1,10000'], 'modules.*.lessons.*.required'=>['required','boolean'],
             'modules.*.lessons.*.textContent'=>['nullable','string','max:200000'], 'modules.*.lessons.*.externalUrl'=>['nullable','url:http,https','max:2000'],
-            'assessments'=>['present','array','max:100'], 'assessments.*.id'=>['nullable','uuid'], 'assessments.*.moduleClientId'=>['nullable','string','max:100'], 'assessments.*.type'=>['required','in:Knowledge Check,Final Assessment'], 'assessments.*.title'=>['nullable','string','max:255'], 'assessments.*.required'=>['required','boolean'],
+            'assessments'=>['present','array','max:100'], 'assessments.*.id'=>['nullable','uuid'], 'assessments.*.moduleClientId'=>['nullable','string','max:100'], 'assessments.*.type'=>['required','in:Pre-Test,Knowledge Check,Post-Test,Final Assessment'], 'assessments.*.title'=>['nullable','string','max:255'], 'assessments.*.required'=>['required','boolean'],
             'assessments.*.passingScore'=>['required','integer','between:1,100'], 'assessments.*.attemptsAllowed'=>['required','integer','between:1,20'], 'assessments.*.shuffleQuestions'=>['required','boolean'], 'assessments.*.shuffleOptions'=>['required','boolean'], 'assessments.*.feedbackPolicy'=>['required','string','max:100'],
             'assessments.*.questions'=>['present','array','max:200'], 'assessments.*.questions.*.id'=>['nullable','uuid'], 'assessments.*.questions.*.type'=>['required','in:Multiple Choice,Multiple Response,True/False'], 'assessments.*.questions.*.text'=>['nullable','string','max:5000'], 'assessments.*.questions.*.explanation'=>['nullable','string','max:5000'], 'assessments.*.questions.*.points'=>['required','integer','between:1,1000'],
             'assessments.*.questions.*.options'=>['present','array','max:20'], 'assessments.*.questions.*.options.*.id'=>['nullable','uuid'], 'assessments.*.questions.*.options.*.text'=>['nullable','string','max:2000'], 'assessments.*.questions.*.options.*.correct'=>['required','boolean'],

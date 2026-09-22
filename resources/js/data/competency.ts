@@ -82,6 +82,8 @@ export type AssessmentStatus =
     | "Overdue"
     | "Cancelled";
 
+export type AssessmentScope = "Full Role Profile" | "Targeted Competencies";
+
 export type AssessmentType =
     | "Periodic Assessment"
     | "Probationary/Trainee Assessment"
@@ -196,6 +198,7 @@ export type AssessmentCycle = {
     requireAcknowledgment: boolean;
     dueDaysAfterAssignment: number;
     reassessmentRule: string;
+    autoAssign?: boolean;
     status: CycleStatus;
     createdAt: string;
     createdBy: string;
@@ -294,6 +297,7 @@ export type AssessmentCycleSnapshot = {
     requireAcknowledgment: boolean;
     dueDaysAfterAssignment: number;
     reassessmentRule: string;
+    autoAssign?: boolean;
 };
 
 export type AssessmentRevisionEntry = {
@@ -382,6 +386,9 @@ export type CompetencyAssessment = {
     finalizedSnapshot: FinalizedAssessmentSnapshot | null;
     finalizedSnapshots: FinalizedAssessmentSnapshot[];
     revisionSourceAssessmentId: string | null;
+    scope?: AssessmentScope;
+    targetCompetencyIds?: string[];
+    sourceRecommendationIds?: string[];
     revisionHistory: AssessmentRevisionEntry[];
     reassignmentHistory: AssessmentReassignmentEntry[];
     auditHistory: CompetencyAuditEntry[];
@@ -396,6 +403,11 @@ export type DevelopmentStatus =
     | "Reassessed";
 
 export type DevelopmentRecommendation = {
+    sourceAssessmentVersion?: number;
+    sourceRequiredLevel?: number;
+    sourceValidatedLevel?: number;
+    integration?: { recordId: string | null; status: string; completedAt: string | null };
+    outcome?: string;
     id: string;
     personId: string;
     competencyId: string;
@@ -422,6 +434,12 @@ export type CompetencyActivity = {
 };
 
 export type CompetencyState = {
+    governanceAllowed?: boolean;
+    profileRows?: import("./competencyCalculations").CompetencyProfileRow[];
+    metrics?: Record<string, number | string>;
+    learningReferences?: { competencyId: string; targetLevel: number; courseId: string; versionId: string; title: string }[];
+    trainingReferences?: { competencyId: string; targetLevel: number; programId: string; title: string }[];
+    developmentEvidence?: { id: string; personId: string; competencyId: string; type: 'Learning' | 'Training'; title: string; completedAt: string; reference: string }[];
     schemaVersion: 4;
     competencies: CompetencyDefinition[];
     roleProfiles: RoleProfile[];
@@ -708,6 +726,7 @@ export function snapshotAssessmentCycle(
         requireAcknowledgment: cycle.requireAcknowledgment,
         dueDaysAfterAssignment: cycle.dueDaysAfterAssignment,
         reassessmentRule: cycle.reassessmentRule,
+        autoAssign: cycle.autoAssign !== false,
     };
 }
 
@@ -864,6 +883,9 @@ function assessment(
         finalizedSnapshot,
         finalizedSnapshots: finalizedSnapshot ? [finalizedSnapshot] : [],
         revisionSourceAssessmentId: null,
+        scope: "Full Role Profile",
+        targetCompetencyIds: snapshot.requirements.map((item) => item.competencyId),
+        sourceRecommendationIds: [],
         revisionHistory: [],
         reassignmentHistory: [],
         auditHistory: [

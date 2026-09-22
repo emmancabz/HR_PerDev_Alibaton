@@ -7,11 +7,16 @@
         "check": "tsc --noEmit",
         "dev": "vite",
         "test:competency": "vitest run --config vitest.competency.config.ts",
-        "test:learning": "vitest run --config vitest.learning.config.ts"
+        "test:learning": "vitest run --config vitest.learning.config.ts",
+        "test:training": "vitest run --config vitest.training.config.ts",
+        "test:succession": "vitest run --config vitest.succession.config.ts",
+        "test:recognition": "vitest run --config vitest.recognition.config.ts",
+        "test:performance": "vitest run --config vitest.performance.config.ts"
     },
     "dependencies": {
         "@headlessui/react": "^2.2.7",
         "@inertiajs/react": "^2.2.0",
+        "@laravel/passkeys": "^0.4.0",
         "axios": "^1.11.0",
         "canvas-confetti": "^1.9.4",
         "lucide-react": "^0.542.0",

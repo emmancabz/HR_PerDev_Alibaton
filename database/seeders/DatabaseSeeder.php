@@ -14,20 +14,17 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        $this->call(AdminAccessSeeder::class);
+
         $accounts = [
             [
-                'name' => 'Admin User',
-                'email' => 'admin@alibaton.com',
-                'role' => UserRole::Admin,
-            ],
-            [
                 'name' => 'HR User',
-                'email' => 'hr@alibaton.com',
+                'email' => 'hr@alibaton-ph.com',
                 'role' => UserRole::HR,
             ],
             [
                 'name' => 'Driver User',
-                'email' => 'user@alibaton.com',
+                'email' => 'user@alibaton-ph.com',
                 'role' => UserRole::User,
             ],
         ];
@@ -44,7 +41,14 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        $this->call(PerformanceSeeder::class);
-        $this->call(LearningSeeder::class);
+        if (config('defense.readiness_seed_enabled')) {
+            $this->call(DefenseReadinessSeeder::class);
+        } else {
+            $this->call(PerformanceSeeder::class);
+            if (config('learning.operational_seed_enabled')) $this->call(LearningSeeder::class);
+            if (config('training.operational_seed_enabled')) $this->call(TrainingSeeder::class);
+            if (config('succession.operational_seed_enabled')) $this->call(SuccessionSeeder::class);
+            if (config('recognition.operational_seed_enabled')) $this->call(RecognitionSeeder::class);
+        }
     }
 }

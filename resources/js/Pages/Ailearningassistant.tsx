@@ -1,3 +1,4 @@
+import SystemSelect from '@/Components/SystemSelect';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
 import {
@@ -153,10 +154,10 @@ function CourseDraftGenerator() {
                 <Field label="Department"><input className={inputCls} placeholder="e.g. Sales" value={inputs.department} onChange={(e) => setInputs({ ...inputs, department: e.target.value })} /></Field>
                 <Field label="Related Competency"><input className={inputCls} placeholder="e.g. Leadership" value={inputs.competency} onChange={(e) => setInputs({ ...inputs, competency: e.target.value })} /></Field>
                 <Field label="Required Level">
-                    <select className={inputCls} value={inputs.requiredLevel} onChange={(e) => setInputs({ ...inputs, requiredLevel: e.target.value })}>
+                    <SystemSelect className={inputCls} value={inputs.requiredLevel} onChange={(e) => setInputs({ ...inputs, requiredLevel: e.target.value })}>
                         <option value="">Select level</option>
                         <option>Basic</option><option>Intermediate</option><option>Advanced</option>
-                    </select>
+                    </SystemSelect>
                 </Field>
                 <Field label="Estimated Duration"><input className={inputCls} placeholder="e.g. 4 hours" value={inputs.duration} onChange={(e) => setInputs({ ...inputs, duration: e.target.value })} /></Field>
             </div>

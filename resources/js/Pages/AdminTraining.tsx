@@ -1,1826 +1,827 @@
-import DataTable from '@/Components/DataTable';
-import PageHeader from '@/Components/PageHeader';
-import StatCard from '@/Components/StatCard';
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link } from '@inertiajs/react';
+import DataTable from "@/Components/DataTable";
+import { AppModal, Field } from "@/Components/Competency/CompetencyUI";
+import StatCard from "@/Components/StatCard";
+import SystemSelect from "@/Components/SystemSelect";
+import AuthenticatedLayout, { HeaderFilters } from "@/Layouts/AuthenticatedLayout";
 import {
-    ArrowLeft,
-    Building2,
+    TRAINING_WORKSPACES,
+    normalizeTrainingState,
+    type TrainingEnrollment,
+    type TrainingProgram,
+    type TrainingRecommendation,
+    type TrainingSession,
+    type TrainingState,
+    type TrainingWorkspace,
+} from "@/data/training";
+import { trainingClient, trainingError } from "@/data/trainingClient";
+import { useHashWorkspace } from "@/workspaceNavigation";
+import { Head } from "@inertiajs/react";
+import {
+    AlertCircle,
+    CalendarCheck2,
     CalendarClock,
-    CalendarPlus,
+    CalendarDays,
     CheckCircle2,
-    ClipboardList,
-    Clock,
-    Download,
-    Eye,
-    FileBarChart,
-    GraduationCap,
-    Layers,
-    Lightbulb,
-    ListChecks,
-    Loader2,
+    Clock3,
     MapPin,
-    Pencil,
-    Plus,
-    Sparkles,
-    Star,
-    Target,
-    Trash2,
-    TrendingUp,
-    UserPlus,
+    RefreshCcw,
+    RotateCcw,
+    ShieldCheck,
+    UserCheck,
     Users,
-    XCircle,
-} from 'lucide-react';
-import { useMemo, useState } from 'react';
-type ProgramStatus = 'Draft' | 'Scheduled' | 'Ongoing' | 'Completed' | 'Cancelled';
-type TrainingType = 'Onsite' | 'Instructor-led';
-type TrainingProgram = {
-    id: string;
+    type LucideIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const card = "app-card";
+const button = "app-button";
+const primary = `${button} app-button-primary`;
+const input = "app-control";
+
+type Props = { initialTrainingState?: unknown };
+
+type RequirementGroup = {
+    key: string;
     title: string;
-    description: string;
-    category: string;
-    trainingType: TrainingType;
-    facilitator: string;
-    duration: string;
-    participants: number;
-    nextSession: string | null;
-    status: ProgramStatus;
-    objectives: string[];
-    targetParticipants: string;
-    targetCompetencies?: string[];
-    relatedLearningCourse?: string;
+    programId: string | null;
+    programTitle: string | null;
+    requirements: TrainingRecommendation[];
+    ready: number;
+    waiting: number;
+    source: string;
 };
-type SessionStatus = 'Scheduled' | 'Ongoing' | 'Completed' | 'Cancelled';
-type TrainingSession = {
-    id: string;
-    programId: string;
-    label: string;
-    date: string;
-    startTime: string;
-    endTime: string;
-    venue: string;
-    facilitator: string;
-    capacity: number;
-    assignedCount: number;
-    status: SessionStatus;
-};
-type ParticipantType = 'Employee' | 'Trainee';
-type ParticipantStatus = 'Registered' | 'Scheduled' | 'Attended' | 'Completed' | 'Did Not Complete';
-type Participant = {
-    id: string;
-    sessionId: string;
-    name: string;
-    employeeId: string;
-    type: ParticipantType;
-    department: string;
-    position: string;
-    status: ParticipantStatus;
-};
-type AttendanceStatus = 'Present' | 'Absent' | 'Excused';
-type EvaluationResponse = {
-    id: string;
-    sessionId: string;
-    contentRating: number;
-    facilitatorRating: number;
-    relevanceRating: number;
-    organizationRating: number;
-    overallSatisfaction: number;
-};
-type SessionTab = 'participants' | 'attendance' | 'evaluation' | 'completion';
-type RecommendationStatus = 'Suggested' | 'Under Review' | 'Accepted' | 'Edited' | 'Rejected';
-type TrainingRecommendation = {
-    id: string;
-    employeeName: string;
-    employeeId: string;
-    developmentNeed: string;
-    suggestedProgramId: string;
-    reason: string;
-    status: RecommendationStatus;
-};
-const TRAINING_PROGRAMS: TrainingProgram[] = [
-    {
-        id: '1',
-        title: 'Leadership Development Program',
-        description:
-            'A structured leadership program designed to strengthen supervisory and people-management capabilities for high-potential staff.',
-        category: 'Management',
-        trainingType: 'Instructor-led',
-        facilitator: 'Emmanuel Cabanas',
-        duration: '3 days',
-        participants: 24,
-        nextSession: 'Aug 15, 2026',
-        status: 'Scheduled',
-        objectives: [
-            'Develop core leadership and decision-making skills',
-            'Strengthen team communication and conflict resolution',
-            'Prepare participants for expanded supervisory responsibilities',
-        ],
-        targetParticipants: 'Team Leads and Supervisors across Operations, IT, and Finance',
-        targetCompetencies: ['Leadership', 'Communication', 'Teamwork'],
-        relatedLearningCourse: 'Leadership Fundamentals',
-    },
-    {
-        id: '2',
-        title: 'Workplace Safety Onsite Training',
-        description:
-            'Mandatory onsite safety training covering hazard recognition, proper PPE use, and emergency protocols for site personnel.',
-        category: 'Compliance',
-        trainingType: 'Onsite',
-        facilitator: 'Lisa Montero',
-        duration: '1 day',
-        participants: 58,
-        nextSession: 'Aug 6, 2026',
-        status: 'Ongoing',
-        objectives: [
-            'Reinforce hazard identification and reporting procedures',
-            'Ensure proper use of personal protective equipment',
-            'Review site-specific emergency response protocols',
-        ],
-        targetParticipants: 'All onsite construction personnel and site-based staff',
-        targetCompetencies: ['Safety Compliance', 'Risk Awareness'],
-    },
-    {
-        id: '3',
-        title: 'Effective Communication Workshop',
-        description:
-            'An interactive workshop focused on improving verbal, written, and interpersonal communication across teams.',
-        category: 'Soft Skills',
-        trainingType: 'Instructor-led',
-        facilitator: 'Ainah Sta. Maria',
-        duration: '2 days',
-        participants: 31,
-        nextSession: 'Aug 20, 2026',
-        status: 'Scheduled',
-        objectives: [
-            'Improve clarity in verbal and written communication',
-            'Build active listening and feedback skills',
-            'Reduce cross-department miscommunication',
-        ],
-        targetParticipants: 'Staff and trainees from Sales, Finance, and Support departments',
-        targetCompetencies: ['Communication', 'Teamwork'],
-        relatedLearningCourse: 'Effective Communication',
-    },
-    {
-        id: '4',
-        title: 'Advanced Equipment Handling',
-        description:
-            'Hands-on technical training for the safe and efficient operation of heavy construction equipment.',
-        category: 'Technical',
-        trainingType: 'Onsite',
-        facilitator: 'Kaye Caagusan',
-        duration: '5 days',
-        participants: 16,
-        nextSession: null,
-        status: 'Completed',
-        objectives: [
-            'Demonstrate safe start-up and operation procedures',
-            'Apply proper maintenance checks before equipment use',
-            'Handle equipment-specific emergency shutdown procedures',
-        ],
-        targetParticipants: 'Equipment operators and field technicians',
-        targetCompetencies: ['Technical Proficiency', 'Safety Compliance'],
-    },
-    {
-        id: '5',
-        title: 'Time Management Essentials',
-        description:
-            'A practical session on prioritization, scheduling, and workload management for daily productivity.',
-        category: 'Productivity',
-        trainingType: 'Instructor-led',
-        facilitator: 'Mhicaela Buban',
-        duration: '1 day',
-        participants: 0,
-        nextSession: null,
-        status: 'Draft',
-        objectives: [
-            'Apply prioritization frameworks to daily tasks',
-            'Reduce time lost to context-switching',
-            'Build a personal weekly planning routine',
-        ],
-        targetParticipants: 'General staff (open enrollment)',
-        targetCompetencies: ['Productivity'],
-        relatedLearningCourse: 'Time Management',
-    },
-    {
-        id: '6',
-        title: 'Site Emergency Response Drill',
-        description:
-            'A simulated onsite emergency drill to test evacuation procedures and emergency response readiness.',
-        category: 'Compliance',
-        trainingType: 'Onsite',
-        facilitator: 'Lisa Montero',
-        duration: '1 day',
-        participants: 12,
-        nextSession: null,
-        status: 'Cancelled',
-        objectives: [
-            'Test site evacuation timing and routes',
-            'Assess emergency response team coordination',
-            'Identify gaps in current emergency protocols',
-        ],
-        targetParticipants: 'All site personnel',
-        targetCompetencies: ['Safety Compliance'],
-    },
-];
-const SEED_SESSIONS: TrainingSession[] = [
-    { id: 's1', programId: '1', label: 'Session 1', date: 'Aug 15, 2026', startTime: '9:00 AM', endTime: '4:00 PM', venue: 'Training Room A', facilitator: 'Emmanuel Cabanas', capacity: 30, assignedCount: 24, status: 'Scheduled' },
-    { id: 's1b', programId: '1', label: 'Session 2', date: 'Sept 3, 2026', startTime: '9:00 AM', endTime: '4:00 PM', venue: 'Training Room B', facilitator: 'Emmanuel Cabanas', capacity: 30, assignedCount: 18, status: 'Scheduled' },
-    { id: 's2', programId: '2', label: 'Session 1', date: 'Aug 6, 2026', startTime: '8:00 AM', endTime: '12:00 PM', venue: 'Site Grounds - Bay 2', facilitator: 'Lisa Montero', capacity: 60, assignedCount: 58, status: 'Ongoing' },
-    { id: 's3', programId: '3', label: 'Session 1', date: 'Aug 20, 2026', startTime: '1:00 PM', endTime: '5:00 PM', venue: 'Training Room B', facilitator: 'Ainah Sta. Maria', capacity: 35, assignedCount: 31, status: 'Scheduled' },
-    { id: 's4', programId: '4', label: 'Session 1', date: 'Jul 10, 2026', startTime: '8:00 AM', endTime: '5:00 PM', venue: 'Equipment Yard', facilitator: 'Kaye Caagusan', capacity: 20, assignedCount: 16, status: 'Completed' },
-    { id: 's6', programId: '6', label: 'Session 1', date: 'Jul 25, 2026', startTime: '8:00 AM', endTime: '12:00 PM', venue: 'Site Grounds', facilitator: 'Lisa Montero', capacity: 15, assignedCount: 0, status: 'Cancelled' },
-];
-const PARTICIPANT_POOL: { name: string; employeeId: string; type: ParticipantType; department: string; position: string }[] = [
-    { name: 'Juan Dela Cruz', employeeId: 'EMP-1042', type: 'Employee', department: 'Operations', position: 'Equipment Operator' },
-    { name: 'Maria Santos', employeeId: 'EMP-1077', type: 'Employee', department: 'Human Resources', position: 'HR Staff' },
-    { name: 'Jaylou Cruiz', employeeId: 'TRN-2091', type: 'Trainee', department: 'Information Technology', position: 'IT Trainee' },
-    { name: 'Daisy Dacula', employeeId: 'TRN-2104', type: 'Trainee', department: 'Finance', position: 'Finance Trainee' },
-    { name: 'Tyron Mararac', employeeId: 'TRN-2118', type: 'Trainee', department: 'Operations', position: 'Operations Trainee' },
-    { name: 'Rizza Escorial', employeeId: 'TRN-2126', type: 'Trainee', department: 'Operations', position: 'Operations Trainee' },
-    { name: 'Zk Magalang', employeeId: 'TRN-2133', type: 'Trainee', department: 'Operations', position: 'Operations Trainee' },
-    { name: 'Vicky Melgar', employeeId: 'TRN-2145', type: 'Trainee', department: 'Sales', position: 'Sales Trainee' },
-];
-function findInPool(name: string) {
-    return PARTICIPANT_POOL.find((p) => p.name === name)!;
-}
-const SEED_PARTICIPANTS: Participant[] = [
-    { id: 'pt1', sessionId: 's1', ...findInPool('Juan Dela Cruz'), status: 'Scheduled' },
-    { id: 'pt2', sessionId: 's1', ...findInPool('Maria Santos'), status: 'Registered' },
-    { id: 'pt3', sessionId: 's1b', ...findInPool('Jaylou Cruiz'), status: 'Registered' },
-    { id: 'pt4', sessionId: 's2', ...findInPool('Tyron Mararac'), status: 'Scheduled' },
-    { id: 'pt5', sessionId: 's2', ...findInPool('Zk Magalang'), status: 'Scheduled' },
-    { id: 'pt6', sessionId: 's3', ...findInPool('Vicky Melgar'), status: 'Registered' },
-    { id: 'pt7', sessionId: 's3', ...findInPool('Daisy Dacula'), status: 'Registered' },
-    { id: 'pt8', sessionId: 's4', ...findInPool('Rizza Escorial'), status: 'Completed' },
-];
-const SEED_ATTENDANCE: Record<string, AttendanceStatus> = {
-    pt4: 'Present',
-    pt5: 'Present',
-    pt8: 'Present',
-};
-const SEED_EVALUATIONS: EvaluationResponse[] = [
-    { id: 'ev1', sessionId: 's2', contentRating: 4, facilitatorRating: 5, relevanceRating: 4, organizationRating: 4, overallSatisfaction: 4 },
-    { id: 'ev2', sessionId: 's2', contentRating: 3, facilitatorRating: 4, relevanceRating: 4, organizationRating: 3, overallSatisfaction: 4 },
-    { id: 'ev3', sessionId: 's4', contentRating: 5, facilitatorRating: 5, relevanceRating: 5, organizationRating: 4, overallSatisfaction: 5 },
-    { id: 'ev4', sessionId: 's4', contentRating: 4, facilitatorRating: 4, relevanceRating: 4, organizationRating: 4, overallSatisfaction: 4 },
-    { id: 'ev5', sessionId: 's4', contentRating: 4, facilitatorRating: 5, relevanceRating: 4, organizationRating: 5, overallSatisfaction: 4 },
-];
-const SEED_RECOMMENDATIONS: TrainingRecommendation[] = [
-    {
-        id: 'rec1',
-        ...(() => { const p = findInPool('Juan Dela Cruz'); return { employeeName: p.name, employeeId: p.employeeId }; })(),
-        developmentNeed: 'Safety Compliance',
-        suggestedProgramId: '2',
-        reason: 'Recent onsite activity suggests reinforcing safety compliance awareness would be beneficial.',
-        status: 'Suggested',
-    },
-    {
-        id: 'rec2',
-        ...(() => { const p = findInPool('Maria Santos'); return { employeeName: p.name, employeeId: p.employeeId }; })(),
-        developmentNeed: 'Leadership',
-        suggestedProgramId: '1',
-        reason: 'Development planning flags supervisory growth as a near-term priority.',
-        status: 'Under Review',
-    },
-    {
-        id: 'rec3',
-        ...(() => { const p = findInPool('Vicky Melgar'); return { employeeName: p.name, employeeId: p.employeeId }; })(),
-        developmentNeed: 'Communication',
-        suggestedProgramId: '3',
-        reason: 'Cross-department coordination may benefit from stronger communication skills.',
-        status: 'Suggested',
-    },
-];
-const statusStyles: Record<ProgramStatus | SessionStatus, string> = {
-    Draft: 'bg-slate-100 text-slate-500',
-    Scheduled: 'bg-blue-100 text-blue-700',
-    Ongoing: 'bg-amber-100 text-amber-700',
-    Completed: 'bg-green-100 text-green-700',
-    Cancelled: 'bg-rose-100 text-rose-700',
-};
-const participantStatusStyles: Record<ParticipantStatus, string> = {
-    Registered: 'bg-slate-100 text-slate-500',
-    Scheduled: 'bg-blue-100 text-blue-700',
-    Attended: 'bg-indigo-100 text-indigo-700',
-    Completed: 'bg-green-100 text-green-700',
-    'Did Not Complete': 'bg-rose-100 text-rose-700',
-};
-const attendanceStatusStyles: Record<AttendanceStatus, string> = {
-    Present: 'bg-green-100 text-green-700',
-    Absent: 'bg-rose-100 text-rose-700',
-    Excused: 'bg-amber-100 text-amber-700',
-};
-const recommendationStatusStyles: Record<RecommendationStatus, string> = {
-    Suggested: 'bg-slate-100 text-slate-500',
-    'Under Review': 'bg-blue-100 text-blue-700',
-    Accepted: 'bg-green-100 text-green-700',
-    Edited: 'bg-indigo-100 text-indigo-700',
-    Rejected: 'bg-rose-100 text-rose-700',
-};
-const PARTICIPANT_STATUS_OPTIONS: ParticipantStatus[] = ['Registered', 'Scheduled', 'Attended', 'Completed', 'Did Not Complete'];
-type StatusFilter = 'All' | ProgramStatus;
-type SessionFormState = {
-    id: string | null;
-    programId: string;
-    label: string;
-    date: string;
-    startTime: string;
-    endTime: string;
-    venue: string;
-    facilitator: string;
-    capacity: string;
-    status: SessionStatus;
-};
-function emptySessionForm(programId: string, nextLabel: string, defaultFacilitator: string): SessionFormState {
-    return {
-        id: null,
-        programId,
-        label: nextLabel,
-        date: '',
-        startTime: '',
-        endTime: '',
-        venue: '',
-        facilitator: defaultFacilitator,
-        capacity: '',
-        status: 'Scheduled',
-    };
-}
-function parseSessionDate(dateStr: string): Date | null {
-    if (!dateStr || dateStr === 'TBD') return null;
-    const normalized = dateStr.replace(/^Sept(\s)/, 'Sep$1');
-    const d = new Date(normalized);
-    return isNaN(d.getTime()) ? null : d;
-}
-function StarRating({ value }: { value: number }) {
-    return (
-        <div className="flex items-center gap-0.5">
-            {[1, 2, 3, 4, 5].map((n) => (
-                <Star key={n} className={`h-3.5 w-3.5 ${n <= Math.round(value) ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
-            ))}
-        </div>
-    );
-}
-function StarRatingInput({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-    return (
-        <div>
-            <p className="text-[11px] font-semibold text-slate-500">{label}</p>
-            <div className="mt-1 flex items-center gap-0.5">
-                {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                        key={n}
-                        type="button"
-                        onClick={() => onChange(n)}
-                        className="p-0.5"
-                        aria-label={`${label}: ${n} star${n > 1 ? 's' : ''}`}
-                    >
-                        <Star className={`h-4 w-4 ${n <= value ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
-                    </button>
-                ))}
-            </div>
-        </div>
-    );
-}
-function MetricBar({ label, value, max, displayValue, colorClass }: { label: string; value: number; max: number; displayValue?: string; colorClass?: string }) {
-    const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
-    return (
-        <div>
-            <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-slate-600">{label}</span>
-                <span className="font-semibold text-slate-800">{displayValue ?? value}</span>
-            </div>
-            <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                <div className={`h-full rounded-full ${colorClass ?? 'bg-[#F4B400]'}`} style={{ width: `${pct}%` }} />
-            </div>
-        </div>
-    );
-}
-function InlineBar({ value, max, colorClass }: { value: number; max: number; colorClass?: string }) {
-    const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
-    return (
-        <div className="h-2 w-28 shrink-0 overflow-hidden rounded-full bg-slate-100">
-            <div className={`h-full rounded-full ${colorClass ?? 'bg-[#F4B400]'}`} style={{ width: `${pct}%` }} />
-        </div>
-    );
-}
-function AiBadge() {
-    return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-            <Sparkles className="h-3 w-3" /> AI-Assisted
-        </span>
-    );
-}
-function ProgramDetails({
-    program,
-    sessions,
-    onBack,
-    onAddSession,
-    onEditSession,
-    onOpenSession,
-}: {
+
+type RegisterRow = {
+    key: string;
     program: TrainingProgram;
-    sessions: TrainingSession[];
-    onBack: () => void;
-    onAddSession: () => void;
-    onEditSession: (session: TrainingSession) => void;
-    onOpenSession: (session: TrainingSession) => void;
-}) {
-    const learningCourseHref = route().has('admin.learning.index') ? route('admin.learning.index') : '#';
-    return (
-        <div className="flex flex-col gap-4">
-            <button
-                type="button"
-                onClick={onBack}
-                className="flex w-fit items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800"
-            >
-                <ArrowLeft className="h-3.5 w-3.5" /> Back to Training Programs
-            </button>
-            <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <h2 className="text-base font-bold text-slate-900">{program.title}</h2>
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusStyles[program.status]}`}>
-                                {program.status}
-                            </span>
-                        </div>
-                        <p className="mt-1 text-xs text-slate-500">
-                            {program.category} · {program.trainingType} · {program.duration}
-                        </p>
-                    </div>
+    session: TrainingSession;
+    participants: TrainingEnrollment[];
+    displayStatus: string;
+    completionCount: number;
+    pendingCount: number;
+};
+
+type RecordRow = {
+    key: string;
+    enrollment: TrainingEnrollment;
+    program: TrainingProgram | null;
+    completedAt: string;
+    attendanceRate: string;
+    result: string;
+};
+
+type Filters = {
+    training: string;
+    department: string;
+    source: string;
+    readiness: string;
+    status: string;
+    facilitator: string;
+    date: string;
+    result: string;
+    certificate: string;
+};
+
+const EMPTY_FILTERS: Filters = {
+    training: "all",
+    department: "all",
+    source: "all",
+    readiness: "all",
+    status: "all",
+    facilitator: "all",
+    date: "",
+    result: "all",
+    certificate: "all",
+};
+
+function initial(value: unknown): TrainingState | null {
+    try {
+        return value == null ? null : normalizeTrainingState(value);
+    } catch {
+        return null;
+    }
+}
+
+function StatusPill({ value }: { value: string }) {
+    const normalized = value.toLowerCase();
+    const tone = normalized.includes("ready") || normalized.includes("completed") || normalized.includes("passed") || normalized.includes("verified")
+        ? "bg-emerald-50 text-emerald-700"
+        : normalized.includes("cancel") || normalized.includes("failed") || normalized.includes("absent")
+          ? "bg-rose-50 text-rose-700"
+          : normalized.includes("waiting") || normalized.includes("pending") || normalized.includes("mapping") || normalized.includes("retraining")
+            ? "bg-amber-50 text-amber-800"
+            : normalized.includes("scheduled") || normalized.includes("ongoing")
+              ? "bg-blue-50 text-blue-700"
+              : "bg-slate-100 text-slate-600";
+    return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${tone}`}>{value}</span>;
+}
+
+export default function AdminTraining({ initialTrainingState }: Props) {
+    const [workspace, setWorkspace] = useHashWorkspace<TrainingWorkspace>(TRAINING_WORKSPACES, "Overview");
+    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState));
+    const [loading, setLoading] = useState(!state);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const [notice, setNotice] = useState("");
+    const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+    const [expandedRequirement, setExpandedRequirement] = useState<string | null>(null);
+    const [expandedSession, setExpandedSession] = useState<string | null>(null);
+    const [expandedRecord, setExpandedRecord] = useState<string | null>(null);
+    const [scheduleGroup, setScheduleGroup] = useState<RequirementGroup | null>(null);
+    const [rescheduleRow, setRescheduleRow] = useState<RegisterRow | null>(null);
+    const [cancelRow, setCancelRow] = useState<RegisterRow | null>(null);
+    const workspaceFilterPreset = useRef<Partial<Filters> | null>(null);
+    const workspaceExpandedSession = useRef<string | null>(null);
+
+    const load = useCallback(async () => {
+        setLoading(true);
+        setError("");
+        try {
+            setState(await trainingClient.state());
+        } catch (cause) {
+            setError(trainingError(cause));
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!state) void load();
+    }, [load, state]);
+
+    useEffect(() => {
+        const preset = workspaceFilterPreset.current;
+        setFilters(preset ? { ...EMPTY_FILTERS, ...preset } : EMPTY_FILTERS);
+        workspaceFilterPreset.current = null;
+        setExpandedRequirement(null);
+        setExpandedSession(workspaceExpandedSession.current);
+        workspaceExpandedSession.current = null;
+        setExpandedRecord(null);
+    }, [workspace]);
+
+    const openWorkspace = useCallback((next: TrainingWorkspace, preset?: Partial<Filters>, sessionId?: string | null) => {
+        if (next === workspace) {
+            setFilters(preset ? { ...EMPTY_FILTERS, ...preset } : EMPTY_FILTERS);
+            setExpandedSession(sessionId ?? null);
+            return;
+        }
+        workspaceFilterPreset.current = preset ?? null;
+        workspaceExpandedSession.current = sessionId ?? null;
+        setWorkspace(next);
+    }, [setWorkspace, workspace]);
+
+    const programsById = useMemo(() => new Map((state?.programs ?? []).map((program) => [program.id, program])), [state]);
+
+    const requirementGroups = useMemo<RequirementGroup[]>(() => {
+        if (!state) return [];
+        const open = state.recommendations.filter((row) => ["Ready", "Waiting", "Needs Mapping"].includes(row.readiness));
+        const groups = new Map<string, TrainingRecommendation[]>();
+        for (const row of open) {
+            const key = row.recommendedProgramId ?? `need:${row.developmentNeed.trim().toLowerCase()}`;
+            groups.set(key, [...(groups.get(key) ?? []), row]);
+        }
+        return Array.from(groups.entries()).map(([key, rows]) => {
+            const program = rows.find((row) => row.recommendedProgramId)?.recommendedProgramTitle ?? null;
+            const sources = Array.from(new Set(rows.map((row) => row.sourceLabel)));
+            return {
+                key,
+                title: program ?? rows[0]?.developmentNeed ?? "Training Requirement",
+                programId: rows.find((row) => row.recommendedProgramId)?.recommendedProgramId ?? null,
+                programTitle: program,
+                requirements: rows,
+                ready: rows.filter((row) => row.readiness === "Ready").length,
+                waiting: rows.filter((row) => row.readiness !== "Ready").length,
+                source: sources.length === 1 ? sources[0] : "Multiple development sources",
+            };
+        }).sort((a, b) => b.ready - a.ready || a.title.localeCompare(b.title));
+    }, [state]);
+
+    const registerRows = useMemo<RegisterRow[]>(() => {
+        if (!state) return [];
+        return state.programs.filter((program) => !["Archived", "Cancelled"].includes(program.status)).flatMap((program) => program.sessions
+            .filter((session) => session.status !== "Draft")
+            .map((session) => {
+                const participants = state.enrollments.filter((enrollment) => enrollment.sessions.some((link) =>
+                    link.sessionId === session.id && !["Withdrawn", "Cancelled"].includes(link.participationStatus),
+                ));
+                const pendingCount = participants.filter((row) => !row.completion).length;
+                const completionCount = participants.length - pendingCount;
+                const displayStatus = session.status === "Completed" && pendingCount > 0
+                    ? "Pending Finalization"
+                    : session.status === "Ongoing" && new Date(session.endsAt).getTime() < Date.now() && !session.attendanceFinalizedAt
+                      ? "Pending Attendance"
+                      : session.status;
+                return { key: session.id, program, session, participants, displayStatus, completionCount, pendingCount };
+            }))
+            .sort((a, b) => new Date(b.session.startsAt).getTime() - new Date(a.session.startsAt).getTime());
+    }, [state]);
+
+    const records = useMemo<RecordRow[]>(() => {
+        if (!state) return [];
+        return state.enrollments.filter((row) => row.completion).map((enrollment) => ({
+            key: enrollment.id,
+            enrollment,
+            program: programsById.get(enrollment.programId) ?? null,
+            completedAt: enrollment.completion?.finalizedAt ?? enrollment.assignedAt,
+            attendanceRate: enrollment.completion?.attendanceRate ?? "0",
+            result: enrollment.completion?.status ?? "Pending",
+        })).sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+    }, [programsById, state]);
+
+    const filteredRequirements = useMemo(() => requirementGroups.filter((group) => {
+        if (filters.training !== "all" && group.key !== filters.training && group.programId !== filters.training) return false;
+        if (filters.department !== "all" && !group.requirements.some((row) => row.department === filters.department)) return false;
+        if (filters.source !== "all" && !group.requirements.some((row) => row.sourceLabel === filters.source)) return false;
+        if (filters.readiness === "ready" && group.ready === 0) return false;
+        if (filters.readiness === "waiting" && group.waiting === 0) return false;
+        return true;
+    }), [filters, requirementGroups]);
+
+    const filteredRegister = useMemo(() => registerRows.filter((row) => {
+        if (filters.training !== "all" && row.program.id !== filters.training) return false;
+        if (filters.status === "Pending Action" && !["Pending Attendance", "Pending Finalization"].includes(row.displayStatus)) return false;
+        if (filters.status !== "all" && filters.status !== "Pending Action" && row.displayStatus !== filters.status) return false;
+        if (filters.facilitator !== "all" && (row.session.facilitator ?? "") !== filters.facilitator) return false;
+        if (filters.department !== "all" && !row.participants.some((item) => item.department === filters.department)) return false;
+        if (filters.date && localDate(row.session.startsAt) !== filters.date) return false;
+        return true;
+    }), [filters, registerRows]);
+
+    const filteredRecords = useMemo(() => records.filter((row) => {
+        if (filters.training !== "all" && row.program?.id !== filters.training) return false;
+        if (filters.department !== "all" && row.enrollment.department !== filters.department) return false;
+        if (filters.result !== "all" && row.result !== filters.result) return false;
+        if (filters.certificate !== "all") {
+            const certificate = row.enrollment.completion?.certificate;
+            const value = certificate ? certificate.status : "None";
+            if (value !== filters.certificate) return false;
+        }
+        if (filters.date && localDate(row.completedAt) !== filters.date) return false;
+        return true;
+    }), [filters, records]);
+
+    const metrics = useMemo(() => ({
+        ready: state?.recommendations.filter((row) => row.readiness === "Ready").length ?? 0,
+        upcoming: registerRows.filter((row) => row.session.status === "Scheduled").length,
+        ongoing: registerRows.filter((row) => row.displayStatus === "Ongoing").length,
+        pending: registerRows.filter((row) => ["Pending Attendance", "Pending Finalization"].includes(row.displayStatus)).length,
+    }), [registerRows, state]);
+
+    if (loading || !state) {
+        return <AuthenticatedLayout header={<h1 className="truncate text-sm font-bold text-slate-900">Training Management</h1>}><Head title="Training Management" /><div className="app-page"><section className={`${card} p-8 text-center`}>
+            {error ? <><AlertCircle className="mx-auto h-7 w-7 text-rose-500" /><h2 className="mt-2 text-sm font-extrabold text-slate-900">Training Management could not be loaded</h2><p className="mt-1 text-xs text-slate-500">{error}</p><button type="button" className={`${primary} mt-4`} onClick={() => void load()}><RefreshCcw className="h-4 w-4" />Retry</button></> : <p className="text-sm font-semibold text-slate-500">Loading Training Management…</p>}
+        </section></div></AuthenticatedLayout>;
+    }
+
+    const departments = Array.from(new Set(state.personnel.map((row) => row.department).filter(Boolean))).sort();
+    const sources = Array.from(new Set(state.recommendations.map((row) => row.sourceLabel).filter(Boolean))).sort();
+    const facilitators = Array.from(new Set(registerRows.map((row) => row.session.facilitator).filter((value): value is string => Boolean(value)))).sort();
+    const activePrograms = state.programs.filter((program) => program.status === "Active" && (Boolean(program.relatedLearningCourseId) || program.competencies.length > 0)).sort((a, b) => a.title.localeCompare(b.title));
+    const registerStatuses = Array.from(new Set([
+        ...(metrics.pending > 0 ? ["Pending Action"] : []),
+        ...registerRows.map((row) => row.displayStatus),
+    ])).sort();
+    const resultOptions = Array.from(new Set(records.map((row) => row.result))).sort();
+    const certificateOptions = Array.from(new Set(records.map((row) => row.enrollment.completion?.certificate?.status ?? "None"))).sort();
+    const activeFilter = Object.entries(filters).some(([key, value]) => value !== (EMPTY_FILTERS as Record<string, string>)[key]);
+
+    const mutate = async (job: () => Promise<TrainingState>, success: string) => {
+        setBusy(true);
+        setError("");
+        setNotice("");
+        try {
+            setState(await job());
+            setNotice(success);
+        } catch (cause) {
+            setError(trainingError(cause));
+            return false;
+        } finally {
+            setBusy(false);
+        }
+        return true;
+    };
+
+    const selectedRequirement = expandedRequirement ? requirementGroups.find((row) => row.key === expandedRequirement) ?? null : null;
+    const selectedSession = expandedSession ? registerRows.find((row) => row.key === expandedSession) ?? null : null;
+    const selectedRecord = expandedRecord ? records.find((row) => row.key === expandedRecord) ?? null : null;
+
+    return <AuthenticatedLayout
+        header={<h1 className="truncate text-sm font-bold text-slate-900">Training Management</h1>}
+    >
+        <Head title="Training Management" />
+        <HeaderFilters active={activeFilter} onReset={() => setFilters(EMPTY_FILTERS)}>
+            {workspace !== "Training Records" && <SystemSelect aria-label="Training" value={filters.training} onChange={(event) => setFilters((current) => ({ ...current, training: event.target.value }))}>
+                <option value="all">All training</option>
+                {workspace === "Overview"
+                    ? requirementGroups.map((group) => <option key={group.key} value={group.programId ?? group.key}>{group.title}</option>)
+                    : activePrograms.map((program) => <option key={program.id} value={program.id}>{program.title}</option>)}
+            </SystemSelect>}
+            {workspace === "Training Records" && <SystemSelect aria-label="Training" value={filters.training} onChange={(event) => setFilters((current) => ({ ...current, training: event.target.value }))}>
+                <option value="all">All training</option>
+                {state.programs.map((program) => <option key={program.id} value={program.id}>{program.title}</option>)}
+            </SystemSelect>}
+            <SystemSelect aria-label="Department" value={filters.department} onChange={(event) => setFilters((current) => ({ ...current, department: event.target.value }))}>
+                <option value="all">All departments</option>{departments.map((value) => <option key={value}>{value}</option>)}
+            </SystemSelect>
+            {workspace === "Overview" && <>
+                <SystemSelect aria-label="Requirement source" value={filters.source} onChange={(event) => setFilters((current) => ({ ...current, source: event.target.value }))}>
+                    <option value="all">All sources</option>{sources.map((value) => <option key={value}>{value}</option>)}
+                </SystemSelect>
+                <SystemSelect aria-label="Readiness" value={filters.readiness} onChange={(event) => setFilters((current) => ({ ...current, readiness: event.target.value }))}>
+                    <option value="all">All readiness</option><option value="ready">Ready to schedule</option><option value="waiting">Waiting / needs mapping</option>
+                </SystemSelect>
+            </>}
+            {workspace === "Training Register" && <>
+                <SystemSelect aria-label="Status" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
+                    <option value="all">All statuses</option>{registerStatuses.map((value) => <option key={value}>{value}</option>)}
+                </SystemSelect>
+                <SystemSelect aria-label="Facilitator" value={filters.facilitator} onChange={(event) => setFilters((current) => ({ ...current, facilitator: event.target.value }))}>
+                    <option value="all">All facilitators</option>{facilitators.map((value) => <option key={value}>{value}</option>)}
+                </SystemSelect>
+            </>}
+            {workspace === "Training Records" && <>
+                <SystemSelect aria-label="Completion result" value={filters.result} onChange={(event) => setFilters((current) => ({ ...current, result: event.target.value }))}>
+                    <option value="all">All results</option>{resultOptions.map((value) => <option key={value}>{value}</option>)}
+                </SystemSelect>
+                <SystemSelect aria-label="Certificate status" value={filters.certificate} onChange={(event) => setFilters((current) => ({ ...current, certificate: event.target.value }))}>
+                    <option value="all">All certificate states</option>{certificateOptions.map((value) => <option key={value}>{value}</option>)}
+                </SystemSelect>
+            </>}
+            {workspace !== "Overview" && <input aria-label={workspace === "Training Records" ? "Completion date" : "Training date"} type="date" value={filters.date} onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))} />}
+        </HeaderFilters>
+
+        <div className="app-page app-page-enter">
+            {notice && <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" />{notice}</div>}
+            {error && <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>}
+
+            {workspace === "Overview" && <>
+                <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    <StatCard label="Ready to Schedule" value={metrics.ready} icon={CalendarCheck2} onClick={() => { setFilters({ ...EMPTY_FILTERS, readiness: "ready" }); setExpandedRequirement(null); }} />
+                    <StatCard label="Upcoming Training" value={metrics.upcoming} icon={CalendarClock} onClick={() => openWorkspace("Training Register", { status: "Scheduled" })} />
+                    <StatCard label="Ongoing" value={metrics.ongoing} icon={Clock3} onClick={() => openWorkspace("Training Register", { status: "Ongoing" })} />
+                    <StatCard label="Pending Finalization" value={metrics.pending} icon={ShieldCheck} onClick={() => openWorkspace("Training Register", { status: "Pending Action" })} />
+                </section>
+
+                <div className="mt-4 space-y-4">
+                    <DataTable
+                        title="Training Requirements"
+                        data={filteredRequirements}
+                        rowKey={(row) => row.key}
+                        pageSize={10}
+                        onRowClick={(row) => setExpandedRequirement(row.key)}
+                        getRowLabel={(row) => `Open ${row.title} training requirements`}
+                        emptyTitle="No open facilitated or practical training requirements"
+                        emptyDescription="Verified development needs will appear here when practical or facilitated Training is required."
+                        columns={[
+                            { key: "training", header: "Required Training", render: (row) => <div><p className="font-bold text-slate-900">{row.title}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.programId ? "Governed training definition matched" : "Training definition requires review"}</p></div> },
+                            { key: "ready", header: "Ready", className: "w-24", render: (row) => <span className="font-extrabold tabular-nums text-emerald-700">{row.ready}</span> },
+                            { key: "waiting", header: "Waiting", className: "w-24", render: (row) => <span className="font-extrabold tabular-nums text-amber-700">{row.waiting}</span> },
+                            { key: "source", header: "Primary Need", render: (row) => <span className="text-xs font-semibold text-slate-600">{row.source}</span> },
+                            { key: "status", header: "Readiness", className: "w-40", render: (row) => <StatusPill value={row.ready > 0 ? "Ready to Schedule" : row.programId ? "Waiting" : "Needs Mapping"} /> },
+                        ]}
+                    />
+
+                    <DataTable
+                        title="Upcoming & Active Training"
+                        data={filteredRegister.filter((row) => ["Scheduled", "Ongoing", "Pending Attendance", "Pending Finalization"].includes(row.displayStatus))}
+                        rowKey={(row) => row.key}
+                        pageSize={10}
+                        onRowClick={(row) => setExpandedSession(row.key)}
+                        emptyTitle="No scheduled or active training"
+                        emptyDescription="Once a ready requirement is scheduled, its session will appear here."
+                        columns={registerColumns()}
+                    />
                 </div>
-                <p className="mt-3 text-sm text-slate-600">{program.description}</p>
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                        <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                            <ListChecks className="h-3.5 w-3.5" /> Objectives
-                        </p>
-                        <ul className="mt-1.5 space-y-1">
-                            {program.objectives.map((o) => (
-                                <li key={o} className="flex items-start gap-1.5 text-xs text-slate-700">
-                                    <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-[#F4B400]" /> {o}
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                    <div className="space-y-3">
-                        <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Facilitator</p>
-                            <p className="mt-1 text-xs font-medium text-slate-800">{program.facilitator}</p>
-                        </div>
-                        <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Target Participants</p>
-                            <p className="mt-1 text-xs font-medium text-slate-800">{program.targetParticipants}</p>
-                        </div>
-                        {program.targetCompetencies && (
-                            <div>
-                                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                    <Target className="h-3.5 w-3.5" /> Target Competencies
-                                </p>
-                                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                    {program.targetCompetencies.map((c) => (
-                                        <span key={c} className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">{c}</span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        {program.relatedLearningCourse && (
-                            <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Related Learning Course</p>
-                                <Link
-                                    href={learningCourseHref}
-                                    className="mt-1 flex w-fit items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                                >
-                                    <GraduationCap className="h-3.5 w-3.5 text-amber-600" /> {program.relatedLearningCourse}
-                                </Link>
-                            </div>
-                        )}
-                    </div>
-                </div>
+            </>}
+
+            {workspace === "Training Register" && <DataTable
+                title="Training Register"
+                data={filteredRegister}
+                rowKey={(row) => row.key}
+                pageSize={10}
+                onRowClick={(row) => setExpandedSession(row.key)}
+                getRowLabel={(row) => `Open ${row.program.title} training details`}
+                emptyTitle="No training sessions match the current filters"
+                emptyDescription="Ready requirements are scheduled from the Overview instead of being created as blank events."
+                columns={registerColumns()}
+            />}
+
+            {workspace === "Training Records" && <DataTable
+                title="Training Records"
+                data={filteredRecords}
+                rowKey={(row) => row.key}
+                pageSize={10}
+                onRowClick={(row) => setExpandedRecord(row.key)}
+                getRowLabel={(row) => `Open ${row.enrollment.participant} training record`}
+                emptyTitle="No finalized Training records match the current filters"
+                emptyDescription="Finalized attendance, practical outcomes, completions, and certificates remain traceable here."
+                columns={[
+                    { key: "employee", header: "Employee", render: (row) => <div><p className="font-bold text-slate-900">{row.enrollment.participant}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.enrollment.position} · {row.enrollment.department}</p></div> },
+                    { key: "training", header: "Training", render: (row) => <div><p className="font-semibold text-slate-800">{row.program?.title ?? "Training"}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.program?.code ?? "—"}</p></div> },
+                    { key: "date", header: "Finalized", render: (row) => <span className="text-xs font-semibold text-slate-600">{formatDate(row.completedAt)}</span> },
+                    { key: "attendance", header: "Attendance", className: "w-28", render: (row) => <span className="font-bold tabular-nums text-slate-800">{Number(row.attendanceRate).toFixed(0)}%</span> },
+                    { key: "result", header: "Result", className: "w-28", render: (row) => <StatusPill value={row.result} /> },
+                    { key: "certificate", header: "Certificate", className: "w-32", render: (row) => <StatusPill value={row.enrollment.completion?.certificate?.status ?? "None"} /> },
+                ]}
+            />}
+        </div>
+
+        {selectedRequirement && <AppModal
+            show
+            title="Training Requirement"
+            description={selectedRequirement.title}
+            onClose={() => setExpandedRequirement(null)}
+            maxWidth="2xl"
+        >
+            <RequirementDetails group={selectedRequirement} busy={busy} onSchedule={() => { setExpandedRequirement(null); setScheduleGroup(selectedRequirement); }} />
+        </AppModal>}
+
+        {selectedSession && <AppModal
+            show
+            title="Training Details"
+            description={`${selectedSession.program.title} · ${formatDateTime(selectedSession.session.startsAt)}`}
+            onClose={() => setExpandedSession(null)}
+            maxWidth="2xl"
+        >
+            <TrainingDetails
+                row={selectedSession}
+                canFinalize={state.actor.canFinalize}
+                busy={busy}
+                onReschedule={() => { setExpandedSession(null); setRescheduleRow(selectedSession); }}
+                onCancel={() => { setExpandedSession(null); setCancelRow(selectedSession); }}
+                onRefreshAttendance={() => void mutate(() => trainingClient.syncWorkforce(selectedSession.session.id), "Attendance evidence refreshed.")}
+                onFinalizeAttendance={() => void mutate(() => trainingClient.finalizeAttendance(selectedSession.session.id), "Attendance finalized and locked.")}
+                onComplete={() => void mutate(() => trainingClient.transitionSession(selectedSession.session.id, "Completed"), "Training session marked Completed.")}
+                onFinalizeReady={() => void mutate(() => trainingClient.finalizeReadyParticipants(selectedSession.session.id), "Ready participant completions finalized.")}
+            />
+        </AppModal>}
+
+        {selectedRecord && <AppModal
+            show
+            title="Finalized Training Record"
+            description={`${selectedRecord.enrollment.participant} · ${selectedRecord.program?.title ?? "Training"}`}
+            onClose={() => setExpandedRecord(null)}
+            maxWidth="2xl"
+        >
+            <RecordDetails row={selectedRecord} />
+        </AppModal>}
+
+        {scheduleGroup && <ScheduleTrainingModal state={state} group={scheduleGroup} busy={busy} error={error} onClose={() => { setScheduleGroup(null); setError(""); }} onSchedule={async (payload) => {
+            if (await mutate(() => trainingClient.scheduleRequirements(payload), "Training session scheduled from ready development requirements.")) setScheduleGroup(null);
+        }} />}
+        {rescheduleRow && <RescheduleModal state={state} row={rescheduleRow} busy={busy} error={error} onClose={() => { setRescheduleRow(null); setError(""); }} onSave={async (payload) => {
+            if (await mutate(() => trainingClient.updateSession(rescheduleRow.program.id, rescheduleRow.session.id, payload), "Training schedule updated.")) setRescheduleRow(null);
+        }} />}
+        {cancelRow && <CancelTrainingModal row={cancelRow} busy={busy} error={error} onClose={() => { setCancelRow(null); setError(""); }} onConfirm={async (reason) => {
+            if (await mutate(() => trainingClient.transitionSession(cancelRow.session.id, "Cancelled", reason), "Training session cancelled. Affected participants returned to the scheduling queue.")) setCancelRow(null);
+        }} />}
+    </AuthenticatedLayout>;
+}
+
+function registerColumns() {
+    return [
+        { key: "training", header: "Training", render: (row: RegisterRow) => <div><p className="font-bold text-slate-900">{row.program.title}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.program.deliveryType} · {row.program.code}</p></div> },
+        { key: "schedule", header: "Schedule", render: (row: RegisterRow) => <div><p className="text-xs font-semibold text-slate-700">{formatDateTime(row.session.startsAt)}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.session.venue}</p></div> },
+        { key: "facilitator", header: "Facilitator", render: (row: RegisterRow) => <span className="text-xs font-semibold text-slate-600">{row.session.facilitator ?? "Not assigned"}</span> },
+        { key: "participants", header: "Participants", className: "w-28", render: (row: RegisterRow) => <span className="font-extrabold tabular-nums text-slate-800">{row.participants.length}</span> },
+        { key: "progress", header: "Progress", className: "w-36", render: (row: RegisterRow) => <div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-[#F4B400]" style={{ width: `${row.participants.length ? Math.round((row.completionCount / row.participants.length) * 100) : 0}%` }} /></div><p className="mt-1 text-[10px] font-semibold text-slate-400">{row.completionCount}/{row.participants.length} finalized</p></div> },
+        { key: "status", header: "Status", className: "w-40", render: (row: RegisterRow) => <StatusPill value={row.displayStatus} /> },
+    ];
+}
+
+function RequirementDetails({ group, busy, onSchedule }: { group: RequirementGroup; busy: boolean; onSchedule: () => void }) {
+    const schedulable = group.requirements.some((row) => ["Ready", "Needs Mapping"].includes(row.readiness));
+    return <section>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-700">Development-driven training</p>
+                <h4 className="mt-1 text-sm font-extrabold text-slate-950">{group.title}</h4>
+                <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-500">The system groups people who share the same facilitated or practical requirement. Only people whose prerequisites are satisfied are scheduled.</p>
             </div>
-            <DataTable
-                title="Training Sessions"
-                data={sessions}
-                rowKey={(r) => r.id}
-                headerExtra={
+            <button type="button" className={primary} disabled={busy || !schedulable} onClick={onSchedule}><CalendarCheck2 className="h-4 w-4" />{group.programId ? "Schedule Training" : "Resolve & Schedule"}</button>
+        </div>
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-left">
+                <thead><tr className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-400"><th className="px-3 py-2">Employee</th><th className="px-3 py-2">Why Required</th><th className="px-3 py-2">Prerequisite</th><th className="px-3 py-2">Readiness</th></tr></thead>
+                <tbody>{group.requirements.map((row) => <tr key={row.id} className="border-b border-slate-100 last:border-0"><td className="px-3 py-2.5"><p className="text-xs font-bold text-slate-900">{row.participant}</p><p className="mt-0.5 text-[10px] text-slate-400">{row.position} · {row.department}</p></td><td className="px-3 py-2.5"><p className="text-xs font-semibold text-slate-700">{row.sourceLabel}</p><p className="mt-0.5 max-w-sm text-[10px] leading-relaxed text-slate-400">{row.reason}</p></td><td className="px-3 py-2.5"><p className="text-xs font-semibold text-slate-700">{row.prerequisiteTitle ?? "No learning prerequisite"}</p><p className="mt-0.5 text-[10px] text-slate-400">{row.prerequisiteStatus}</p></td><td className="px-3 py-2.5"><StatusPill value={row.readiness} /></td></tr>)}</tbody>
+            </table>
+        </div>
+    </section>;
+}
+
+function TrainingDetails({ row, canFinalize, busy, onReschedule, onCancel, onRefreshAttendance, onFinalizeAttendance, onComplete, onFinalizeReady }: {
+    row: RegisterRow; canFinalize: boolean; busy: boolean; onReschedule: () => void; onCancel: () => void; onRefreshAttendance: () => void; onFinalizeAttendance: () => void; onComplete: () => void; onFinalizeReady: () => void;
+}) {
+    const allAttendanceReady = row.participants.length > 0 && row.participants.every((enrollment) => {
+        const link = enrollment.sessions.find((session) => session.sessionId === row.session.id);
+        return link?.attendance && link.attendance.trainingStatus !== "Pending";
+    });
+    const readyForCompletion = row.participants.filter((enrollment) => {
+        if (enrollment.completion) return false;
+        const link = enrollment.sessions.find((session) => session.sessionId === row.session.id);
+        const attendance = link?.attendance?.trainingStatus;
+        if (inList(attendance, ["Absent", "Excused"])) return true;
+        const rules = row.program.completionRules;
+        if (!rules.assessmentRequired) return true;
+        return inList(enrollment.assessment?.result, ["Passed", "Failed", "Needs Improvement"]);
+    }).length;
+
+    return <section>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-extrabold text-slate-950">{row.program.title}</h4><StatusPill value={row.displayStatus} /></div>
+                <p className="mt-1 text-xs text-slate-500">{row.program.deliveryType} · {row.program.category}</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+                {row.session.status === "Scheduled" && <><button type="button" className={button} disabled={busy} onClick={onReschedule}>Reschedule</button><button type="button" className={button} disabled={busy} onClick={onCancel}>Cancel Training</button></>}
+                {row.session.status === "Ongoing" && <><button type="button" className={button} disabled={busy} onClick={onCancel}>Cancel Training</button><button type="button" className={button} disabled={busy} onClick={onRefreshAttendance}><RefreshCcw className="h-3.5 w-3.5" />Refresh Attendance</button>{canFinalize && !row.session.attendanceFinalizedAt && <button type="button" className={primary} disabled={busy || !allAttendanceReady} onClick={onFinalizeAttendance}>Finalize Attendance</button>}{canFinalize && row.session.attendanceFinalizedAt && <button type="button" className={primary} disabled={busy} onClick={onComplete}>Complete Session</button>}</>}
+                {row.session.status === "Completed" && canFinalize && row.pendingCount > 0 && <button type="button" className={primary} disabled={busy || readyForCompletion === 0} onClick={onFinalizeReady}>Finalize Session Outcomes ({readyForCompletion})</button>}
+            </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Summary icon={CalendarDays} label="Schedule" value={formatDateTime(row.session.startsAt)} />
+            <Summary icon={MapPin} label="Venue" value={row.session.venue} />
+            <Summary icon={UserCheck} label="Facilitator" value={row.session.facilitator ?? "Not assigned"} />
+            <Summary icon={Users} label="Participants" value={`${row.participants.length} / ${row.session.capacity}`} />
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-left">
+                <thead><tr className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-400"><th className="px-3 py-2">Employee</th><th className="px-3 py-2">Attendance</th><th className="px-3 py-2">Practical / Facilitated Result</th><th className="px-3 py-2">Completion</th></tr></thead>
+                <tbody>{row.participants.length === 0 ? <tr><td colSpan={4} className="px-3 py-7 text-center text-xs text-slate-400">No participants are assigned to this session.</td></tr> : row.participants.map((enrollment) => {
+                    const link = enrollment.sessions.find((session) => session.sessionId === row.session.id);
+                    const attendance = link?.attendance;
+                    const result = enrollment.assessment?.result ?? "Pending";
+                    const completion = enrollment.completion?.status ?? (result === "Failed" || result === "Needs Improvement" ? "Needs Retraining" : "Pending");
+                    return <tr key={enrollment.id} className="border-b border-slate-100 last:border-0"><td className="px-3 py-2.5"><p className="text-xs font-bold text-slate-900">{enrollment.participant}</p><p className="mt-0.5 text-[10px] text-slate-400">{enrollment.position} · {enrollment.department}</p></td><td className="px-3 py-2.5"><StatusPill value={attendance?.trainingStatus ?? "Pending"} />{attendance?.finalizedAt && <p className="mt-1 text-[10px] font-semibold text-emerald-600">Verified & locked</p>}</td><td className="px-3 py-2.5"><StatusPill value={result} />{enrollment.assessment?.notes && <p className="mt-1 max-w-xs text-[10px] leading-relaxed text-slate-400">{enrollment.assessment.notes}</p>}</td><td className="px-3 py-2.5"><StatusPill value={completion} /></td></tr>;
+                })}</tbody>
+            </table>
+        </div>
+        {row.session.status === "Ongoing" && !allAttendanceReady && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Waiting for verified attendance or authorized facilitator input before the session can be finalized.</p>}
+    </section>;
+}
+
+function RecordDetails({ row }: { row: RecordRow }) {
+    const completion = row.enrollment.completion;
+    return <section>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-700">Finalized Training Record</p><h4 className="mt-1 text-sm font-extrabold text-slate-950">{row.enrollment.participant} · {row.program?.title ?? "Training"}</h4><p className="mt-1 text-xs text-slate-500">Finalized {formatDateTime(row.completedAt)}</p></div><StatusPill value={row.result} /></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Summary icon={ShieldCheck} label="Source" value={row.enrollment.source} /><Summary icon={CheckCircle2} label="Attendance" value={`${Number(row.attendanceRate).toFixed(0)}%`} /><Summary icon={UserCheck} label="Practical Result" value={row.enrollment.assessment?.result ?? "Not required"} /><Summary icon={CalendarCheck2} label="Certificate" value={completion?.certificate?.status ?? "None"} /></div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <section className="rounded-xl border border-slate-200 bg-white p-4"><h5 className="text-xs font-extrabold uppercase tracking-wide text-slate-400">Training execution</h5><div className="mt-3 space-y-2">{row.enrollment.sessions.map((session) => <div key={session.id} className="rounded-lg bg-slate-50 p-3"><p className="text-xs font-bold text-slate-800">{session.label}</p><p className="mt-1 text-[11px] text-slate-500">{formatDateTime(session.startsAt)} · {session.venue}</p><div className="mt-2 flex flex-wrap gap-2"><StatusPill value={session.attendance?.trainingStatus ?? "Pending"} /><StatusPill value={session.sessionStatus} /></div></div>)}</div></section>
+            <section className="rounded-xl border border-slate-200 bg-white p-4"><h5 className="text-xs font-extrabold uppercase tracking-wide text-slate-400">Outcome evidence</h5><dl className="mt-3 grid grid-cols-[130px_1fr] gap-x-3 gap-y-2 text-xs"><dt className="font-semibold text-slate-400">Assessment</dt><dd className="font-bold text-slate-700">{row.enrollment.assessment?.result ?? "Not required"}</dd><dt className="font-semibold text-slate-400">Score</dt><dd className="font-bold text-slate-700">{row.enrollment.assessment?.score && row.enrollment.assessment?.maximumScore ? `${row.enrollment.assessment.score}/${row.enrollment.assessment.maximumScore}` : "—"}</dd><dt className="font-semibold text-slate-400">Completion</dt><dd className="font-bold text-slate-700">{completion?.status ?? "—"}</dd><dt className="font-semibold text-slate-400">Certificate No.</dt><dd className="font-bold text-slate-700">{completion?.certificate?.number ?? "—"}</dd><dt className="font-semibold text-slate-400">Valid until</dt><dd className="font-bold text-slate-700">{completion?.certificate?.expiresAt ? formatDate(completion.certificate.expiresAt) : "No expiry / Not applicable"}</dd></dl>{completion?.certificate?.status === "Active" && <a className={`${primary} mt-4 inline-flex`} target="_blank" rel="noreferrer" href={`/training/api/certificates/${completion.certificate.id}`}>Open Certificate</a>}</section>
+        </div>
+    </section>;
+}
+
+function ScheduleTrainingModal({ state, group, busy, error, onClose, onSchedule }: { state: TrainingState; group: RequirementGroup; busy: boolean; error: string; onClose: () => void; onSchedule: (payload: Record<string, unknown>) => Promise<void> }) {
+    const programs = state.programs.filter((program) => program.status === "Active" && (Boolean(program.relatedLearningCourseId) || program.competencies.length > 0));
+    const schedulable = group.requirements.filter((row) => ["Ready", "Needs Mapping"].includes(row.readiness) && row.participantId);
+    const [selectedIds, setSelectedIds] = useState<string[]>(schedulable.map((row) => row.id));
+    const [programId, setProgramId] = useState(group.programId ?? "");
+    const [startsAt, setStartsAt] = useState(defaultDateTime(1, 9));
+    const [endsAt, setEndsAt] = useState(defaultDateTime(1, 16));
+    const [venue, setVenue] = useState("");
+    const [capacity, setCapacity] = useState(Math.max(1, schedulable.length));
+    const [facilitatorId, setFacilitatorId] = useState("");
+    const [externalFacilitatorName, setExternalFacilitatorName] = useState("");
+    const selectedProgram = programs.find((program) => program.id === programId);
+    const facilitators = state.personnel.filter((person) => person.personType !== "Trainee");
+    const toggle = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+    const valid = Boolean(programId && startsAt && endsAt && venue.trim() && selectedIds.length && capacity >= selectedIds.length && (facilitatorId || externalFacilitatorName.trim()));
+
+    return (
+        <AppModal
+            show
+            title="Schedule Training"
+            description={group.programTitle ?? group.title}
+            onClose={onClose}
+            maxWidth="2xl"
+            footer={
+                <>
+                    <button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button>
                     <button
                         type="button"
-                        onClick={onAddSession}
-                        className="flex items-center gap-1.5 rounded-lg bg-[#F4B400] px-2.5 py-1 text-xs font-semibold text-black transition hover:bg-[#dba300]"
+                        className={primary}
+                        disabled={busy || !valid}
+                        onClick={() => void onSchedule({
+                            recommendationIds: selectedIds,
+                            programId,
+                            startsAt,
+                            endsAt,
+                            venue: venue.trim(),
+                            capacity,
+                            facilitatorId: facilitatorId ? Number(facilitatorId) : null,
+                            externalFacilitatorName: facilitatorId ? null : externalFacilitatorName.trim() || null,
+                            enrollmentClosesAt: null,
+                        })}
                     >
-                        <Plus className="h-3.5 w-3.5" /> Add Session
+                        {busy ? "Scheduling…" : "Schedule Training"}
                     </button>
-                }
-                columns={[
-                    {
-                        key: 'label',
-                        header: 'Session',
-                        render: (r) => (
-                            <div className="flex items-center gap-2">
-                                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                                    <Layers className="h-3.5 w-3.5" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-800">{r.label}</span>
-                            </div>
-                        ),
-                    },
-                    { key: 'date', header: 'Date', render: (r) => <span className="text-xs">{r.date}</span> },
-                    {
-                        key: 'time',
-                        header: 'Time',
-                        render: (r) => (
-                            <span className="flex items-center gap-1 text-xs text-slate-600">
-                                <Clock className="h-3 w-3 text-slate-400" /> {r.startTime}–{r.endTime}
-                            </span>
-                        ),
-                    },
-                    {
-                        key: 'venue',
-                        header: 'Venue',
-                        render: (r) => (
-                            <span className="flex items-center gap-1 text-xs text-slate-600">
-                                <MapPin className="h-3 w-3 text-slate-400" /> {r.venue}
-                            </span>
-                        ),
-                    },
-                    { key: 'facilitator', header: 'Facilitator', render: (r) => <span className="text-xs">{r.facilitator}</span> },
-                    { key: 'capacity', header: 'Capacity', className: 'tabular-nums', render: (r) => <span className="text-xs">{r.capacity}</span> },
-                    {
-                        key: 'participants',
-                        header: 'Participants',
-                        className: 'tabular-nums',
-                        render: (r) => <span className="text-xs">{r.assignedCount}/{r.capacity}</span>,
-                    },
-                    {
-                        key: 'status',
-                        header: 'Status',
-                        render: (r) => (
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusStyles[r.status]}`}>
-                                {r.status}
-                            </span>
-                        ),
-                    },
-                    {
-                        key: 'action',
-                        header: 'Action',
-                        render: (r) => (
-                            <div className="flex items-center gap-0.5">
-                                <button type="button" onClick={() => onOpenSession(r)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Open session workspace">
-                                    <Users className="h-3.5 w-3.5" />
-                                </button>
-                                <button type="button" onClick={() => onEditSession(r)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Edit session">
-                                    <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                            </div>
-                        ),
-                    },
-                ]}
-                footer={
-                    <span className="text-xs text-slate-500">
-                        {sessions.length === 0
-                            ? 'No sessions scheduled yet for this training program.'
-                            : `${sessions.length} session${sessions.length > 1 ? 's' : ''} for this program`}
-                    </span>
-                }
-            />
-        </div>
+                </>
+            }
+        >
+            <div className="space-y-5">
+                {error && (
+                    <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                        {error}
+                    </div>
+                )}
+
+                <section className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                    <div className="mb-4">
+                        <h3 className="text-xs font-extrabold uppercase tracking-[0.12em] text-slate-500">Training arrangement</h3>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">Confirm the approved training definition, schedule, venue, facilitator, and capacity.</p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div className="md:col-span-2">
+                            <Field label="Training definition" required>
+                                <SystemSelect className={input} value={programId} disabled={Boolean(group.programId)} onChange={(event) => setProgramId(event.target.value)}>
+                                    <option value="">Select approved training</option>
+                                    {programs.map((program) => <option key={program.id} value={program.id}>{program.title}</option>)}
+                                </SystemSelect>
+                            </Field>
+                        </div>
+                        <Field label="Start" required>
+                            <input className={input} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} />
+                        </Field>
+                        <Field label="End" required>
+                            <input className={input} type="datetime-local" value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} />
+                        </Field>
+                        <div className="md:col-span-2">
+                            <Field label="Venue / location" required>
+                                <input className={input} value={venue} onChange={(event) => setVenue(event.target.value)} placeholder="Training yard, approved site, training room…" />
+                            </Field>
+                        </div>
+                        <Field label="Facilitator / authorized assessor" required>
+                            <SystemSelect className={input} value={facilitatorId} onChange={(event) => setFacilitatorId(event.target.value)}>
+                                <option value="">External / not listed</option>
+                                {facilitators.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.position}</option>)}
+                            </SystemSelect>
+                        </Field>
+                        <Field label="External facilitator" hint={facilitatorId ? "Disabled because an internal facilitator is selected." : "Required when no internal facilitator is selected."}>
+                            <input className={input} value={externalFacilitatorName} disabled={Boolean(facilitatorId)} onChange={(event) => setExternalFacilitatorName(event.target.value)} placeholder="Name of external facilitator" />
+                        </Field>
+                        <Field label="Capacity" required hint={`Must accommodate all ${selectedIds.length} selected participant${selectedIds.length === 1 ? "" : "s"}.`}>
+                            <input className={input} type="number" min={selectedIds.length || 1} max={5000} value={capacity} onChange={(event) => setCapacity(Number(event.target.value))} />
+                        </Field>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                            <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Completion basis</p>
+                            <p className="mt-1 text-xs font-semibold leading-5 text-slate-700">
+                                {selectedProgram?.completionRules.assessmentRequired ? "Verified attendance + practical/facilitated assessment" : "Verified attendance"}
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="rounded-xl border border-slate-200 bg-white">
+                    <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                        <div>
+                            <h3 className="text-xs font-extrabold uppercase tracking-[0.12em] text-slate-500">Eligible participants</h3>
+                            <p className="mt-1 text-xs text-slate-500">Only personnel whose prerequisite state permits scheduling can be selected.</p>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-extrabold text-amber-700">{selectedIds.length} selected</span>
+                    </div>
+                    <div className="max-h-64 space-y-2 overflow-y-auto p-3">
+                        {group.requirements.map((row) => {
+                            const selectable = ["Ready", "Needs Mapping"].includes(row.readiness) && Boolean(row.participantId);
+                            const selected = selectedIds.includes(row.id);
+                            return (
+                                <label key={row.id} className={`flex items-start gap-3 rounded-lg border p-3 transition ${selectable ? "cursor-pointer border-slate-200 bg-white hover:border-amber-200 hover:bg-amber-50/30" : "cursor-not-allowed border-slate-100 bg-slate-50 opacity-60"}`}>
+                                    <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" disabled={!selectable} checked={selected} onChange={() => selectable && toggle(row.id)} />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-bold text-slate-900">{row.participant}</p>
+                                        <p className="mt-0.5 text-[10px] text-slate-400">{row.position} · {row.department}</p>
+                                        <p className="mt-1 text-[10px] font-semibold text-slate-500">{row.prerequisiteTitle ? `${row.prerequisiteTitle}: ${row.prerequisiteStatus}` : row.prerequisiteStatus}</p>
+                                    </div>
+                                    <StatusPill value={row.readiness} />
+                                </label>
+                            );
+                        })}
+                    </div>
+                </section>
+            </div>
+        </AppModal>
     );
 }
-type ViewState = { mode: 'list' } | { mode: 'details'; programId: string } | { mode: 'reports' };
-export default function TrainingManagement() {
-    const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
-    const [categoryFilter, setCategoryFilter] = useState('All Categories');
-    const [showAdd, setShowAdd] = useState(false);
-    const [view, setView] = useState<ViewState>({ mode: 'list' });
-    const [sessions, setSessions] = useState<TrainingSession[]>(SEED_SESSIONS);
-    const [participants, setParticipants] = useState<Participant[]>(SEED_PARTICIPANTS);
-    const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>(SEED_ATTENDANCE);
-    const [evaluations, setEvaluations] = useState<EvaluationResponse[]>(SEED_EVALUATIONS);
-    const [recommendations, setRecommendations] = useState<TrainingRecommendation[]>(SEED_RECOMMENDATIONS);
-    const [showSessionForm, setShowSessionForm] = useState(false);
-    const [sessionForm, setSessionForm] = useState<SessionFormState | null>(null);
-    const [activeSession, setActiveSession] = useState<TrainingSession | null>(null);
-    const [sessionTab, setSessionTab] = useState<SessionTab>('participants');
-    const [newParticipantName, setNewParticipantName] = useState('');
-    const [evalForm, setEvalForm] = useState({ content: 0, facilitator: 0, relevance: 0, organization: 0, overall: 0 });
-    const [reportProgramFilter, setReportProgramFilter] = useState('All');
-    const [reportDepartmentFilter, setReportDepartmentFilter] = useState('All');
-    const [reportStatusFilter, setReportStatusFilter] = useState<StatusFilter>('All');
-    const [reportDateFrom, setReportDateFrom] = useState('');
-    const [reportDateTo, setReportDateTo] = useState('');
-    const [exportState, setExportState] = useState<'idle' | 'preparing'>('idle');
-    const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
-    const [aiInsights, setAiInsights] = useState<string[] | null>(null);
-    const [editingRecommendationId, setEditingRecommendationId] = useState<string | null>(null);
-    const [editedProgramId, setEditedProgramId] = useState('');
-    const categories = useMemo(
-        () => Array.from(new Set(TRAINING_PROGRAMS.map((p) => p.category))),
-        [],
-    );
-    const departments = useMemo(
-        () => Array.from(new Set(PARTICIPANT_POOL.map((p) => p.department))),
-        [],
-    );
-    const filteredPrograms = useMemo(() => {
-        return TRAINING_PROGRAMS.filter((p) => {
-            const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
-            const matchesCategory = categoryFilter === 'All Categories' || p.category === categoryFilter;
-            return matchesStatus && matchesCategory;
-        });
-    }, [statusFilter, categoryFilter]);
-    const upcomingSessions = useMemo(
-        () => sessions.filter((s) => s.status === 'Scheduled' || s.status === 'Ongoing'),
-        [sessions],
-    );
-    const activeProgramsCount = useMemo(
-        () => TRAINING_PROGRAMS.filter((p) => p.status === 'Scheduled' || p.status === 'Ongoing').length,
-        [],
-    );
-    const totalParticipants = useMemo(
-        () => TRAINING_PROGRAMS.reduce((sum, p) => sum + p.participants, 0),
-        [],
-    );
-    const completionRateOverall = '82%';
-    const statCards = [
-        { label: 'Active Training Programs', value: activeProgramsCount, icon: ClipboardList },
-        { label: 'Upcoming Sessions', value: upcomingSessions.length, icon: CalendarClock },
-        { label: 'Total Participants Enrolled', value: totalParticipants, icon: Users },
-        { label: 'Completion Rate', value: completionRateOverall, icon: CheckCircle2 },
-    ];
-    const activeProgram = view.mode === 'details' ? TRAINING_PROGRAMS.find((p) => p.id === view.programId) ?? null : null;
-    const activeProgramSessions = useMemo(
-        () => (activeProgram ? sessions.filter((s) => s.programId === activeProgram.id) : []),
-        [activeProgram, sessions],
-    );
-    function openDetails(program: TrainingProgram) {
-        setView({ mode: 'details', programId: program.id });
-    }
-    function openAddSession() {
-        if (!activeProgram) return;
-        const nextLabel = `Session ${activeProgramSessions.length + 1}`;
-        setSessionForm(emptySessionForm(activeProgram.id, nextLabel, activeProgram.facilitator));
-        setShowSessionForm(true);
-    }
-    function openEditSession(session: TrainingSession) {
-        setSessionForm({
-            id: session.id,
-            programId: session.programId,
-            label: session.label,
-            date: session.date,
-            startTime: session.startTime,
-            endTime: session.endTime,
-            venue: session.venue,
-            facilitator: session.facilitator,
-            capacity: String(session.capacity),
-            status: session.status,
-        });
-        setShowSessionForm(true);
-    }
-    function closeSessionForm() {
-        setShowSessionForm(false);
-        setSessionForm(null);
-    }
-    function saveSession() {
-        if (!sessionForm) return;
-        const capacityNum = Number(sessionForm.capacity) || 0;
-        if (sessionForm.id) {
-            setSessions((prev) =>
-                prev.map((s) =>
-                    s.id === sessionForm.id
-                        ? {
-                              ...s,
-                              label: sessionForm.label || s.label,
-                              date: sessionForm.date || s.date,
-                              startTime: sessionForm.startTime || s.startTime,
-                              endTime: sessionForm.endTime || s.endTime,
-                              venue: sessionForm.venue || s.venue,
-                              facilitator: sessionForm.facilitator || s.facilitator,
-                              capacity: capacityNum || s.capacity,
-                              status: sessionForm.status,
-                          }
-                        : s,
-                ),
-            );
-        } else {
-            const newSession: TrainingSession = {
-                id: `s-${Date.now()}`,
-                programId: sessionForm.programId,
-                label: sessionForm.label,
-                date: sessionForm.date || 'TBD',
-                startTime: sessionForm.startTime || '—',
-                endTime: sessionForm.endTime || '—',
-                venue: sessionForm.venue || 'TBD',
-                facilitator: sessionForm.facilitator,
-                capacity: capacityNum,
-                assignedCount: 0,
-                status: sessionForm.status,
-            };
-            setSessions((prev) => [...prev, newSession]);
-        }
-        closeSessionForm();
-    }
-    function openSessionWorkspace(session: TrainingSession) {
-        setActiveSession(session);
-        setSessionTab('participants');
-        setNewParticipantName('');
-        setEvalForm({ content: 0, facilitator: 0, relevance: 0, organization: 0, overall: 0 });
-    }
-    function closeSessionWorkspace() {
-        setActiveSession(null);
-        setNewParticipantName('');
-    }
-    const sessionParticipants = useMemo(
-        () => (activeSession ? participants.filter((p) => p.sessionId === activeSession.id) : []),
-        [activeSession, participants],
-    );
-    const availableToAdd = useMemo(
-        () => PARTICIPANT_POOL.filter((p) => !sessionParticipants.some((sp) => sp.name === p.name)),
-        [sessionParticipants],
-    );
-    function addParticipant() {
-        if (!activeSession || !newParticipantName) return;
-        const pick = findInPool(newParticipantName);
-        const newParticipant: Participant = {
-            id: `pt-${Date.now()}`,
-            sessionId: activeSession.id,
-            ...pick,
-            status: 'Registered',
-        };
-        setParticipants((prev) => [...prev, newParticipant]);
-        setNewParticipantName('');
-    }
-    function removeParticipant(id: string) {
-        setParticipants((prev) => prev.filter((p) => p.id !== id));
-        setAttendance((prev) => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-        });
-    }
-    function updateParticipantStatus(id: string, status: ParticipantStatus) {
-        setParticipants((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)));
-    }
-    const participantsLocked = activeSession?.status === 'Completed' || activeSession?.status === 'Cancelled';
-    const attendanceLocked = activeSession?.status === 'Cancelled';
-    const attendanceCounts = useMemo(() => {
-        let present = 0, absent = 0, excused = 0;
-        sessionParticipants.forEach((p) => {
-            const s = attendance[p.id];
-            if (s === 'Present') present++;
-            else if (s === 'Absent') absent++;
-            else if (s === 'Excused') excused++;
-        });
-        return { total: sessionParticipants.length, present, absent, excused };
-    }, [sessionParticipants, attendance]);
-    const attendanceMarkedTotal = attendanceCounts.present + attendanceCounts.absent + attendanceCounts.excused;
-    const attendanceRate = attendanceMarkedTotal > 0 ? `${Math.round((attendanceCounts.present / attendanceMarkedTotal) * 100)}%` : '—';
-    function markAttendance(participantId: string, status: AttendanceStatus) {
-        setAttendance((prev) => ({ ...prev, [participantId]: status }));
-    }
-    function markAllPresent() {
-        setAttendance((prev) => {
-            const next = { ...prev };
-            sessionParticipants.forEach((p) => {
-                next[p.id] = 'Present';
-            });
-            return next;
-        });
-    }
-    const sessionEvaluations = useMemo(
-        () => (activeSession ? evaluations.filter((e) => e.sessionId === activeSession.id) : []),
-        [activeSession, evaluations],
-    );
-    function averageOf(list: EvaluationResponse[], key: keyof Omit<EvaluationResponse, 'id' | 'sessionId'>): number | null {
-        if (list.length === 0) return null;
-        const sum = list.reduce((acc, e) => acc + e[key], 0);
-        return sum / list.length;
-    }
-    const contentAvg = averageOf(sessionEvaluations, 'contentRating');
-    const facilitatorAvg = averageOf(sessionEvaluations, 'facilitatorRating');
-    const relevanceAvg = averageOf(sessionEvaluations, 'relevanceRating');
-    const organizationAvg = averageOf(sessionEvaluations, 'organizationRating');
-    const overallAvg = averageOf(sessionEvaluations, 'overallSatisfaction');
-    const compositeAvg =
-        contentAvg !== null && facilitatorAvg !== null && relevanceAvg !== null && organizationAvg !== null && overallAvg !== null
-            ? (contentAvg + facilitatorAvg + relevanceAvg + organizationAvg + overallAvg) / 5
-            : null;
-    function fmtRating(v: number | null) {
-        return v === null ? '—' : `${v.toFixed(1)}/5`;
-    }
-    const evalFormComplete = evalForm.content > 0 && evalForm.facilitator > 0 && evalForm.relevance > 0 && evalForm.organization > 0 && evalForm.overall > 0;
-    function submitEvaluation() {
-        if (!activeSession || !evalFormComplete) return;
-        const newResponse: EvaluationResponse = {
-            id: `ev-${Date.now()}`,
-            sessionId: activeSession.id,
-            contentRating: evalForm.content,
-            facilitatorRating: evalForm.facilitator,
-            relevanceRating: evalForm.relevance,
-            organizationRating: evalForm.organization,
-            overallSatisfaction: evalForm.overall,
-        };
-        setEvaluations((prev) => [...prev, newResponse]);
-        setEvalForm({ content: 0, facilitator: 0, relevance: 0, organization: 0, overall: 0 });
-    }
-    const completionCounts = useMemo(() => {
-        const total = sessionParticipants.length;
-        const completed = sessionParticipants.filter((p) => p.status === 'Completed').length;
-        return { total, completed, notCompleted: total - completed };
-    }, [sessionParticipants]);
-    const sessionCompletionRate = completionCounts.total > 0 ? `${Math.round((completionCounts.completed / completionCounts.total) * 100)}%` : '—';
-    const reportFilteredSessions = useMemo(() => {
-        return sessions.filter((s) => {
-            const program = TRAINING_PROGRAMS.find((p) => p.id === s.programId);
-            if (!program) return false;
-            if (reportProgramFilter !== 'All' && s.programId !== reportProgramFilter) return false;
-            if (reportStatusFilter !== 'All' && program.status !== reportStatusFilter) return false;
-            const d = parseSessionDate(s.date);
-            if (reportDateFrom && d && d < new Date(reportDateFrom)) return false;
-            if (reportDateTo && d && d > new Date(reportDateTo)) return false;
-            return true;
-        });
-    }, [sessions, reportProgramFilter, reportStatusFilter, reportDateFrom, reportDateTo]);
-    const reportFilteredParticipants = useMemo(() => {
-        const sessionIds = new Set(reportFilteredSessions.map((s) => s.id));
-        return participants.filter((p) => sessionIds.has(p.sessionId) && (reportDepartmentFilter === 'All' || p.department === reportDepartmentFilter));
-    }, [participants, reportFilteredSessions, reportDepartmentFilter]);
-    const reportTotalPrograms = useMemo(() => new Set(reportFilteredSessions.map((s) => s.programId)).size, [reportFilteredSessions]);
-    const reportTotalSessions = reportFilteredSessions.length;
-    const reportTotalParticipants = reportFilteredParticipants.length;
-    const reportAttendanceCounts = useMemo(() => {
-        let present = 0, absent = 0, excused = 0;
-        reportFilteredParticipants.forEach((p) => {
-            const s = attendance[p.id];
-            if (s === 'Present') present++;
-            else if (s === 'Absent') absent++;
-            else if (s === 'Excused') excused++;
-        });
-        return { present, absent, excused, marked: present + absent + excused };
-    }, [reportFilteredParticipants, attendance]);
-    const reportAttendanceRateNum = reportAttendanceCounts.marked > 0 ? Math.round((reportAttendanceCounts.present / reportAttendanceCounts.marked) * 100) : null;
-    const reportCompletedCount = reportFilteredParticipants.filter((p) => p.status === 'Completed').length;
-    const reportCompletionRateNum = reportTotalParticipants > 0 ? Math.round((reportCompletedCount / reportTotalParticipants) * 100) : null;
-    const reportEvaluations = useMemo(
-        () => evaluations.filter((e) => reportFilteredSessions.some((s) => s.id === e.sessionId)),
-        [evaluations, reportFilteredSessions],
-    );
-    const reportEvaluationAvg = useMemo(() => {
-        if (reportEvaluations.length === 0) return null;
-        const sum = reportEvaluations.reduce(
-            (acc, e) => acc + (e.contentRating + e.facilitatorRating + e.relevanceRating + e.organizationRating + e.overallSatisfaction) / 5,
-            0,
-        );
-        return sum / reportEvaluations.length;
-    }, [reportEvaluations]);
-    const departmentBreakdown = useMemo(() => {
-        const map = new Map<string, number>();
-        reportFilteredParticipants.forEach((p) => map.set(p.department, (map.get(p.department) ?? 0) + 1));
-        return Array.from(map.entries())
-            .map(([department, count]) => ({ department, count }))
-            .sort((a, b) => b.count - a.count);
-    }, [reportFilteredParticipants]);
-    const departmentMax = Math.max(1, ...departmentBreakdown.map((d) => d.count));
-    const activityByMonth = useMemo(() => {
-        const map = new Map<string, number>();
-        reportFilteredSessions.forEach((s) => {
-            const d = parseSessionDate(s.date);
-            if (!d) return;
-            const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-            map.set(label, (map.get(label) ?? 0) + 1);
-        });
-        return Array.from(map.entries()).sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime());
-    }, [reportFilteredSessions]);
-    const activityMax = Math.max(1, ...activityByMonth.map(([, count]) => count));
-    function resetReportFilters() {
-        setReportProgramFilter('All');
-        setReportDepartmentFilter('All');
-        setReportStatusFilter('All');
-        setReportDateFrom('');
-        setReportDateTo('');
-    }
-    function handleExportReport() {
-        setExportState('preparing');
-        setTimeout(() => setExportState('idle'), 900);
-    }
-    function computeAiInsights(): string[] {
-        const insights: string[] = [];
-        if (reportTotalParticipants === 0) {
-            return ['Not enough training data is available yet for the selected filters to generate a meaningful insight.'];
-        }
-        if (reportAttendanceRateNum !== null && reportCompletionRateNum !== null && reportAttendanceRateNum - reportCompletionRateNum >= 15) {
-            insights.push(
-                `Attendance (${reportAttendanceRateNum}%) is notably higher than completion (${reportCompletionRateNum}%) for the selected filters. HR may want to review participants who attended but have not been marked as completed.`,
-            );
-        }
-        if (reportEvaluationAvg !== null && reportEvaluationAvg >= 4 && reportCompletionRateNum !== null && reportCompletionRateNum < 70) {
-            insights.push(
-                `Facilitator and content feedback is strong (avg ${reportEvaluationAvg.toFixed(1)}/5), even though completion sits at ${reportCompletionRateNum}%. The gap may be administrative rather than related to training quality — worth a closer look.`,
-            );
-        }
-        if (departmentBreakdown.length > 0) {
-            const top = departmentBreakdown[0];
-            insights.push(
-                `${top.department} currently accounts for the largest share of participation among the selected filters. HR may confirm this reflects an intended training priority.`,
-            );
-        }
-        if (insights.length === 0) {
-            insights.push('Attendance, completion, and evaluation results are broadly aligned for the selected filters — no notable gaps stand out right now.');
-        }
-        return insights.slice(0, 3);
-    }
-    function generateAiInsights() {
-        setAiInsightsLoading(true);
-        setAiInsights(null);
-        setTimeout(() => {
-            setAiInsights(computeAiInsights());
-            setAiInsightsLoading(false);
-        }, 1200);
-    }
-    function updateRecommendationStatus(id: string, status: RecommendationStatus) {
-        setRecommendations((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
-    }
-    function startEditRecommendation(r: TrainingRecommendation) {
-        setEditingRecommendationId(r.id);
-        setEditedProgramId(r.suggestedProgramId);
-    }
-    function cancelEditRecommendation() {
-        setEditingRecommendationId(null);
-        setEditedProgramId('');
-    }
-    function saveEditedRecommendation(id: string) {
-        if (!editedProgramId) return;
-        setRecommendations((prev) => prev.map((r) => (r.id === id ? { ...r, suggestedProgramId: editedProgramId, status: 'Edited' } : r)));
-        cancelEditRecommendation();
-    }
+
+function RescheduleModal({ state, row, busy, error, onClose, onSave }: { state: TrainingState; row: RegisterRow; busy: boolean; error: string; onClose: () => void; onSave: (payload: Record<string, unknown>) => Promise<void> }) {
+    const [startsAt, setStartsAt] = useState(toDateTimeLocal(row.session.startsAt));
+    const [endsAt, setEndsAt] = useState(toDateTimeLocal(row.session.endsAt));
+    const [venue, setVenue] = useState(row.session.venue);
+    const [capacity, setCapacity] = useState(row.session.capacity);
+    const [facilitatorId, setFacilitatorId] = useState(row.session.facilitatorId ? String(row.session.facilitatorId) : "");
+    const [external, setExternal] = useState(row.session.externalFacilitatorName ?? "");
+    const facilitators = state.personnel.filter((person) => person.personType !== "Trainee");
+    const valid = Boolean(startsAt && endsAt && venue.trim() && capacity >= row.participants.length && (facilitatorId || external.trim()));
+
     return (
-        <AuthenticatedLayout header={<h1 className="truncate text-sm font-bold text-slate-900">Training Management</h1>}>
-            <Head title="Training Management" />
-            {showAdd && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" onClick={() => setShowAdd(false)}>
-                    <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <h3 className="text-sm font-bold text-slate-900">Create Training Program</h3>
-                        <p className="mt-1 text-xs text-slate-500">Enter the training program details below.</p>
-                        <div className="mt-4 space-y-3">
-                            <input placeholder="Training program title" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none focus:ring-2 focus:ring-[#F4B400]/30" />
-                            <input placeholder="Training Facilitator" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none" />
-                        </div>
-                        <div className="mt-4 flex gap-2">
-                            <button onClick={() => setShowAdd(false)} className="flex-1 rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-                            <button onClick={() => setShowAdd(false)} className="flex-1 rounded-lg bg-[#F4B400] py-2 text-xs font-semibold text-black hover:bg-[#dba300]">Save as Draft</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {showSessionForm && sessionForm && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" onClick={closeSessionForm}>
-                    <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <h3 className="text-sm font-bold text-slate-900">{sessionForm.id ? 'Edit Training Session' : 'Add Training Session'}</h3>
-                        <p className="mt-1 text-xs text-slate-500">{sessionForm.label} — {activeProgram?.title}</p>
-                        <div className="mt-4 grid grid-cols-2 gap-3">
-                            <input
-                                placeholder="Date (e.g. August 15, 2026)"
-                                value={sessionForm.date}
-                                onChange={(e) => setSessionForm({ ...sessionForm, date: e.target.value })}
-                                className="col-span-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none focus:ring-2 focus:ring-[#F4B400]/30"
-                            />
-                            <input
-                                placeholder="Start time"
-                                value={sessionForm.startTime}
-                                onChange={(e) => setSessionForm({ ...sessionForm, startTime: e.target.value })}
-                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                            />
-                            <input
-                                placeholder="End time"
-                                value={sessionForm.endTime}
-                                onChange={(e) => setSessionForm({ ...sessionForm, endTime: e.target.value })}
-                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                            />
-                            <input
-                                placeholder="Venue"
-                                value={sessionForm.venue}
-                                onChange={(e) => setSessionForm({ ...sessionForm, venue: e.target.value })}
-                                className="col-span-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                            />
-                            <input
-                                placeholder="Facilitator"
-                                value={sessionForm.facilitator}
-                                onChange={(e) => setSessionForm({ ...sessionForm, facilitator: e.target.value })}
-                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                            />
-                            <input
-                                type="number"
-                                min={0}
-                                placeholder="Capacity"
-                                value={sessionForm.capacity}
-                                onChange={(e) => setSessionForm({ ...sessionForm, capacity: e.target.value })}
-                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                            />
-                            <select
-                                value={sessionForm.status}
-                                onChange={(e) => setSessionForm({ ...sessionForm, status: e.target.value as SessionStatus })}
-                                className="col-span-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#F4B400] focus:outline-none"
-                            >
-                                {(['Scheduled', 'Ongoing', 'Completed', 'Cancelled'] as SessionStatus[]).map((s) => (
-                                    <option key={s} value={s}>{s}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="mt-4 flex gap-2">
-                            <button onClick={closeSessionForm} className="flex-1 rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-                            <button onClick={saveSession} className="flex-1 rounded-lg bg-[#F4B400] py-2 text-xs font-semibold text-black hover:bg-[#dba300]">Save Session</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {activeSession && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" onClick={closeSessionWorkspace}>
-                    <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                                <h3 className="text-sm font-bold text-slate-900">{activeSession.label}</h3>
-                                <p className="mt-0.5 text-xs text-slate-500">{activeProgram?.title}</p>
-                            </div>
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusStyles[activeSession.status]}`}>
-                                {activeSession.status}
-                            </span>
-                        </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                            <span className="flex items-center gap-1"><Clock className="h-3 w-3 text-slate-400" /> {activeSession.date}, {activeSession.startTime}–{activeSession.endTime}</span>
-                            <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-slate-400" /> {activeSession.venue}</span>
-                            <span>Facilitator: <span className="font-semibold text-slate-800">{activeSession.facilitator}</span></span>
-                            <span>Capacity: <span className="font-semibold text-slate-800">{activeSession.assignedCount}/{activeSession.capacity}</span></span>
-                        </div>
-                        <div className="mt-4 flex w-fit rounded-lg border border-slate-200 p-0.5">
-                            {(
-                                [
-                                    { value: 'participants', label: 'Participants' },
-                                    { value: 'attendance', label: 'Attendance' },
-                                    { value: 'evaluation', label: 'Evaluation' },
-                                    { value: 'completion', label: 'Completion' },
-                                ] as { value: SessionTab; label: string }[]
-                            ).map((tab) => (
-                                <button
-                                    key={tab.value}
-                                    type="button"
-                                    onClick={() => setSessionTab(tab.value)}
-                                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                                        sessionTab === tab.value ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-800'
-                                    }`}
-                                >
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </div>
-                        {sessionTab === 'participants' && (
-                            <div className="mt-4">
-                                {!participantsLocked && (
-                                    <div className="mb-3 flex items-center gap-2">
-                                        <select
-                                            value={newParticipantName}
-                                            onChange={(e) => setNewParticipantName(e.target.value)}
-                                            className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-[#F4B400] focus:outline-none"
-                                        >
-                                            <option value="">Select a participant to add…</option>
-                                            {availableToAdd.map((p) => (
-                                                <option key={p.name} value={p.name}>{p.name} — {p.position}</option>
-                                            ))}
-                                        </select>
-                                        <button
-                                            type="button"
-                                            onClick={addParticipant}
-                                            disabled={!newParticipantName}
-                                            className="flex items-center gap-1.5 rounded-lg bg-[#F4B400] px-3 py-2 text-xs font-semibold text-black transition hover:bg-[#dba300] disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            <UserPlus className="h-3.5 w-3.5" /> Add
-                                        </button>
-                                    </div>
-                                )}
-                                {participantsLocked && (
-                                    <p className="mb-3 text-[11px] italic text-slate-400">
-                                        This session is {activeSession.status.toLowerCase()} — participant assignment is locked.
-                                    </p>
-                                )}
-                                <DataTable
-                                    title="Assigned Participants"
-                                    data={sessionParticipants}
-                                    rowKey={(r) => r.id}
-                                    columns={[
-                                        {
-                                            key: 'name',
-                                            header: 'Name',
-                                            render: (r) => (
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-800">{r.name}</p>
-                                                    <p className="text-[11px] text-slate-400">{r.employeeId}</p>
-                                                </div>
-                                            ),
-                                        },
-                                        { key: 'type', header: 'Type', render: (r) => <span className="text-xs">{r.type}</span> },
-                                        { key: 'department', header: 'Department', render: (r) => <span className="text-xs">{r.department}</span> },
-                                        { key: 'position', header: 'Position', render: (r) => <span className="text-xs">{r.position}</span> },
-                                        {
-                                            key: 'status',
-                                            header: 'Training Status',
-                                            render: (r) =>
-                                                participantsLocked ? (
-                                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${participantStatusStyles[r.status]}`}>
-                                                        {r.status}
-                                                    </span>
-                                                ) : (
-                                                    <select
-                                                        value={r.status}
-                                                        onChange={(e) => updateParticipantStatus(r.id, e.target.value as ParticipantStatus)}
-                                                        className={`rounded-full border-0 px-2 py-0.5 text-[11px] font-semibold focus:outline-none ${participantStatusStyles[r.status]}`}
-                                                    >
-                                                        {PARTICIPANT_STATUS_OPTIONS.map((s) => (
-                                                            <option key={s} value={s}>{s}</option>
-                                                        ))}
-                                                    </select>
-                                                ),
-                                        },
-                                        {
-                                            key: 'action',
-                                            header: 'Action',
-                                            render: (r) => (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removeParticipant(r.id)}
-                                                    disabled={participantsLocked}
-                                                    className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
-                                                    aria-label="Remove participant"
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </button>
-                                            ),
-                                        },
-                                    ]}
-                                    footer={
-                                        <span className="text-xs text-slate-500">
-                                            Showing {sessionParticipants.length} of {activeSession.assignedCount} assigned participants
-                                        </span>
-                                    }
-                                />
-                            </div>
-                        )}
-                        {sessionTab === 'attendance' && (
-                            <div className="mt-4 flex flex-col gap-3">
-                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                                    <StatCard label="Total Participants" value={attendanceCounts.total} icon={Users} />
-                                    <StatCard label="Present" value={attendanceCounts.present} icon={CheckCircle2} />
-                                    <StatCard label="Absent" value={attendanceCounts.absent} icon={XCircle} />
-                                    <StatCard label="Excused" value={attendanceCounts.excused} icon={Clock} />
-                                    <StatCard label="Attendance Rate" value={attendanceRate} icon={ClipboardList} />
-                                </div>
-                                {attendanceLocked ? (
-                                    <p className="text-[11px] italic text-slate-400">This session was cancelled — attendance is not applicable.</p>
-                                ) : (
-                                    <div className="flex justify-end">
-                                        <button
-                                            type="button"
-                                            onClick={markAllPresent}
-                                            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                                        >
-                                            <CheckCircle2 className="h-3.5 w-3.5" /> Mark All Present
-                                        </button>
-                                    </div>
-                                )}
-                                <DataTable
-                                    title="Attendance"
-                                    data={sessionParticipants}
-                                    rowKey={(r) => r.id}
-                                    columns={[
-                                        {
-                                            key: 'name',
-                                            header: 'Participant',
-                                            render: (r) => (
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-800">{r.name}</p>
-                                                    <p className="text-[11px] text-slate-400">{r.employeeId}</p>
-                                                </div>
-                                            ),
-                                        },
-                                        { key: 'type', header: 'Role/Type', render: (r) => <span className="text-xs">{r.type}</span> },
-                                        { key: 'department', header: 'Department', render: (r) => <span className="text-xs">{r.department}</span> },
-                                        {
-                                            key: 'attendanceStatus',
-                                            header: 'Attendance Status',
-                                            render: (r) => {
-                                                const current = attendance[r.id];
-                                                return (
-                                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${current ? attendanceStatusStyles[current] : 'bg-slate-100 text-slate-400'}`}>
-                                                        {current ?? 'Not Marked'}
-                                                    </span>
-                                                );
-                                            },
-                                        },
-                                        {
-                                            key: 'attendanceAction',
-                                            header: 'Attendance Action',
-                                            render: (r) => {
-                                                const current = attendance[r.id];
-                                                const btn = (status: AttendanceStatus, activeClass: string) => (
-                                                    <button
-                                                        type="button"
-                                                        disabled={attendanceLocked}
-                                                        onClick={() => markAttendance(r.id, status)}
-                                                        className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                                                            current === status ? activeClass : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                                                        }`}
-                                                    >
-                                                        {status}
-                                                    </button>
-                                                );
-                                                return (
-                                                    <div className="flex items-center gap-1">
-                                                        {btn('Present', 'bg-green-600 text-white')}
-                                                        {btn('Absent', 'bg-rose-600 text-white')}
-                                                        {btn('Excused', 'bg-amber-500 text-white')}
-                                                    </div>
-                                                );
-                                            },
-                                        },
-                                    ]}
-                                    footer={<span className="text-xs text-slate-500">Attendance reflects this scheduled training session only</span>}
-                                />
-                            </div>
-                        )}
-                        {sessionTab === 'evaluation' && (
-                            <div className="mt-4 flex flex-col gap-3">
-                                {activeSession.status === 'Cancelled' ? (
-                                    <p className="text-[11px] italic text-slate-400">This session was cancelled — no evaluation applies.</p>
-                                ) : (
-                                    <>
-                                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                                            <StatCard label="Average Evaluation Score" value={fmtRating(compositeAvg)} icon={Star} />
-                                            <StatCard label="Content Rating" value={fmtRating(contentAvg)} icon={Star} />
-                                            <StatCard label="Facilitator Rating" value={fmtRating(facilitatorAvg)} icon={Star} />
-                                            <StatCard label="Relevance Rating" value={fmtRating(relevanceAvg)} icon={Star} />
-                                            <StatCard label="Organization Rating" value={fmtRating(organizationAvg)} icon={Star} />
-                                            <StatCard label="Overall Satisfaction" value={fmtRating(overallAvg)} icon={Star} />
-                                        </div>
-                                        <DataTable
-                                            title="Evaluation Responses"
-                                            data={sessionEvaluations}
-                                            rowKey={(r) => r.id}
-                                            columns={[
-                                                {
-                                                    key: 'label',
-                                                    header: 'Response',
-                                                    render: (r) => <span className="text-xs font-semibold text-slate-700">Response #{sessionEvaluations.findIndex((e) => e.id === r.id) + 1}</span>,
-                                                },
-                                                { key: 'content', header: 'Content', render: (r) => <StarRating value={r.contentRating} /> },
-                                                { key: 'facilitator', header: 'Facilitator', render: (r) => <StarRating value={r.facilitatorRating} /> },
-                                                { key: 'relevance', header: 'Relevance', render: (r) => <StarRating value={r.relevanceRating} /> },
-                                                { key: 'organization', header: 'Organization', render: (r) => <StarRating value={r.organizationRating} /> },
-                                                { key: 'overall', header: 'Overall', render: (r) => <StarRating value={r.overallSatisfaction} /> },
-                                            ]}
-                                            footer={<span className="text-xs text-slate-500">{sessionEvaluations.length} evaluation response{sessionEvaluations.length === 1 ? '' : 's'} on file</span>}
-                                        />
-                                        <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-                                            <p className="text-xs font-bold text-slate-900">Log an Evaluation Response</p>
-                                            <p className="mt-0.5 text-[11px] text-slate-400">Rates the training session and facilitator.</p>
-                                            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3">
-                                                <StarRatingInput label="Training Content" value={evalForm.content} onChange={(v) => setEvalForm({ ...evalForm, content: v })} />
-                                                <StarRatingInput label="Facilitator Effectiveness" value={evalForm.facilitator} onChange={(v) => setEvalForm({ ...evalForm, facilitator: v })} />
-                                                <StarRatingInput label="Relevance" value={evalForm.relevance} onChange={(v) => setEvalForm({ ...evalForm, relevance: v })} />
-                                                <StarRatingInput label="Organization" value={evalForm.organization} onChange={(v) => setEvalForm({ ...evalForm, organization: v })} />
-                                                <StarRatingInput label="Overall Satisfaction" value={evalForm.overall} onChange={(v) => setEvalForm({ ...evalForm, overall: v })} />
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={submitEvaluation}
-                                                disabled={!evalFormComplete}
-                                                className="mt-3 flex items-center gap-1.5 rounded-lg bg-[#F4B400] px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-[#dba300] disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                <Plus className="h-3.5 w-3.5" /> Log Response
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        )}
-                        {sessionTab === 'completion' && (
-                            <div className="mt-4 flex flex-col gap-3">
-                                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                                    <StatCard label="Total Participants" value={completionCounts.total} icon={Users} />
-                                    <StatCard label="Completed" value={completionCounts.completed} icon={CheckCircle2} />
-                                    <StatCard label="In Progress / Not Completed" value={completionCounts.notCompleted} icon={ClipboardList} />
-                                    <StatCard label="Completion Rate" value={sessionCompletionRate} icon={Target} />
-                                </div>
-                                <p className="text-[11px] italic text-slate-400">
-                                    Attendance is shown for context — completion status is set independently.
-                                </p>
-                                <DataTable
-                                    title="Participant Completion"
-                                    data={sessionParticipants}
-                                    rowKey={(r) => r.id}
-                                    columns={[
-                                        {
-                                            key: 'name',
-                                            header: 'Participant',
-                                            render: (r) => (
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-800">{r.name}</p>
-                                                    <p className="text-[11px] text-slate-400">{r.employeeId}</p>
-                                                </div>
-                                            ),
-                                        },
-                                        {
-                                            key: 'attendance',
-                                            header: 'Attendance',
-                                            render: (r) => {
-                                                const current = attendance[r.id];
-                                                return (
-                                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${current ? attendanceStatusStyles[current] : 'bg-slate-100 text-slate-400'}`}>
-                                                        {current ?? 'Not Marked'}
-                                                    </span>
-                                                );
-                                            },
-                                        },
-                                        {
-                                            key: 'status',
-                                            header: 'Training Status',
-                                            render: (r) => (
-                                                <select
-                                                    value={r.status}
-                                                    onChange={(e) => updateParticipantStatus(r.id, e.target.value as ParticipantStatus)}
-                                                    className={`rounded-full border-0 px-2 py-0.5 text-[11px] font-semibold focus:outline-none ${participantStatusStyles[r.status]}`}
-                                                >
-                                                    {PARTICIPANT_STATUS_OPTIONS.map((s) => (
-                                                        <option key={s} value={s}>{s}</option>
-                                                    ))}
-                                                </select>
-                                            ),
-                                        },
-                                    ]}
-                                    footer={<span className="text-xs text-slate-500">Completion does not, by itself, confirm competency achievement</span>}
-                                />
-                            </div>
-                        )}
-                        <button onClick={closeSessionWorkspace} className="mt-4 w-full rounded-lg bg-slate-900 py-2 text-xs font-semibold text-white hover:bg-slate-800">Close</button>
-                    </div>
-                </div>
-            )}
-            <div className="flex flex-col gap-4">
-                {view.mode === 'list' && (
-                    <PageHeader
-                        title="Training Management"
-                        description="Manage instructor-led and onsite training programs, sessions, and schedules"
-                        actions={
-                            <>
-                                <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-[#F4B400] focus:outline-none">
-                                    <option>All Categories</option>
-                                    {categories.map((c) => <option key={c}>{c}</option>)}
-                                </select>
-                                <button type="button" onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 rounded-lg bg-[#F4B400] px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-[#dba300]">
-                                    <Plus className="h-3.5 w-3.5" /> Create Training Program
-                                </button>
-                            </>
-                        }
-                    />
-                )}
-                {view.mode === 'details' && (
-                    <PageHeader
-                        title="Training Program Details"
-                        description={activeProgram?.title}
-                    />
-                )}
-                {view.mode === 'reports' && (
-                    <PageHeader
-                        title="Training Reports & Analytics"
-                        description="AI-assisted insights and recommendations always require HR/Admin review before any action is taken"
-                    />
-                )}
-                {view.mode === 'list' && (
-                    <>
-                        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                            {statCards.map((c) => <StatCard key={c.label} {...c} />)}
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                            <button
-                                type="button"
-                                onClick={() => setShowAdd(true)}
-                                className="flex items-center gap-2 rounded-xl bg-white p-3 text-left shadow-sm ring-1 ring-slate-100 transition hover:ring-[#F4B400]/50"
-                            >
-                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                                    <Plus className="h-4 w-4" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-800">Create Program</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (filteredPrograms[0]) {
-                                        openDetails(filteredPrograms[0]);
-                                        setTimeout(() => openAddSession(), 0);
-                                    }
-                                }}
-                                title="Opens the first program's details to schedule a session"
-                                className="flex items-center gap-2 rounded-xl bg-white p-3 text-left shadow-sm ring-1 ring-slate-100 transition hover:ring-[#F4B400]/50"
-                            >
-                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                                    <CalendarPlus className="h-4 w-4" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-800">Schedule Session</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    const firstSession = sessions[0];
-                                    if (!firstSession) return;
-                                    const program = TRAINING_PROGRAMS.find((p) => p.id === firstSession.programId);
-                                    if (!program) return;
-                                    openDetails(program);
-                                    setTimeout(() => openSessionWorkspace(firstSession), 0);
-                                }}
-                                title="Opens an existing session to manage its participants"
-                                className="flex items-center gap-2 rounded-xl bg-white p-3 text-left shadow-sm ring-1 ring-slate-100 transition hover:ring-[#F4B400]/50"
-                            >
-                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                                    <UserPlus className="h-4 w-4" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-800">Manage Participants</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setView({ mode: 'reports' })}
-                                className="flex items-center gap-2 rounded-xl bg-white p-3 text-left shadow-sm ring-1 ring-slate-100 transition hover:ring-[#F4B400]/50"
-                            >
-                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                                    <FileBarChart className="h-4 w-4" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-800">Training Report</span>
-                            </button>
-                        </div>
-                        <DataTable
-                            title="Training Programs"
-                            data={filteredPrograms}
-                            rowKey={(r) => r.id}
-                            filterTabs={[
-                                { label: 'All', value: 'All' },
-                                { label: 'Scheduled', value: 'Scheduled' },
-                                { label: 'Ongoing', value: 'Ongoing' },
-                                { label: 'Completed', value: 'Completed' },
-                            ]}
-                            activeFilter={statusFilter}
-                            onFilterChange={(v) => setStatusFilter(v as StatusFilter)}
-                            columns={[
-                                {
-                                    key: 'title',
-                                    header: 'Training Program',
-                                    render: (r) => (
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                                                <ClipboardList className="h-3.5 w-3.5" />
-                                            </div>
-                                            <div>
-                                                <p className="text-xs font-semibold text-slate-800">{r.title}</p>
-                                                <p className="text-[11px] text-slate-400">{r.category}</p>
-                                            </div>
-                                        </div>
-                                    ),
-                                },
-                                { key: 'facilitator', header: 'Facilitator', render: (r) => <span className="text-xs">{r.facilitator}</span> },
-                                { key: 'duration', header: 'Duration', render: (r) => <span className="text-xs">{r.duration}</span> },
-                                { key: 'participants', header: 'Participants', className: 'tabular-nums', render: (r) => <span className="text-xs">{r.participants}</span> },
-                                { key: 'nextSession', header: 'Next Session', render: (r) => <span className="text-xs">{r.nextSession ?? '—'}</span> },
-                                {
-                                    key: 'status',
-                                    header: 'Status',
-                                    render: (r) => (
-                                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusStyles[r.status]}`}>
-                                            {r.status}
-                                        </span>
-                                    ),
-                                },
-                                {
-                                    key: 'action',
-                                    header: 'Action',
-                                    render: (r) => (
-                                        <div className="flex items-center gap-0.5">
-                                            <button type="button" onClick={() => openDetails(r)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="View"><Eye className="h-3.5 w-3.5" /></button>
-                                            <button type="button" onClick={() => openDetails(r)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></button>
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                            footer={
-                                <div className="flex items-center justify-between text-xs text-slate-500">
-                                    <span>Showing {filteredPrograms.length} of {TRAINING_PROGRAMS.length} training programs</span>
-                                </div>
-                            }
-                        />
-                        <DataTable
-                            title="Upcoming Training Sessions"
-                            data={upcomingSessions}
-                            rowKey={(r) => r.id}
-                            columns={[
-                                {
-                                    key: 'programTitle',
-                                    header: 'Training',
-                                    render: (r) => (
-                                        <span className="text-xs font-semibold text-slate-800">
-                                            {TRAINING_PROGRAMS.find((p) => p.id === r.programId)?.title ?? '—'}
-                                        </span>
-                                    ),
-                                },
-                                { key: 'date', header: 'Date', render: (r) => <span className="text-xs">{r.date}</span> },
-                                {
-                                    key: 'time',
-                                    header: 'Time',
-                                    render: (r) => (
-                                        <span className="flex items-center gap-1 text-xs text-slate-600">
-                                            <Clock className="h-3 w-3 text-slate-400" /> {r.startTime}–{r.endTime}
-                                        </span>
-                                    ),
-                                },
-                                {
-                                    key: 'venue',
-                                    header: 'Venue',
-                                    render: (r) => (
-                                        <span className="flex items-center gap-1 text-xs text-slate-600">
-                                            <MapPin className="h-3 w-3 text-slate-400" /> {r.venue}
-                                        </span>
-                                    ),
-                                },
-                                { key: 'facilitator', header: 'Facilitator', render: (r) => <span className="text-xs">{r.facilitator}</span> },
-                                {
-                                    key: 'participants',
-                                    header: 'Participants',
-                                    className: 'tabular-nums',
-                                    render: (r) => <span className="text-xs">{r.assignedCount}/{r.capacity}</span>,
-                                },
-                                {
-                                    key: 'status',
-                                    header: 'Status',
-                                    render: (r) => (
-                                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusStyles[r.status]}`}>
-                                            {r.status}
-                                        </span>
-                                    ),
-                                },
-                            ]}
-                            footer={
-                                <div className="flex items-center justify-between text-xs text-slate-500">
-                                    <span>Showing {upcomingSessions.length} upcoming sessions</span>
-                                </div>
-                            }
-                        />
-                    </>
-                )}
-                {view.mode === 'details' && activeProgram && (
-                    <ProgramDetails
-                        program={activeProgram}
-                        sessions={activeProgramSessions}
-                        onBack={() => setView({ mode: 'list' })}
-                        onAddSession={openAddSession}
-                        onEditSession={openEditSession}
-                        onOpenSession={openSessionWorkspace}
-                    />
-                )}
-                {view.mode === 'reports' && (
-                    <div className="flex flex-col gap-4">
-                        <button
-                            type="button"
-                            onClick={() => setView({ mode: 'list' })}
-                            className="flex w-fit items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800"
-                        >
-                            <ArrowLeft className="h-3.5 w-3.5" /> Back to Training Management
-                        </button>
-                        <div className="flex flex-wrap items-end gap-3 rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-                            <div>
-                                <label className="text-[11px] font-semibold text-slate-500">Training Program</label>
-                                <select value={reportProgramFilter} onChange={(e) => setReportProgramFilter(e.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-[#F4B400] focus:outline-none">
-                                    <option value="All">All Programs</option>
-                                    {TRAINING_PROGRAMS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-semibold text-slate-500">Department</label>
-                                <select value={reportDepartmentFilter} onChange={(e) => setReportDepartmentFilter(e.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-[#F4B400] focus:outline-none">
-                                    <option value="All">All Departments</option>
-                                    {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-semibold text-slate-500">Training Status</label>
-                                <select value={reportStatusFilter} onChange={(e) => setReportStatusFilter(e.target.value as StatusFilter)} className="mt-1 block rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-[#F4B400] focus:outline-none">
-                                    <option value="All">All Statuses</option>
-                                    {(['Draft', 'Scheduled', 'Ongoing', 'Completed', 'Cancelled'] as ProgramStatus[]).map((s) => (
-                                        <option key={s} value={s}>{s}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-semibold text-slate-500">From</label>
-                                <input type="date" value={reportDateFrom} onChange={(e) => setReportDateFrom(e.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-[#F4B400] focus:outline-none" />
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-semibold text-slate-500">To</label>
-                                <input type="date" value={reportDateTo} onChange={(e) => setReportDateTo(e.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-[#F4B400] focus:outline-none" />
-                            </div>
-                            <button type="button" onClick={resetReportFilters} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                                Reset Filters
-                            </button>
-                            <div className="ml-auto flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleExportReport}
-                                    disabled={exportState === 'preparing'}
-                                    className="flex items-center gap-1.5 rounded-lg bg-[#F4B400] px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-[#dba300] disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    {exportState === 'preparing' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                                    {exportState === 'preparing' ? 'Preparing…' : 'Export Report'}
-                                </button>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                            <StatCard label="Training Programs" value={reportTotalPrograms} icon={ClipboardList} />
-                            <StatCard label="Training Sessions" value={reportTotalSessions} icon={Layers} />
-                            <StatCard label="Total Participants" value={reportTotalParticipants} icon={Users} />
-                            <StatCard label="Completion Rate" value={reportCompletionRateNum !== null ? `${reportCompletionRateNum}%` : '—'} icon={CheckCircle2} />
-                        </div>
-                        <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-                            <p className="text-sm font-bold text-slate-900">Overall Performance</p>
-                            <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-3">
-                                <MetricBar
-                                    label="Attendance Rate"
-                                    value={reportAttendanceRateNum ?? 0}
-                                    max={100}
-                                    displayValue={reportAttendanceRateNum !== null ? `${reportAttendanceRateNum}%` : '—'}
-                                    colorClass="bg-blue-500"
-                                />
-                                <MetricBar
-                                    label="Completion Rate"
-                                    value={reportCompletionRateNum ?? 0}
-                                    max={100}
-                                    displayValue={reportCompletionRateNum !== null ? `${reportCompletionRateNum}%` : '—'}
-                                    colorClass="bg-green-500"
-                                />
-                                <div>
-                                    <div className="flex items-center justify-between text-xs">
-                                        <span className="font-medium text-slate-600">Evaluation Score</span>
-                                        <span className="font-semibold text-slate-800">{reportEvaluationAvg !== null ? `${reportEvaluationAvg.toFixed(1)}/5` : '—'}</span>
-                                    </div>
-                                    <div className="mt-1.5">{reportEvaluationAvg !== null ? <StarRating value={reportEvaluationAvg} /> : <span className="text-xs text-slate-300">—</span>}</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                            <DataTable
-                                title="Participation by Department"
-                                data={departmentBreakdown}
-                                rowKey={(r) => r.department}
-                                columns={[
-                                    {
-                                        key: 'department',
-                                        header: 'Department',
-                                        render: (r) => (
-                                            <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-                                                <Building2 className="h-3.5 w-3.5 text-slate-400" /> {r.department}
-                                            </span>
-                                        ),
-                                    },
-                                    { key: 'count', header: 'Participants', className: 'tabular-nums', render: (r) => <span className="text-xs">{r.count}</span> },
-                                    {
-                                        key: 'share',
-                                        header: 'Share',
-                                        render: (r) => (
-                                            <div className="flex items-center gap-2">
-                                                <InlineBar value={r.count} max={departmentMax} colorClass="bg-blue-500" />
-                                                <span className="w-9 shrink-0 text-right text-xs tabular-nums text-slate-500">
-                                                    {reportTotalParticipants > 0 ? `${Math.round((r.count / reportTotalParticipants) * 100)}%` : '—'}
-                                                </span>
-                                            </div>
-                                        ),
-                                    },
-                                ]}
-                            />
-                            <DataTable
-                                title="Training Activity Over Time"
-                                data={activityByMonth.map(([month, count]) => ({ month, count }))}
-                                rowKey={(r) => r.month}
-                                columns={[
-                                    {
-                                        key: 'month',
-                                        header: 'Month',
-                                        render: (r) => (
-                                            <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-                                                <TrendingUp className="h-3.5 w-3.5 text-slate-400" /> {r.month}
-                                            </span>
-                                        ),
-                                    },
-                                    { key: 'count', header: 'Sessions', className: 'tabular-nums', render: (r) => <span className="text-xs">{r.count}</span> },
-                                    {
-                                        key: 'activity',
-                                        header: 'Activity',
-                                        render: (r) => <InlineBar value={r.count} max={activityMax} colorClass="bg-indigo-500" />,
-                                    },
-                                ]}
-                            />
-                        </div>
-                        <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div className="flex items-center gap-2">
-                                    <Lightbulb className="h-4 w-4 text-amber-600" />
-                                    <p className="text-sm font-bold text-slate-900">Groq AI Training Insights</p>
-                                    <AiBadge />
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={generateAiInsights}
-                                    disabled={aiInsightsLoading}
-                                    className="flex items-center gap-1.5 rounded-lg bg-[#F4B400] px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-[#dba300] disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    {aiInsightsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                                    {aiInsightsLoading ? 'Analyzing…' : 'Generate AI Insights'}
-                                </button>
-                            </div>
-                            {aiInsightsLoading && (
-                                <p className="mt-3 text-xs text-slate-400">Analyzing attendance, completion, and evaluation data for the selected filters…</p>
-                            )}
-                            {!aiInsightsLoading && aiInsights && (
-                                <div className="mt-3 flex flex-col gap-2">
-                                    {aiInsights.map((text, i) => (
-                                        <div key={i} className="flex items-start gap-2 rounded-lg bg-amber-50/60 p-3">
-                                            <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
-                                            <p className="text-xs text-slate-700">{text}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            {!aiInsightsLoading && !aiInsights && (
-                                <p className="mt-3 text-xs text-slate-400">Generate insights for the currently filtered training data.</p>
-                            )}
-                        </div>
-                        <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-                            <div className="flex items-center gap-2">
-                                <Sparkles className="h-4 w-4 text-amber-600" />
-                                <p className="text-sm font-bold text-slate-900">Groq AI Training Recommendations</p>
-                                <AiBadge />
-                            </div>
-                            <p className="mt-1 text-[11px] text-slate-400">AI Analysis → HR/Admin Review → Accept, Edit, or Reject → Human Decision</p>
-                            <div className="mt-3 flex flex-col gap-3">
-                                {recommendations.map((r) => {
-                                    const suggestedProgram = TRAINING_PROGRAMS.find((p) => p.id === r.suggestedProgramId);
-                                    const isEditing = editingRecommendationId === r.id;
-                                    const actionable = r.status === 'Suggested' || r.status === 'Under Review';
-                                    return (
-                                        <div key={r.id} className="rounded-lg border border-slate-100 p-3">
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                                <AiBadge />
-                                                <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${recommendationStatusStyles[r.status]}`}>
-                                                    {r.status}
-                                                </span>
-                                            </div>
-                                            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                                <div>
-                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Employee</p>
-                                                    <p className="text-xs font-medium text-slate-800">{r.employeeName} <span className="text-slate-400">({r.employeeId})</span></p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Development Need</p>
-                                                    <span className="mt-0.5 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">{r.developmentNeed}</span>
-                                                </div>
-                                            </div>
-                                            <div className="mt-2">
-                                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Suggested Training</p>
-                                                {isEditing ? (
-                                                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                                                        <select value={editedProgramId} onChange={(e) => setEditedProgramId(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-[#F4B400] focus:outline-none">
-                                                            {TRAINING_PROGRAMS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-                                                        </select>
-                                                        <button type="button" onClick={() => saveEditedRecommendation(r.id)} className="rounded-lg bg-[#F4B400] px-2.5 py-1 text-xs font-semibold text-black hover:bg-[#dba300]">Save</button>
-                                                        <button type="button" onClick={cancelEditRecommendation} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-                                                    </div>
-                                                ) : (
-                                                    <p className="mt-1 text-xs font-semibold text-slate-800">{suggestedProgram?.title ?? '—'}</p>
-                                                )}
-                                            </div>
-                                            <p className="mt-2 text-xs italic text-slate-500">"{r.reason}"</p>
-                                            {actionable && !isEditing && (
-                                                <div className="mt-3 flex flex-wrap items-center gap-2">
-                                                    <button type="button" onClick={() => updateRecommendationStatus(r.id, 'Accepted')} className="flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700">
-                                                        <CheckCircle2 className="h-3.5 w-3.5" /> Accept
-                                                    </button>
-                                                    <button type="button" onClick={() => startEditRecommendation(r)} className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                                                        <Pencil className="h-3.5 w-3.5" /> Edit
-                                                    </button>
-                                                    <button type="button" onClick={() => updateRecommendationStatus(r.id, 'Rejected')} className="flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50">
-                                                        <XCircle className="h-3.5 w-3.5" /> Reject
-                                                    </button>
-                                                </div>
-                                            )}
-                                            {r.status === 'Accepted' && (
-                                                <p className="mt-2 text-[11px] italic text-slate-400">Assign or schedule this training from the program's session workspace.</p>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                )}
+        <AppModal
+            show
+            title="Reschedule Training"
+            description={row.program.title}
+            onClose={onClose}
+            maxWidth="lg"
+            footer={
+                <>
+                    <button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button>
+                    <button type="button" className={primary} disabled={busy || !valid} onClick={() => void onSave({ label: row.session.label, startsAt, endsAt, venue: venue.trim(), capacity, facilitatorId: facilitatorId ? Number(facilitatorId) : null, externalFacilitatorName: facilitatorId ? null : external.trim() || null, enrollmentClosesAt: row.session.enrollmentClosesAt, status: "Scheduled" })}>
+                        {busy ? "Saving…" : "Save Schedule"}
+                    </button>
+                </>
+            }
+        >
+            {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+            <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Start" required><input className={input} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></Field>
+                <Field label="End" required><input className={input} type="datetime-local" value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} /></Field>
+                <div className="md:col-span-2"><Field label="Venue / location" required><input className={input} value={venue} onChange={(event) => setVenue(event.target.value)} /></Field></div>
+                <Field label="Facilitator" required>
+                    <SystemSelect className={input} value={facilitatorId} onChange={(event) => setFacilitatorId(event.target.value)}>
+                        <option value="">External / not listed</option>
+                        {facilitators.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.position}</option>)}
+                    </SystemSelect>
+                </Field>
+                <Field label="External facilitator" hint={facilitatorId ? "Disabled because an internal facilitator is selected." : "Required when no internal facilitator is selected."}>
+                    <input className={input} value={external} disabled={Boolean(facilitatorId)} onChange={(event) => setExternal(event.target.value)} />
+                </Field>
+                <Field label="Capacity" required hint={`Current participants: ${row.participants.length}`}>
+                    <input className={input} type="number" min={row.participants.length || 1} value={capacity} onChange={(event) => setCapacity(Number(event.target.value))} />
+                </Field>
             </div>
-        </AuthenticatedLayout>
+        </AppModal>
     );
+}
+
+function CancelTrainingModal({ row, busy, error, onClose, onConfirm }: { row: RegisterRow; busy: boolean; error: string; onClose: () => void; onConfirm: (reason: string) => Promise<void> }) {
+    const [reason, setReason] = useState("");
+    return (
+        <AppModal
+            show
+            title="Cancel Training"
+            description={row.program.title}
+            onClose={onClose}
+            maxWidth="lg"
+            layer="confirmation"
+            footer={
+                <>
+                    <button type="button" className={button} onClick={onClose} disabled={busy}>Keep Training</button>
+                    <button type="button" className="app-button app-button-danger" disabled={busy || !reason.trim()} onClick={() => void onConfirm(reason.trim())}>
+                        {busy ? "Cancelling…" : "Cancel Training"}
+                    </button>
+                </>
+            }
+        >
+            {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-900">
+                Cancelling this session does not erase the underlying development requirement. Affected personnel remain traceable and can return to the scheduling queue.
+            </div>
+            <div className="mt-4">
+                <Field label="Cancellation reason" required hint="Required for the audit trail.">
+                    <textarea className={`${input} min-h-28 resize-y`} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this training session is being cancelled" />
+                </Field>
+            </div>
+        </AppModal>
+    );
+}
+
+function Summary({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex items-start gap-2"><div className="rounded-lg bg-amber-50 p-2 text-amber-600"><Icon className="h-4 w-4" /></div><div className="min-w-0"><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-xs font-bold leading-relaxed text-slate-800">{value}</p></div></div></div>;
+}
+
+function formatDate(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatDateTime(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function localDate(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function inList(value: string | null | undefined, allowed: string[]) {
+    return Boolean(value && allowed.includes(value));
+}
+
+function toDateTimeLocal(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const pad = (number: number) => String(number).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function defaultDateTime(daysAhead: number, hour: number) {
+    const date = new Date();
+    date.setDate(date.getDate() + daysAhead);
+    date.setHours(hour, 0, 0, 0);
+    return toDateTimeLocal(date.toISOString());
 }

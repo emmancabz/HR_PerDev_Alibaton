@@ -70,6 +70,7 @@ export type PerformanceImprovementPlan = {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  lockVersion?: number;
 };
 
 export type TraineeJourneyStageKey =

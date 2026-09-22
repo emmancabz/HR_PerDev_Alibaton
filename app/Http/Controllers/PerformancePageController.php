@@ -12,6 +12,11 @@ class PerformancePageController extends Controller
         return Inertia::render('AdminPerformance');
     }
 
+    public function evaluatorAdministration(): Response
+    {
+        return Inertia::render('AdminPerformance', ['performanceView' => 'manage-evaluators']);
+    }
+
     public function user(): Response
     {
         return Inertia::render('UserPerformance');

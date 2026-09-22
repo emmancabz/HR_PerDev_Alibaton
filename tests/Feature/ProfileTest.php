@@ -61,7 +61,7 @@ class ProfileTest extends TestCase
         $this->assertNotNull($user->refresh()->email_verified_at);
     }
 
-    public function test_user_can_delete_their_account(): void
+    public function test_user_cannot_permanently_delete_their_account(): void
     {
         $user = User::factory()->create();
 
@@ -72,14 +72,14 @@ class ProfileTest extends TestCase
             ]);
 
         $response
-            ->assertSessionHasNoErrors()
-            ->assertRedirect('/');
+            ->assertSessionHasErrors('account')
+            ->assertRedirect('/profile');
 
-        $this->assertGuest();
-        $this->assertNull($user->fresh());
+        $this->assertAuthenticatedAs($user);
+        $this->assertNotNull($user->fresh());
     }
 
-    public function test_correct_password_must_be_provided_to_delete_account(): void
+    public function test_legacy_delete_endpoint_never_removes_an_account(): void
     {
         $user = User::factory()->create();
 
@@ -90,9 +90,7 @@ class ProfileTest extends TestCase
                 'password' => 'wrong-password',
             ]);
 
-        $response
-            ->assertSessionHasErrors('password')
-            ->assertRedirect('/profile');
+        $response->assertSessionHasErrors('account')->assertRedirect('/profile');
 
         $this->assertNotNull($user->fresh());
     }

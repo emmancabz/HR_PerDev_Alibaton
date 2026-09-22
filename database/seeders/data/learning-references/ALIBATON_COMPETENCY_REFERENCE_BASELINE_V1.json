@@ -1,0 +1,2520 @@
+{
+  "schema_version": "1.0",
+  "reference_id": "ALB-PND-REF-015",
+  "title": "Competency Framework and Role Requirement Reference Baseline",
+  "as_of_date": "2026-09-11",
+  "status": "Active Internal Competency Reference (Project Baseline)",
+  "official_client_document": false,
+  "governance_note": "This is an interim internal reference created for the Performance & Development system because a complete client-issued competency framework, role requirement matrix, and controlled job-description set were not available to the project team. It must not be represented as an official Alibaton Construction Inc. policy. If Alibaton later supplies an official policy, competency framework, job description, SOP, role matrix, certification requirement, or other controlled source covering the same subject, the official client-issued source supersedes this project baseline and affected competency definitions, role profiles, assessments, development actions, and learning/training references must be reviewed and versioned rather than silently overwritten.",
+  "source_hierarchy": [
+    "Client-issued controlled policies, SOPs, job descriptions, competency frameworks, licenses/certification requirements, and approved organizational standards.",
+    "Approved role responsibilities, department processes, training requirements, safety/compliance controls, and documented management expectations.",
+    "Existing internal project reference documents describing relevant work, controls, risks, responsibilities, or learning expectations.",
+    "Governed interim project baseline when sufficient client documentation is unavailable."
+  ],
+  "proficiency_scale": [
+    {
+      "level": 1,
+      "label": "Awareness",
+      "governance_meaning": "Recognizes the capability, terminology, basic rules, risks, and escalation points; normally requires guidance to perform related work."
+    },
+    {
+      "level": 2,
+      "label": "Basic",
+      "governance_meaning": "Performs routine or controlled tasks with direct guidance or supervision and follows established procedures."
+    },
+    {
+      "level": 3,
+      "label": "Intermediate",
+      "governance_meaning": "Performs normal role tasks independently, applies the capability in routine situations, and handles common exceptions within authority."
+    },
+    {
+      "level": 4,
+      "label": "Advanced",
+      "governance_meaning": "Handles complex work, exercises judgment, reviews or guides others, and manages significant exceptions or risk within the role."
+    },
+    {
+      "level": 5,
+      "label": "Expert",
+      "governance_meaning": "Acts as a recognized subject-matter authority, defines or improves practices, and handles exceptional or high-complexity situations."
+    }
+  ],
+  "competencies": [
+    {
+      "code": "CMP-001",
+      "name": "Communication",
+      "category": "Core & Behavioral",
+      "definition": "Conveys information clearly, listens actively, and adapts messages to workplace audiences.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-SOP-002",
+        "ALB-PND-SOP-013",
+        "ALB-PND-HBK-004"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes the need for clear and respectful workplace communication.",
+        "2": "Shares routine information clearly and asks clarifying questions when needed.",
+        "3": "Adapts messages to the audience and confirms shared understanding.",
+        "4": "Facilitates complex discussions and resolves communication barriers.",
+        "5": "Sets communication standards and coaches others in high-stakes situations."
+      },
+      "assessment_methods": [
+        "Behavioral Interview",
+        "Direct Observation"
+      ],
+      "required_evidence_types": [
+        "Assessor Observation"
+      ],
+      "reassessment_interval_months": 24
+    },
+    {
+      "code": "CMP-002",
+      "name": "Teamwork",
+      "category": "Core & Behavioral",
+      "definition": "Collaborates constructively, shares responsibility, and supports team goals.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-HBK-004",
+        "ALB-PND-SOP-013"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes how individual work contributes to team outcomes.",
+        "2": "Participates reliably in assigned team tasks.",
+        "3": "Coordinates work, shares information, and supports colleagues proactively.",
+        "4": "Resolves team friction and improves cross-functional collaboration.",
+        "5": "Builds collaborative practices across teams and mentors team facilitators."
+      },
+      "assessment_methods": [
+        "Behavioral Interview",
+        "Direct Observation"
+      ],
+      "required_evidence_types": [
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 24
+    },
+    {
+      "code": "CMP-003",
+      "name": "Accountability",
+      "category": "Core & Behavioral",
+      "definition": "Takes ownership of commitments, quality, safety, and corrective action.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-HBK-004",
+        "ALB-PND-POL-008",
+        "ALB-PND-SOP-013"
+      ],
+      "behavioral_indicators": {
+        "1": "Understands assigned responsibilities and escalation paths.",
+        "2": "Completes routine commitments with guidance and reports issues promptly.",
+        "3": "Owns results, corrects errors, and follows through without repeated prompting.",
+        "4": "Anticipates risks and establishes reliable accountability within the team.",
+        "5": "Shapes organization-wide ownership standards and addresses systemic gaps."
+      },
+      "assessment_methods": [
+        "Behavioral Interview",
+        "Direct Observation"
+      ],
+      "required_evidence_types": [
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 24
+    },
+    {
+      "code": "CMP-004",
+      "name": "Problem Solving",
+      "category": "Digital & Analytical",
+      "definition": "Defines problems, evaluates evidence, and implements practical solutions.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-SOP-013",
+        "ALB-PND-GDL-011",
+        "ALB-PND-GDL-009"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes common workplace problems and knows when to escalate.",
+        "2": "Uses established steps to resolve routine issues.",
+        "3": "Analyzes causes, compares options, and implements a supported solution.",
+        "4": "Solves ambiguous or cross-functional problems using structured analysis.",
+        "5": "Creates problem-solving standards and guides resolution of strategic issues."
+      },
+      "assessment_methods": [
+        "Behavioral Interview",
+        "Work Sample Review"
+      ],
+      "required_evidence_types": [
+        "Work Output"
+      ],
+      "reassessment_interval_months": 24
+    },
+    {
+      "code": "CMP-005",
+      "name": "Crane Operation",
+      "category": "Functional & Technical",
+      "definition": "Operates cranes safely within equipment, load, site, and regulatory limits.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-TN-006",
+        "ALB-PND-SAF-005"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies major crane components, controls, hazards, and operator responsibilities.",
+        "2": "Performs basic controlled movements under direct supervision.",
+        "3": "Conducts standard lifts safely and responds correctly to normal site conditions.",
+        "4": "Plans and executes complex lifts while coordinating the lifting team.",
+        "5": "Handles exceptional lift conditions and coaches other qualified operators."
+      },
+      "assessment_methods": [
+        "Practical Demonstration",
+        "Simulation"
+      ],
+      "required_evidence_types": [
+        "Assessor Observation",
+        "Certificate or License"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-006",
+      "name": "Heavy Equipment Operation",
+      "category": "Functional & Technical",
+      "definition": "Operates assigned heavy equipment safely, efficiently, and within operating limits.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-SAF-005"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies equipment controls, hazards, and basic operating limits.",
+        "2": "Performs basic maneuvers under direct supervision.",
+        "3": "Completes routine operations safely in standard site conditions.",
+        "4": "Handles complex conditions, optimizes operation, and guides junior operators.",
+        "5": "Defines advanced operating practices and troubleshoots exceptional conditions."
+      },
+      "assessment_methods": [
+        "Practical Demonstration",
+        "Direct Observation"
+      ],
+      "required_evidence_types": [
+        "Assessor Observation",
+        "Certificate or License"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-007",
+      "name": "Defensive Driving",
+      "category": "Safety & Compliance",
+      "definition": "Applies defensive driving practices to anticipate hazards and protect people, cargo, and equipment.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-GDL-012"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies basic road hazards and company driving rules.",
+        "2": "Applies routine defensive practices with supervision.",
+        "3": "Consistently anticipates hazards and maintains safe margins.",
+        "4": "Manages high-risk conditions and coaches peers using observed evidence.",
+        "5": "Develops defensive-driving standards and analyzes fleet-wide risk patterns."
+      },
+      "assessment_methods": [
+        "Practical Demonstration",
+        "Simulation"
+      ],
+      "required_evidence_types": [
+        "Assessor Observation",
+        "Incident or Safety Record"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-008",
+      "name": "Equipment Inspection",
+      "category": "Functional & Technical",
+      "definition": "Performs systematic pre-use and condition inspections and documents findings accurately.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-SAF-005",
+        "ALB-PND-TN-006"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes major inspection points and defect categories.",
+        "2": "Completes a checklist with guidance and reports obvious defects.",
+        "3": "Independently performs complete routine inspections and accurate documentation.",
+        "4": "Diagnoses complex inspection findings and prioritizes corrective action.",
+        "5": "Improves inspection standards and validates the work of other inspectors."
+      },
+      "assessment_methods": [
+        "Practical Demonstration",
+        "Document Review"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-009",
+      "name": "Preventive Maintenance",
+      "category": "Functional & Technical",
+      "definition": "Carries out scheduled care that preserves equipment reliability and safe operation.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-TN-006",
+        "ALB-PND-SAF-005"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose and basic schedule of preventive maintenance.",
+        "2": "Completes basic maintenance tasks with supervision.",
+        "3": "Performs scheduled maintenance correctly and records work accurately.",
+        "4": "Diagnoses recurring issues and improves maintenance planning.",
+        "5": "Defines maintenance strategy and mentors others on complex equipment needs."
+      },
+      "assessment_methods": [
+        "Practical Demonstration",
+        "Work Sample Review"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-010",
+      "name": "Hazard Identification",
+      "category": "Safety & Compliance",
+      "definition": "Recognizes, evaluates, communicates, and helps control workplace hazards.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-POL-001",
+        "ALB-PND-SAF-005"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes common hazards and basic reporting channels.",
+        "2": "Identifies routine hazards using established checklists.",
+        "3": "Evaluates risk and recommends appropriate controls for standard work.",
+        "4": "Leads complex hazard assessments and validates control effectiveness.",
+        "5": "Designs hazard-identification practices and coaches organization-wide application."
+      },
+      "assessment_methods": [
+        "Direct Observation",
+        "Simulation"
+      ],
+      "required_evidence_types": [
+        "Incident or Safety Record",
+        "Assessor Observation"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-011",
+      "name": "Safety Procedure Compliance",
+      "category": "Safety & Compliance",
+      "definition": "Applies required safety procedures, permits, controls, and escalation practices.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-POL-001",
+        "ALB-PND-SAF-005"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies core safety procedures and why they are required.",
+        "2": "Follows routine procedures with guidance and uses required protective controls.",
+        "3": "Consistently applies procedures and corrects routine deviations.",
+        "4": "Interprets complex requirements and leads procedural compliance in the team.",
+        "5": "Establishes compliance standards and resolves systemic safety-control gaps."
+      },
+      "assessment_methods": [
+        "Direct Observation",
+        "Knowledge Check"
+      ],
+      "required_evidence_types": [
+        "Assessor Observation",
+        "Knowledge Check Result"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-012",
+      "name": "Incident Reporting",
+      "category": "Safety & Compliance",
+      "definition": "Records and communicates incidents accurately, promptly, and through approved channels.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-POL-001",
+        "ALB-PND-SOP-002"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes reportable events and required reporting channels.",
+        "2": "Completes basic incident reports with guidance.",
+        "3": "Produces accurate, timely reports with relevant facts and supporting records.",
+        "4": "Reviews report quality and guides teams through complex reporting situations.",
+        "5": "Improves reporting governance and analyzes recurring quality weaknesses."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Simulation"
+      ],
+      "required_evidence_types": [
+        "Incident or Safety Record",
+        "Work Output"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-013",
+      "name": "Construction Site Coordination",
+      "category": "Functional & Technical",
+      "definition": "Coordinates people, equipment, access, sequencing, and communication at construction sites.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-SOP-013",
+        "ALB-PND-SAF-005",
+        "ALB-PND-SOP-002"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies key site roles, work zones, and coordination channels.",
+        "2": "Coordinates routine tasks using an established site plan.",
+        "3": "Aligns resources and resolves normal sequencing or access conflicts.",
+        "4": "Leads multi-team coordination for complex or changing site conditions.",
+        "5": "Establishes coordination systems for major projects and mentors site leaders."
+      },
+      "assessment_methods": [
+        "Direct Observation",
+        "Work Sample Review"
+      ],
+      "required_evidence_types": [
+        "Supervisor Verification",
+        "Work Output"
+      ],
+      "reassessment_interval_months": 18
+    },
+    {
+      "code": "CMP-014",
+      "name": "Team Leadership",
+      "category": "Leadership & Supervisory",
+      "definition": "Sets direction, coordinates work, makes accountable decisions, and supports team performance.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-HBK-004",
+        "ALB-PND-SOP-013"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes the responsibilities and boundaries of a team leader.",
+        "2": "Coordinates routine work with guidance and communicates priorities.",
+        "3": "Sets clear expectations, monitors work, and addresses normal team issues.",
+        "4": "Leads through complex conditions and develops team capability.",
+        "5": "Shapes leadership practices and mentors leaders across functions."
+      },
+      "assessment_methods": [
+        "Behavioral Interview",
+        "Direct Observation"
+      ],
+      "required_evidence_types": [
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 18
+    },
+    {
+      "code": "CMP-015",
+      "name": "Coaching and Mentoring",
+      "category": "Leadership & Supervisory",
+      "definition": "Provides structured guidance and feedback that develops another person’s capability.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-HBK-004"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes when guidance or feedback is needed.",
+        "2": "Provides basic task guidance using established materials.",
+        "3": "Sets development goals, observes practice, and gives actionable feedback.",
+        "4": "Coaches across complex skill gaps and evaluates development progress.",
+        "5": "Builds mentoring capability and coaching standards across the organization."
+      },
+      "assessment_methods": [
+        "Behavioral Interview",
+        "Direct Observation"
+      ],
+      "required_evidence_types": [
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 18
+    },
+    {
+      "code": "CMP-016",
+      "name": "Data Interpretation",
+      "category": "Digital & Analytical",
+      "definition": "Reads operational data, identifies patterns, and communicates evidence-based implications.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-SOP-013",
+        "ALB-PND-GDL-009",
+        "ALB-PND-GDL-011"
+      ],
+      "behavioral_indicators": {
+        "1": "Recognizes common operational measures and basic data-quality concerns.",
+        "2": "Reads standard reports and identifies straightforward differences.",
+        "3": "Interprets trends, checks context, and explains supported conclusions.",
+        "4": "Integrates multiple sources and challenges weak or misleading interpretations.",
+        "5": "Defines analytical standards and guides high-impact evidence-based decisions."
+      },
+      "assessment_methods": [
+        "Knowledge Check",
+        "Work Sample Review"
+      ],
+      "required_evidence_types": [
+        "Knowledge Check Result",
+        "Work Output"
+      ],
+      "reassessment_interval_months": 24
+    },
+    {
+      "code": "CMP-017",
+      "name": "Financial Recordkeeping",
+      "category": "Functional & Technical",
+      "definition": "Demonstrates reliable judgment and execution in source documents and reconciliations. Evidence guidance: ALB-PND-GDL-009, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-GDL-009",
+        "ALB-PND-POL-008"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for source documents and reconciliations.",
+        "2": "Completes routine tasks involving source documents and reconciliations with guidance and reports uncertainty.",
+        "3": "Reconciles routine financial entries with their supporting records.",
+        "4": "Resolves reconciliation exceptions and maintains a traceable review trail.",
+        "5": "Sets and reviews organizational practice for source documents and reconciliations, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-018",
+      "name": "Disbursement Control",
+      "category": "Functional & Technical",
+      "definition": "Demonstrates reliable judgment and execution in payment approvals and supporting documentation. Evidence guidance: ALB-PND-GDL-009, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-GDL-009"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for payment approvals and supporting documentation.",
+        "2": "Completes routine tasks involving payment approvals and supporting documentation with guidance and reports uncertainty.",
+        "3": "Checks payables against approved source records and separates preparation from approval.",
+        "4": "Investigates unusual payment requests and strengthens disbursement controls.",
+        "5": "Sets and reviews organizational practice for payment approvals and supporting documentation, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-019",
+      "name": "Records and Document Control",
+      "category": "Functional & Technical",
+      "definition": "Demonstrates reliable judgment and execution in controlled records, versions and retention. Evidence guidance: ALB-PND-POL-008, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-POL-008",
+        "ALB-PND-SOP-002"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for controlled records, versions and retention.",
+        "2": "Completes routine tasks involving controlled records, versions and retention with guidance and reports uncertainty.",
+        "3": "Maintains accurate document versions, access records and retrieval indexes.",
+        "4": "Resolves record discrepancies and supervises controlled document distribution.",
+        "5": "Sets and reviews organizational practice for controlled records, versions and retention, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-020",
+      "name": "Contract Documentation and Compliance",
+      "category": "Functional & Technical",
+      "definition": "Demonstrates reliable judgment and execution in contract terms, permits and compliance records. Evidence guidance: ALB-PND-SOP-010, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-SOP-010",
+        "ALB-PND-POL-008"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for contract terms, permits and compliance records.",
+        "2": "Completes routine tasks involving contract terms, permits and compliance records with guidance and reports uncertainty.",
+        "3": "Checks contract documentation and tracks permit and obligation deadlines.",
+        "4": "Resolves compliance exceptions and coordinates evidence for contract reviews.",
+        "5": "Sets and reviews organizational practice for contract terms, permits and compliance records, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-021",
+      "name": "IT Access Governance",
+      "category": "Digital & Analytical",
+      "definition": "Demonstrates reliable judgment and execution in authorized access, role changes and revocation. Evidence guidance: ALB-PND-GDL-011, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-GDL-011",
+        "ALB-PND-MEM-003"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for authorized access, role changes and revocation.",
+        "2": "Completes routine tasks involving authorized access, role changes and revocation with guidance and reports uncertainty.",
+        "3": "Processes authorized access changes with a complete audit trail.",
+        "4": "Reviews elevated access and resolves conflicting or excessive permissions.",
+        "5": "Sets and reviews organizational practice for authorized access, role changes and revocation, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-022",
+      "name": "IT Service Incident Management",
+      "category": "Digital & Analytical",
+      "definition": "Demonstrates reliable judgment and execution in IT incident records, triage and escalation. Evidence guidance: ALB-PND-GDL-011, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-GDL-011",
+        "ALB-PND-MEM-003"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for IT incident records, triage and escalation.",
+        "2": "Completes routine tasks involving IT incident records, triage and escalation with guidance and reports uncertainty.",
+        "3": "Triages service incidents, documents resolution and escalates security concerns.",
+        "4": "Coordinates complex incidents and improves recovery and escalation practices.",
+        "5": "Sets and reviews organizational practice for IT incident records, triage and escalation, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-023",
+      "name": "Fleet Dispatch and Journey Coordination",
+      "category": "Functional & Technical",
+      "definition": "Demonstrates reliable judgment and execution in dispatch records, journey plans and scheduling. Evidence guidance: ALB-PND-GDL-012, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-GDL-012",
+        "ALB-PND-SOP-002"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for dispatch records, journey plans and scheduling.",
+        "2": "Completes routine tasks involving dispatch records, journey plans and scheduling with guidance and reports uncertainty.",
+        "3": "Coordinates vehicle schedules and handovers with documented safety checks.",
+        "4": "Resolves capacity conflicts and adjusts dispatch plans using operational evidence.",
+        "5": "Sets and reviews organizational practice for dispatch records, journey plans and scheduling, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-024",
+      "name": "Project Progress and Cost Control",
+      "category": "Digital & Analytical",
+      "definition": "Demonstrates reliable judgment and execution in site progress records, dependencies and variance reports. Evidence guidance: ALB-PND-SOP-013, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-SOP-013",
+        "ALB-PND-GDL-009",
+        "ALB-PND-POL-008"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for site progress records, dependencies and variance reports.",
+        "2": "Completes routine tasks involving site progress records, dependencies and variance reports with guidance and reports uncertainty.",
+        "3": "Maintains verified progress reports and explains schedule or cost variances.",
+        "4": "Reviews cross-site dependencies and recommends evidence-based corrective plans.",
+        "5": "Sets and reviews organizational practice for site progress records, dependencies and variance reports, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-025",
+      "name": "Rigging and Signal Communication",
+      "category": "Functional & Technical",
+      "definition": "Demonstrates reliable judgment and execution in rigging checks, standard signals and exclusion zones. Evidence guidance: ALB-PND-TN-006, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-TN-006",
+        "ALB-PND-SAF-005"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for rigging checks, standard signals and exclusion zones.",
+        "2": "Completes routine tasks involving rigging checks, standard signals and exclusion zones with guidance and reports uncertainty.",
+        "3": "Uses agreed signals and rigging checks consistently within authorized duties.",
+        "4": "Coordinates complex lifts and identifies unsafe rigging or communication conditions.",
+        "5": "Sets and reviews organizational practice for rigging checks, standard signals and exclusion zones, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-026",
+      "name": "Learning and Assessment Governance",
+      "category": "Functional & Technical",
+      "definition": "Demonstrates reliable judgment and execution in course controls, assessments and learning records. Evidence guidance: ALB-PND-GDL-007, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-GDL-007",
+        "ALB-PND-HBK-004"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for course controls, assessments and learning records.",
+        "2": "Completes routine tasks involving course controls, assessments and learning records with guidance and reports uncertainty.",
+        "3": "Maintains approved course versions, assessment rules and completion evidence.",
+        "4": "Reviews assessment quality and resolves learning governance exceptions.",
+        "5": "Sets and reviews organizational practice for course controls, assessments and learning records, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-027",
+      "name": "Workforce Development Advisory",
+      "category": "Functional & Technical",
+      "definition": "Demonstrates reliable judgment and execution in development needs, review records and escalation paths. Evidence guidance: ALB-PND-HBK-004, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-HBK-004",
+        "ALB-PND-GDL-007"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for development needs, review records and escalation paths.",
+        "2": "Completes routine tasks involving development needs, review records and escalation paths with guidance and reports uncertainty.",
+        "3": "Advises personnel using documented needs and applicable development procedures.",
+        "4": "Coordinates complex workforce development cases and evaluates follow-through.",
+        "5": "Sets and reviews organizational practice for development needs, review records and escalation paths, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    },
+    {
+      "code": "CMP-028",
+      "name": "Budget Monitoring and Financial Analysis",
+      "category": "Digital & Analytical",
+      "definition": "Demonstrates reliable judgment and execution in budget records, cost variances and financial reporting. Evidence guidance: ALB-PND-GDL-009, an existing internal learning reference; applicable approved company procedures take precedence.",
+      "version": 1,
+      "status": "Active",
+      "supporting_reference_ids": [
+        "ALB-PND-GDL-009",
+        "ALB-PND-POL-008"
+      ],
+      "behavioral_indicators": {
+        "1": "Identifies the purpose, basic terminology and escalation points for budget records, cost variances and financial reporting.",
+        "2": "Completes routine tasks involving budget records, cost variances and financial reporting with guidance and reports uncertainty.",
+        "3": "Explains budget and cost variances using reconciled source evidence.",
+        "4": "Reviews material financial exceptions and recommends documented control improvements.",
+        "5": "Sets and reviews organizational practice for budget records, cost variances and financial reporting, validates complex cases and coaches accountable reviewers."
+      },
+      "assessment_methods": [
+        "Document Review",
+        "Work Sample Review",
+        "Behavioral Interview"
+      ],
+      "required_evidence_types": [
+        "Work Output",
+        "Assessor Observation",
+        "Supervisor Verification"
+      ],
+      "reassessment_interval_months": 12
+    }
+  ],
+  "role_profiles": [
+    {
+      "name": "Safety Officer Competency Profile",
+      "position": "Safety Officer",
+      "department": "Safety & Compliance",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-07-25",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Must lead site hazard reviews."
+        },
+        {
+          "competency_code": "CMP-011",
+          "competency_name": "Safety Procedure Compliance",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-012",
+          "competency_name": "Incident Reporting",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-016",
+          "competency_name": "Data Interpretation",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "name": "Crane Operations Supervisor Profile",
+      "position": "Crane Operations Supervisor",
+      "department": "Crane Operations",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-07-25",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-005",
+          "competency_name": "Crane Operation",
+          "required_level": 5,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-008",
+          "competency_name": "Equipment Inspection",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-014",
+          "competency_name": "Team Leadership",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 18,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-015",
+          "competency_name": "Coaching and Mentoring",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 18,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "name": "Operations Supervisor Profile",
+      "position": "Operations Supervisor",
+      "department": "Operations",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-07-25",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-013",
+          "competency_name": "Construction Site Coordination",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 18,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-014",
+          "competency_name": "Team Leadership",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 18,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "name": "Finance Staff Competency Profile",
+      "position": "Finance Staff",
+      "department": "Finance",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-07-25",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-016",
+          "competency_name": "Data Interpretation",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "name": "Training Officer Competency Profile",
+      "position": "Training Officer",
+      "department": "Human Resources",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-07-25",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-015",
+          "competency_name": "Coaching and Mentoring",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 18,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-002",
+          "competency_name": "Teamwork",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-016",
+          "competency_name": "Data Interpretation",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 24,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "name": "Operations Graduate Trainee Profile",
+      "position": "Graduate Trainee",
+      "department": "Operations",
+      "applies_to": "Trainee",
+      "version": 1,
+      "effective_date": "2026-07-25",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-011",
+          "competency_name": "Safety Procedure Compliance",
+          "required_level": 2,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 6,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 2,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 6,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-002",
+          "competency_name": "Teamwork",
+          "required_level": 2,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 2,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 2,
+          "critical": false,
+          "evidence_requirement": "Optional",
+          "reassessment_interval_months": 12,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "name": "System Administrator Competency Profile",
+      "position": "System Administrator",
+      "department": "Administration",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-021",
+          "competency_name": "IT Access Governance",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the System Administrator role in Administration."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the System Administrator role in Administration."
+        },
+        {
+          "competency_code": "CMP-022",
+          "competency_name": "IT Service Incident Management",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the System Administrator role in Administration."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the System Administrator role in Administration."
+        }
+      ]
+    },
+    {
+      "name": "System Administrator Competency Profile",
+      "position": "System Administrator",
+      "department": "Information Technology",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-021",
+          "competency_name": "IT Access Governance",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the System Administrator role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-022",
+          "competency_name": "IT Service Incident Management",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the System Administrator role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the System Administrator role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the System Administrator role in Information Technology."
+        }
+      ]
+    },
+    {
+      "name": "HR Business Partner Competency Profile",
+      "position": "HR Business Partner",
+      "department": "Human Resources",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-027",
+          "competency_name": "Workforce Development Advisory",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the HR Business Partner role in Human Resources."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the HR Business Partner role in Human Resources."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the HR Business Partner role in Human Resources."
+        },
+        {
+          "competency_code": "CMP-026",
+          "competency_name": "Learning and Assessment Governance",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the HR Business Partner role in Human Resources."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the HR Business Partner role in Human Resources."
+        }
+      ]
+    },
+    {
+      "name": "Crane Operator Competency Profile",
+      "position": "Crane Operator",
+      "department": "Crane Operations",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-005",
+          "competency_name": "Crane Operation",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Operator role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-008",
+          "competency_name": "Equipment Inspection",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Operator role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-025",
+          "competency_name": "Rigging and Signal Communication",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Operator role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Operator role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-011",
+          "competency_name": "Safety Procedure Compliance",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Operator role in Crane Operations."
+        }
+      ]
+    },
+    {
+      "name": "Logistics Coordinator Competency Profile",
+      "position": "Logistics Coordinator",
+      "department": "Logistics",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-023",
+          "competency_name": "Fleet Dispatch and Journey Coordination",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Logistics Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Logistics Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Logistics Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Logistics Coordinator role in Logistics."
+        }
+      ]
+    },
+    {
+      "name": "Operations Coordinator Competency Profile",
+      "position": "Operations Coordinator",
+      "department": "Operations",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-013",
+          "competency_name": "Construction Site Coordination",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Operations Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Operations Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Operations Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Operations Coordinator role in Operations."
+        }
+      ]
+    },
+    {
+      "name": "Finance Analyst Competency Profile",
+      "position": "Finance Analyst",
+      "department": "Finance",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-017",
+          "competency_name": "Financial Recordkeeping",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Analyst role in Finance."
+        },
+        {
+          "competency_code": "CMP-028",
+          "competency_name": "Budget Monitoring and Financial Analysis",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Analyst role in Finance."
+        },
+        {
+          "competency_code": "CMP-016",
+          "competency_name": "Data Interpretation",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Analyst role in Finance."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Analyst role in Finance."
+        }
+      ]
+    },
+    {
+      "name": "Contracts Officer Competency Profile",
+      "position": "Contracts Officer",
+      "department": "Contracts",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-020",
+          "competency_name": "Contract Documentation and Compliance",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contracts Officer role in Contracts."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contracts Officer role in Contracts."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contracts Officer role in Contracts."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contracts Officer role in Contracts."
+        }
+      ]
+    },
+    {
+      "name": "Safety Inspector Competency Profile",
+      "position": "Safety Inspector",
+      "department": "Safety & Compliance",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Inspector role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-011",
+          "competency_name": "Safety Procedure Compliance",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Inspector role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-012",
+          "competency_name": "Incident Reporting",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Inspector role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-008",
+          "competency_name": "Equipment Inspection",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Inspector role in Safety & Compliance."
+        }
+      ]
+    },
+    {
+      "name": "Administrative Assistant Competency Profile",
+      "position": "Administrative Assistant",
+      "department": "Administration",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Administrative Assistant role in Administration."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Administrative Assistant role in Administration."
+        },
+        {
+          "competency_code": "CMP-002",
+          "competency_name": "Teamwork",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Administrative Assistant role in Administration."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Administrative Assistant role in Administration."
+        }
+      ]
+    },
+    {
+      "name": "IT Support Specialist Competency Profile",
+      "position": "IT Support Specialist",
+      "department": "Information Technology",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-022",
+          "competency_name": "IT Service Incident Management",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the IT Support Specialist role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-021",
+          "competency_name": "IT Access Governance",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the IT Support Specialist role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the IT Support Specialist role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the IT Support Specialist role in Information Technology."
+        }
+      ]
+    },
+    {
+      "name": "Logistics Supervisor Competency Profile",
+      "position": "Logistics Supervisor",
+      "department": "Logistics",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-023",
+          "competency_name": "Fleet Dispatch and Journey Coordination",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Logistics Supervisor role in Logistics."
+        },
+        {
+          "competency_code": "CMP-014",
+          "competency_name": "Team Leadership",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Logistics Supervisor role in Logistics."
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Logistics Supervisor role in Logistics."
+        },
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Logistics Supervisor role in Logistics."
+        }
+      ]
+    },
+    {
+      "name": "Finance Manager Competency Profile",
+      "position": "Finance Manager",
+      "department": "Finance",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-017",
+          "competency_name": "Financial Recordkeeping",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Manager role in Finance."
+        },
+        {
+          "competency_code": "CMP-028",
+          "competency_name": "Budget Monitoring and Financial Analysis",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Manager role in Finance."
+        },
+        {
+          "competency_code": "CMP-018",
+          "competency_name": "Disbursement Control",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Manager role in Finance."
+        },
+        {
+          "competency_code": "CMP-014",
+          "competency_name": "Team Leadership",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Manager role in Finance."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Finance Manager role in Finance."
+        }
+      ]
+    },
+    {
+      "name": "Contracts & Compliance Supervisor Competency Profile",
+      "position": "Contracts & Compliance Supervisor",
+      "department": "Contracts",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-020",
+          "competency_name": "Contract Documentation and Compliance",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contracts & Compliance Supervisor role in Contracts."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contracts & Compliance Supervisor role in Contracts."
+        },
+        {
+          "competency_code": "CMP-014",
+          "competency_name": "Team Leadership",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contracts & Compliance Supervisor role in Contracts."
+        },
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contracts & Compliance Supervisor role in Contracts."
+        }
+      ]
+    },
+    {
+      "name": "Safety Supervisor Competency Profile",
+      "position": "Safety Supervisor",
+      "department": "Safety & Compliance",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Supervisor role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-011",
+          "competency_name": "Safety Procedure Compliance",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Supervisor role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-012",
+          "competency_name": "Incident Reporting",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Supervisor role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-014",
+          "competency_name": "Team Leadership",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Supervisor role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-015",
+          "competency_name": "Coaching and Mentoring",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Supervisor role in Safety & Compliance."
+        }
+      ]
+    },
+    {
+      "name": "Administrative Services Supervisor Competency Profile",
+      "position": "Administrative Services Supervisor",
+      "department": "Administration",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Administrative Services Supervisor role in Administration."
+        },
+        {
+          "competency_code": "CMP-014",
+          "competency_name": "Team Leadership",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Administrative Services Supervisor role in Administration."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Administrative Services Supervisor role in Administration."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Administrative Services Supervisor role in Administration."
+        }
+      ]
+    },
+    {
+      "name": "IT Operations Supervisor Competency Profile",
+      "position": "IT Operations Supervisor",
+      "department": "Information Technology",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-021",
+          "competency_name": "IT Access Governance",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the IT Operations Supervisor role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-022",
+          "competency_name": "IT Service Incident Management",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the IT Operations Supervisor role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-014",
+          "competency_name": "Team Leadership",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the IT Operations Supervisor role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the IT Operations Supervisor role in Information Technology."
+        }
+      ]
+    },
+    {
+      "name": "Rigger and Signalperson Competency Profile",
+      "position": "Rigger and Signalperson",
+      "department": "Crane Operations",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-025",
+          "competency_name": "Rigging and Signal Communication",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Rigger and Signalperson role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Rigger and Signalperson role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-011",
+          "competency_name": "Safety Procedure Compliance",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Rigger and Signalperson role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Rigger and Signalperson role in Crane Operations."
+        }
+      ]
+    },
+    {
+      "name": "Dispatch Coordinator Competency Profile",
+      "position": "Dispatch Coordinator",
+      "department": "Logistics",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-023",
+          "competency_name": "Fleet Dispatch and Journey Coordination",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Dispatch Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Dispatch Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Dispatch Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-011",
+          "competency_name": "Safety Procedure Compliance",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Dispatch Coordinator role in Logistics."
+        }
+      ]
+    },
+    {
+      "name": "Project Site Coordinator Competency Profile",
+      "position": "Project Site Coordinator",
+      "department": "Operations",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-013",
+          "competency_name": "Construction Site Coordination",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Project Site Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-024",
+          "competency_name": "Project Progress and Cost Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Project Site Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Project Site Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Project Site Coordinator role in Operations."
+        }
+      ]
+    },
+    {
+      "name": "Accounts Payable Specialist Competency Profile",
+      "position": "Accounts Payable Specialist",
+      "department": "Finance",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-018",
+          "competency_name": "Disbursement Control",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Accounts Payable Specialist role in Finance."
+        },
+        {
+          "competency_code": "CMP-017",
+          "competency_name": "Financial Recordkeeping",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Accounts Payable Specialist role in Finance."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Accounts Payable Specialist role in Finance."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Accounts Payable Specialist role in Finance."
+        }
+      ]
+    },
+    {
+      "name": "Contract Documentation Specialist Competency Profile",
+      "position": "Contract Documentation Specialist",
+      "department": "Contracts",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contract Documentation Specialist role in Contracts."
+        },
+        {
+          "competency_code": "CMP-020",
+          "competency_name": "Contract Documentation and Compliance",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contract Documentation Specialist role in Contracts."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contract Documentation Specialist role in Contracts."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Contract Documentation Specialist role in Contracts."
+        }
+      ]
+    },
+    {
+      "name": "Safety Compliance Specialist Competency Profile",
+      "position": "Safety Compliance Specialist",
+      "department": "Safety & Compliance",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-011",
+          "competency_name": "Safety Procedure Compliance",
+          "required_level": 4,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Compliance Specialist role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Compliance Specialist role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-012",
+          "competency_name": "Incident Reporting",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Compliance Specialist role in Safety & Compliance."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Safety Compliance Specialist role in Safety & Compliance."
+        }
+      ]
+    },
+    {
+      "name": "Records Coordinator Competency Profile",
+      "position": "Records Coordinator",
+      "department": "Administration",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Records Coordinator role in Administration."
+        },
+        {
+          "competency_code": "CMP-003",
+          "competency_name": "Accountability",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Records Coordinator role in Administration."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Records Coordinator role in Administration."
+        },
+        {
+          "competency_code": "CMP-016",
+          "competency_name": "Data Interpretation",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Records Coordinator role in Administration."
+        }
+      ]
+    },
+    {
+      "name": "Systems Analyst Competency Profile",
+      "position": "Systems Analyst",
+      "department": "Information Technology",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-004",
+          "competency_name": "Problem Solving",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Systems Analyst role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-016",
+          "competency_name": "Data Interpretation",
+          "required_level": 4,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Systems Analyst role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-021",
+          "competency_name": "IT Access Governance",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Systems Analyst role in Information Technology."
+        },
+        {
+          "competency_code": "CMP-022",
+          "competency_name": "IT Service Incident Management",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Systems Analyst role in Information Technology."
+        }
+      ]
+    },
+    {
+      "name": "Crane Maintenance Coordinator Competency Profile",
+      "position": "Crane Maintenance Coordinator",
+      "department": "Crane Operations",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-009",
+          "competency_name": "Preventive Maintenance",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Maintenance Coordinator role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-008",
+          "competency_name": "Equipment Inspection",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Maintenance Coordinator role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-010",
+          "competency_name": "Hazard Identification",
+          "required_level": 3,
+          "critical": true,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Maintenance Coordinator role in Crane Operations."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Crane Maintenance Coordinator role in Crane Operations."
+        }
+      ]
+    },
+    {
+      "name": "Project Controls Coordinator Competency Profile",
+      "position": "Project Controls Coordinator",
+      "department": "Operations",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-024",
+          "competency_name": "Project Progress and Cost Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Project Controls Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-016",
+          "competency_name": "Data Interpretation",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Project Controls Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-013",
+          "competency_name": "Construction Site Coordination",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Project Controls Coordinator role in Operations."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Project Controls Coordinator role in Operations."
+        }
+      ]
+    },
+    {
+      "name": "Fleet Scheduling Coordinator Competency Profile",
+      "position": "Fleet Scheduling Coordinator",
+      "department": "Logistics",
+      "applies_to": "Employee",
+      "version": 1,
+      "effective_date": "2026-09-08",
+      "status": "Active",
+      "requirements": [
+        {
+          "competency_code": "CMP-023",
+          "competency_name": "Fleet Dispatch and Journey Coordination",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Fleet Scheduling Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-016",
+          "competency_name": "Data Interpretation",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Fleet Scheduling Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-001",
+          "competency_name": "Communication",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Fleet Scheduling Coordinator role in Logistics."
+        },
+        {
+          "competency_code": "CMP-019",
+          "competency_name": "Records and Document Control",
+          "required_level": 3,
+          "critical": false,
+          "evidence_requirement": "Required",
+          "reassessment_interval_months": 12,
+          "notes": "Validated workplace evidence for the Fleet Scheduling Coordinator role in Logistics."
+        }
+      ]
+    }
+  ]
+}

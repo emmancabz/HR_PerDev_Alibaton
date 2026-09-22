@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Services\Security\SecurityAuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -29,12 +30,30 @@ class ConfirmablePasswordController extends Controller
             'email' => $request->user()->email,
             'password' => $request->password,
         ])) {
+            app(SecurityAuditService::class)->record(
+                $request,
+                'PASSWORD_REAUTH_FAILED',
+                'Failed',
+                $request->user(),
+            );
+
             throw ValidationException::withMessages([
                 'password' => __('auth.password'),
             ]);
         }
 
-        $request->session()->put('auth.password_confirmed_at', time());
+        $verifiedAt = now()->timestamp;
+        $request->session()->put([
+            'auth.password_confirmed_at' => $verifiedAt,
+            'security.last_password_verified_at' => $verifiedAt,
+        ]);
+
+        app(SecurityAuditService::class)->record(
+            $request,
+            'PASSWORD_REAUTH_SUCCESS',
+            'Success',
+            $request->user(),
+        );
 
         return redirect()->intended(route('dashboard', absolute: false));
     }

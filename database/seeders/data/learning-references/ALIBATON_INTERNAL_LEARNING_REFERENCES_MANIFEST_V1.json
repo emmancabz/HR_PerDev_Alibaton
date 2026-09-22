@@ -1,0 +1,231 @@
+{
+  "schema_version": "1.2",
+  "library_name": "Alibaton Internal Performance & Development Reference Library",
+  "as_of_date": "2026-09-11",
+  "purpose": "Controlled internal project references used to support Learning, Training, Competency, role-profile, assessment, and workforce-development configuration in the Performance & Development system while official client-issued sources are unavailable or incomplete.",
+  "governance_note": "This is an interim internal reference created for the Performance & Development system because a complete client-issued competency framework, role requirement matrix, and controlled job-description set were not available to the project team. It must not be represented as an official Alibaton Construction Inc. policy. If Alibaton later supplies an official policy, competency framework, job description, SOP, role matrix, certification requirement, or other controlled source covering the same subject, the official client-issued source supersedes this project baseline and affected competency definitions, role profiles, assessments, development actions, and learning/training references must be reviewed and versioned rather than silently overwritten.",
+  "usage_rule": "These references may support LMS course versions, competency definitions, role profiles, assessment guidance, and development mappings. They do not replace official client-issued controlled documents, statutory requirements, external licenses/certifications, manufacturer instructions, or specialized technical procedures.",
+  "documents": [
+    {
+      "document_id": "ALB-PND-POL-001",
+      "document_type": "Policy",
+      "title": "Workplace Safety and Hazard Reporting Policy",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Safety & Compliance / Human Resources",
+      "filename": "ALB-PND-POL-001_Workplace_Safety_and_Hazard_Reporting_Policy.md",
+      "related_lms_courses": [
+        "LRN-2026-902",
+        "LRN-2026-909",
+        "LRN-2026-931",
+        "LRN-2026-933"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-SOP-002",
+      "document_type": "Standard Operating Procedure",
+      "title": "Operational Handover and Work Turnover SOP",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Operations / Administration",
+      "filename": "ALB-PND-SOP-002_Operational_Handover_and_Work_Turnover_SOP.md",
+      "related_lms_courses": [
+        "LRN-2026-901",
+        "LRN-2026-915",
+        "LRN-2026-929"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-MEM-003",
+      "document_type": "Internal Memorandum",
+      "title": "Mandatory Data Privacy and Information Security Awareness",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Information Technology / Human Resources",
+      "filename": "ALB-PND-MEM-003_Mandatory_Data_Privacy_and_Information_Security_Awareness.md",
+      "related_lms_courses": [
+        "LRN-2026-906",
+        "LRN-2026-918"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-HBK-004",
+      "document_type": "Handbook",
+      "title": "Employee Learning and Development Handbook",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Human Resources / Training",
+      "filename": "ALB-PND-HBK-004_Employee_Learning_and_Development_Handbook.md",
+      "related_lms_courses": [
+        "LRN-2026-910",
+        "LRN-2026-911",
+        "LRN-2026-913",
+        "LRN-2026-934"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-SAF-005",
+      "document_type": "Safety Procedure",
+      "title": "Equipment and Work-Zone Coordination Safety Procedure",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Safety & Compliance / Operations",
+      "filename": "ALB-PND-SAF-005_Equipment_and_Work-Zone_Coordination_Safety_Procedure.md",
+      "related_lms_courses": [
+        "LRN-2026-904",
+        "LRN-2026-907",
+        "LRN-2026-924",
+        "LRN-2026-925"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-TN-006",
+      "document_type": "Training Note",
+      "title": "Crane, Rigging, and Signal Communication Training Note",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Crane Operations / Safety & Compliance / Training",
+      "filename": "ALB-PND-TN-006_Crane_Rigging_and_Signal_Communication_Training_Note.md",
+      "related_lms_courses": [
+        "LRN-2026-907",
+        "LRN-2026-924",
+        "LRN-2026-925"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-GDL-007",
+      "document_type": "Internal Guideline",
+      "title": "LMS Course Governance, Assessment, and Certification Guideline",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Human Resources / Training",
+      "filename": "ALB-PND-GDL-007_LMS_Course_Governance_Assessment_and_Certification_Guideline.md",
+      "related_lms_courses": [
+        "LRN-2026-911"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-POL-008",
+      "document_type": "Policy",
+      "title": "Records Management and Document Control Policy",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Administration / Contracts / Human Resources",
+      "filename": "ALB-PND-POL-008_Records_Management_and_Document_Control_Policy.md",
+      "related_lms_courses": [
+        "LRN-2026-914",
+        "LRN-2026-921",
+        "LRN-2026-923"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-GDL-009",
+      "document_type": "Internal Guideline",
+      "title": "Financial Recordkeeping and Disbursement Control Guideline",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Finance",
+      "filename": "ALB-PND-GDL-009_Financial_Recordkeeping_and_Disbursement_Control_Guideline.md",
+      "related_lms_courses": [
+        "LRN-2026-903",
+        "LRN-2026-919",
+        "LRN-2026-920"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-SOP-010",
+      "document_type": "Standard Operating Procedure",
+      "title": "Contract Documentation, Compliance, and Permit Control SOP",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Contracts",
+      "filename": "ALB-PND-SOP-010_Contract_Documentation_Compliance_and_Permit_Control_SOP.md",
+      "related_lms_courses": [
+        "LRN-2026-921",
+        "LRN-2026-922",
+        "LRN-2026-923"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-GDL-011",
+      "document_type": "Internal Guideline",
+      "title": "IT Access Control and Service Incident Management Guideline",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Information Technology",
+      "filename": "ALB-PND-GDL-011_IT_Access_Control_and_Service_Incident_Management_Guideline.md",
+      "related_lms_courses": [
+        "LRN-2026-916",
+        "LRN-2026-917",
+        "LRN-2026-918"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-GDL-012",
+      "document_type": "Internal Guideline",
+      "title": "Fleet Dispatch, Journey, and Road Safety Guideline",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Logistics / Safety & Compliance",
+      "filename": "ALB-PND-GDL-012_Fleet_Dispatch_Journey_and_Road_Safety_Guideline.md",
+      "related_lms_courses": [
+        "LRN-2026-926",
+        "LRN-2026-927",
+        "LRN-2026-928"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-SOP-013",
+      "document_type": "Standard Operating Procedure",
+      "title": "Project Site Coordination, Progress, and Reporting SOP",
+      "version": "1.0",
+      "status": "Active Internal Learning Reference",
+      "owner": "Operations",
+      "filename": "ALB-PND-SOP-013_Project_Site_Coordination_Progress_and_Reporting_SOP.md",
+      "related_lms_courses": [
+        "LRN-2026-929",
+        "LRN-2026-930"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-GDL-014",
+      "document_type": "Internal Guideline",
+      "title": "Competency Management, Role Profile, and Assessment Governance Guideline",
+      "version": "1.0",
+      "status": "Active Internal Competency Reference (Project Baseline)",
+      "owner": "Human Resources / Performance & Development",
+      "filename": "ALB-PND-GDL-014_Competency_Management_Role_Profile_and_Assessment_Governance_Guideline.md",
+      "related_lms_courses": [],
+      "related_competencies": [
+        "CMP-001-CMP-028"
+      ],
+      "related_role_profiles": [
+        "All active Competency Framework v1 profiles"
+      ]
+    },
+    {
+      "document_id": "ALB-PND-REF-015",
+      "document_type": "Internal Reference Matrix",
+      "title": "Competency Framework and Role Requirement Reference Matrix",
+      "version": "1.0",
+      "status": "Active Internal Competency Reference (Project Baseline)",
+      "owner": "Human Resources / Performance & Development",
+      "filename": "ALB-PND-REF-015_Competency_Framework_and_Role_Requirement_Reference_Matrix.md",
+      "related_lms_courses": [],
+      "related_competencies": [
+        "CMP-001-CMP-028"
+      ],
+      "related_role_profiles": [
+        "All active Competency Framework v1 profiles"
+      ]
+    }
+  ],
+  "supporting_files": [
+    {
+      "filename": "ALIBATON_COMPETENCY_REFERENCE_BASELINE_V1.json",
+      "purpose": "Machine-readable copy of the controlled competency and role-profile project baseline documented by ALB-PND-REF-015.",
+      "status": "Active Internal Competency Reference (Project Baseline)"
+    }
+  ],
+  "automation_boundary": "Data B supplies canonical workforce context; Data A supplies competency governance/reference baselines. Repetitive matching, gap calculations, coverage, module completion receipt, and reassessment timing are system-owned; governed standards and official assessment decisions remain human-authorized."
+}

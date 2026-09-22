@@ -1,29 +1,40 @@
 import { emptyDraft, type LearningState } from "@/data/learning";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CourseBuilder from "../../Pages/CourseBuilder";
 
-const { create, stateCall, save } = vi.hoisted(() => ({
+const api = vi.hoisted(() => ({
     create: vi.fn(),
-    stateCall: vi.fn(),
+    state: vi.fn(),
     save: vi.fn(),
+    submitReview: vi.fn(),
+    aiGenerate: vi.fn(),
+    aiDecide: vi.fn(),
+    uploadThumbnail: vi.fn(),
+    uploadMaterial: vi.fn(),
+    revokeMaterial: vi.fn(),
 }));
+
 vi.mock("@/data/learningClient", () => ({
-    learningClient: {
-        create,
-        state: stateCall,
-        save,
-        submitReview: vi.fn(),
-        decideReview: vi.fn(),
-        publish: vi.fn(),
-        aiGenerate: vi.fn(),
-        aiDecide: vi.fn(),
-    },
-    learningError: (error: unknown) => String(error),
+    learningClient: api,
+    learningError: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
+
+const sourceDocument = {
+    documentId: "ALB-PND-SOP-002",
+    type: "SOP",
+    title: "Operational Handover Procedure",
+    version: "1.0",
+    status: "Active",
+    owner: "Operations",
+    departments: ["Operations"],
+    filename: "ALB-PND-SOP-002.md",
+    relatedCourseCodes: [],
+};
+
 const state: LearningState = {
-    actor: { id: 1, name: "Admin User", role: "admin" },
+    actor: { id: 4, name: "Celso Ramirez", role: "hr" },
     courses: [],
     catalog: [],
     assignments: [],
@@ -34,429 +45,174 @@ const state: LearningState = {
     analytics: {},
     competencyCatalog: [],
     roleProfiles: [],
+    sourceLibrary: [sourceDocument],
     personnel: [
-        {
-            id: 2,
-            personnel_key: "u2",
-            name: "Reviewer",
-            email: "r@test",
-            role: "HR",
-            person_type: "Employee",
-            department: "HR",
-            position: "Reviewer",
-            evaluator_capable: true,
-        },
+        { id: 20, personnel_key: "person-20", name: "Ops Employee", email: "ops@test", role: "User", person_type: "Employee", department: "Operations", position: "Operator", evaluator_capable: false },
+        { id: 21, personnel_key: "person-21", name: "Ops Trainee", email: "trainee@test", role: "User", person_type: "Trainee", department: "Operations", position: "Trainee", evaluator_capable: false },
+        { id: 22, personnel_key: "person-22", name: "Finance Employee", email: "fin@test", role: "User", person_type: "Employee", department: "Finance", position: "Finance Staff", evaluator_capable: false },
     ],
     governanceActors: [
-        {
-            id: 1,
-            personnel_key: null,
-            name: "Admin User",
-            email: "admin@alibaton.com",
-            role: "Admin",
-            person_type: null,
-            department: null,
-            position: null,
-            evaluator_capable: false,
-            hasPersonnelIdentity: false,
-            canOwn: true,
-            canAuthor: true,
-            canReview: false,
-            canPublish: true,
-        },
-        {
-            id: 2,
-            personnel_key: "u2",
-            name: "Reviewer",
-            email: "r@test",
-            role: "HR",
-            person_type: "Employee",
-            department: "HR",
-            position: "Reviewer",
-            evaluator_capable: true,
-            hasPersonnelIdentity: true,
-            canOwn: true,
-            canAuthor: true,
-            canReview: true,
-            canPublish: true,
-        },
+        { id: 4, personnel_key: "hr-4", name: "Celso Ramirez", email: "hr@test", role: "HR", person_type: "Employee", department: "Human Resources", position: "HR Business Partner", evaluator_capable: true, hasPersonnelIdentity: true, canOwn: true, canAuthor: true, canReview: false, canPublish: false },
+        { id: 1, personnel_key: null, name: "Learning Admin", email: "admin@test", role: "Admin", person_type: null, department: null, position: null, evaluator_capable: false, hasPersonnelIdentity: false, canOwn: false, canAuthor: false, canReview: true, canPublish: true },
     ],
 };
 
-describe("Course Builder production interactions", () => {
+const validCourse = () => {
+    const draft = emptyDraft(4);
+    draft.title = "Operational handover";
+    draft.description = "A governed course for operational handover procedures and records.";
+    draft.learningObjectives = ["Apply the approved operational handover procedure correctly."];
+    draft.audience.allDepartments = false;
+    draft.audience.departments = ["Operations"];
+    draft.audience.personTypes = ["Employee", "Trainee"];
+    draft.sourceDocumentIds = [sourceDocument.documentId];
+    draft.modules = [{
+        clientId: "module-1",
+        title: "Handover foundation",
+        description: "Foundation",
+        lessons: [{
+            title: "Shift handover",
+            objective: "Apply the handover process correctly.",
+            description: "Read the procedure.",
+            contentType: "Text/Reading",
+            textContent: "Use the approved handover procedure and complete the required logbook.",
+            externalUrl: "",
+            estimatedMinutes: 10,
+            required: true,
+            materials: [],
+        }],
+    }];
+    const question = {
+        type: "Multiple Choice" as const,
+        text: "Which handover action is required?",
+        explanation: "Follow the approved handover procedure.",
+        points: 1,
+        options: [
+            { text: "Complete the documented handover", correct: true },
+            { text: "Skip the handover", correct: false },
+        ],
+    };
+    draft.assessments = [
+        { type: "Pre-Test", title: "Pre-Test", required: false, passingScore: 80, attemptsAllowed: 1, shuffleQuestions: false, shuffleOptions: false, feedbackPolicy: "After submission", moduleClientId: null, questions: [question] },
+        { type: "Post-Test", title: "Post-Test", required: true, passingScore: 80, attemptsAllowed: 3, shuffleQuestions: false, shuffleOptions: false, feedbackPolicy: "After submission", moduleClientId: null, questions: [structuredClone(question)] },
+    ];
+    return draft;
+};
+
+const renderBuilder = (draft = emptyDraft(4)) => render(
+    <CourseBuilder initialDraft={draft} state={state} onExit={vi.fn()} onState={vi.fn()} />,
+);
+
+describe("final HR Course Builder", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        create.mockResolvedValue({ versionId: "v1", courseId: "c1" });
-        stateCall.mockResolvedValue({ ...state, courses: [] });
-        save.mockResolvedValue({ ...state, courses: [] });
+        api.create.mockResolvedValue({ versionId: "version-1", courseId: "course-1", code: "LRN-2026-001" });
+        api.state.mockResolvedValue(state);
+        api.save.mockResolvedValue(state);
+        api.submitReview.mockResolvedValue(state);
     });
-    it("renders a horizontal seven-stage procedure", () => {
-        render(
-            <CourseBuilder
-                initialDraft={emptyDraft(1)}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-        [
-            "Course Details",
-            "Audience & Availability",
-            "Competency Alignment",
-            "Governance",
-            "Curriculum",
-            "Assessment & Completion",
-            "Review & Publish",
-        ].forEach((label) =>
-            expect(screen.getAllByText(label).length).toBeGreaterThan(0),
-        );
-    });
-    it("marks the current stage semantically", () => {
-        render(
-            <CourseBuilder
-                initialDraft={emptyDraft(1)}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-        expect(screen.getByRole("button", { name: "1" })).toHaveAttribute(
-            "aria-current",
-            "step",
-        );
-        expect(screen.getByRole("button", { name: "1" })).toHaveClass(
-            "learning-step-active",
-        );
-    });
-    it("animates forward and backward stage changes without exposing future stages", async () => {
-        const user = userEvent.setup();
-        const draft = emptyDraft(1);
-        draft.title = "Governed course";
-        draft.description = "A meaningful governed online course description.";
-        draft.learningObjectives = ["Apply the documented process correctly."];
-        render(
-            <CourseBuilder
-                initialDraft={draft}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
 
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-        expect(screen.getByRole("button", { name: "1" })).toHaveClass(
-            "learning-step-complete",
-        );
-        expect(screen.getByRole("button", { name: "2" })).toHaveClass(
-            "learning-step-active",
-        );
-        expect(screen.getByTestId("learning-stage-content")).toHaveClass(
-            "learning-stage-panel--forward",
-        );
-        expect(screen.getByRole("button", { name: "3" })).toBeDisabled();
+    it("uses the final seven-stage department-first flow", () => {
+        renderBuilder();
+        ["Course Setup", "Source Documents", "Audience & Competency", "Curriculum", "Assessment & Completion", "Review", "Submit"]
+            .forEach((label) => expect(screen.getAllByText(label).length).toBeGreaterThan(0));
+        expect(screen.queryByText("Governance")).not.toBeInTheDocument();
+        expect(screen.getAllByTestId("learning-step-connector")).toHaveLength(6);
+    });
 
-        await user.click(screen.getByRole("button", { name: /Previous/ }));
-        expect(screen.getByTestId("learning-stage-content")).toHaveClass(
-            "learning-stage-panel--backward",
-        );
-        expect(screen.getByRole("button", { name: "1" })).toHaveAttribute(
-            "aria-current",
-            "step",
-        );
-    });
-    it("shows only one active stage form at a time", async () => {
-        const user = userEvent.setup();
-        const draft = emptyDraft(1);
-        draft.title = "Governed course";
-        draft.description = "A meaningful governed online course description.";
-        draft.learningObjectives = ["Apply the documented process correctly."];
-        render(
-            <CourseBuilder
-                initialDraft={draft}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-        expect(screen.getByLabelText(/Course Title/)).toBeVisible();
-        expect(
-            screen.queryByLabelText(/Catalog visibility/),
-        ).not.toBeInTheDocument();
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-        expect(screen.getByLabelText(/Catalog visibility/)).toBeVisible();
-        expect(screen.queryByLabelText(/Course Title/)).not.toBeInTheDocument();
-    });
-    it("blocks stage progression while the active stage is incomplete", () => {
-        render(
-            <CourseBuilder
-                initialDraft={emptyDraft(1)}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
+    it("requires a target department in Course Setup", () => {
+        renderBuilder();
+        expect(screen.getByRole("button", { name: "Target Department dropdown" })).toBeVisible();
         expect(screen.getByRole("button", { name: /Continue/ })).toBeDisabled();
-        expect(
-            screen.getByText("3 item(s) must be completed before continuing."),
-        ).toBeVisible();
-        expect(
-            screen.getByText(/course title of at least 3 characters/i),
-        ).toBeVisible();
-        expect(
-            screen.getByText(/description of at least 20 characters/i),
-        ).toBeVisible();
-        expect(
-            screen.getByText(/learning objective of 8 or more characters/i),
-        ).toBeVisible();
-        expect(screen.getByLabelText(/Course Title/)).toHaveAttribute(
-            "aria-invalid",
-            "true",
-        );
+        expect(screen.getByText(/Select a target department or choose Company-wide/i)).toBeVisible();
     });
-    it("opens a clickable unsaved-changes modal outside the builder content", async () => {
+
+    it("automatically derives learner types when HR chooses a department", async () => {
         const user = userEvent.setup();
-        render(
-            <CourseBuilder
-                initialDraft={emptyDraft(1)}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
+        const draft = validCourse();
+        draft.id = undefined;
+        draft.courseId = undefined;
+        draft.audience.personTypes = [];
+        draft.sourceDocumentIds = [];
+        draft.modules = [];
+        draft.assessments = [];
+        renderBuilder(draft);
+        await user.selectOptions(screen.getByLabelText("Target Department"), "Operations");
+        await user.click(screen.getByRole("button", { name: "Save Draft" }));
+        await waitFor(() => expect(api.create).toHaveBeenCalled());
+        expect(api.create.mock.calls.at(-1)?.[0].audience.personTypes).toEqual(["Employee", "Trainee"]);
+    });
+
+    it("auto-selects relevant source documents after department selection", async () => {
+        const user = userEvent.setup();
+        const draft = validCourse();
+        draft.workingStage = 1;
+        draft.sourceDocumentIds = [];
+        renderBuilder(draft);
+        expect(screen.getByText("Operational Handover Procedure")).toBeVisible();
+        expect(screen.getByText("Recommended")).toBeVisible();
+        await waitFor(() => expect(screen.getByText("1 selected")).toBeVisible());
+        await user.click(screen.getByRole("button", { name: "Save Draft" }));
+        await waitFor(() => expect(api.create).toHaveBeenCalled());
+        expect(api.create.mock.calls.at(-1)?.[0].sourceDocumentIds).toEqual(["ALB-PND-SOP-002"]);
+    });
+
+    it("does not offer Aevyn before source documents have been selected", () => {
+        renderBuilder(validCourse());
+        expect(screen.queryByRole("button", { name: "Aevyn Assist" })).not.toBeInTheDocument();
+    });
+
+    it("offers Aevyn while building curriculum after source selection", () => {
+        const draft = validCourse();
+        draft.workingStage = 3;
+        renderBuilder(draft);
+        expect(screen.getByRole("button", { name: "Aevyn Assist" })).toBeVisible();
+    });
+
+    it("keeps Pre-Test, Knowledge Check, and Post-Test authoring in Assessment & Completion", () => {
+        const draft = validCourse();
+        draft.workingStage = 4;
+        renderBuilder(draft);
+        expect(screen.getByRole("button", { name: "Assessment Pre-Test type dropdown" })).toBeVisible();
+        expect(screen.getByRole("button", { name: "Assessment Post-Test type dropdown" })).toBeVisible();
+        expect(screen.getByRole("button", { name: /Add Knowledge Check/i })).toBeVisible();
+    });
+
+    it("does not expose manual reviewer or publisher selection to HR", () => {
+        const draft = validCourse();
+        draft.workingStage = 5;
+        renderBuilder(draft);
+        expect(screen.queryByLabelText(/Course Owner/i)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/Reviewer/i)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/Publisher/i)).not.toBeInTheDocument();
+    });
+
+    it("submits a complete HR-authored course to Admin", async () => {
+        const user = userEvent.setup();
+        const draft = validCourse();
+        draft.id = "version-1";
+        draft.courseId = "course-1";
+        draft.status = "Draft";
+        draft.workingStage = 6;
+        api.save.mockResolvedValue({ ...state, courses: [{
+            id: "course-1", code: "LRN-2026-001", title: draft.title, category: draft.category,
+            status: "Draft", owner: "Celso Ramirez", ownerId: 4, audience: "Employees · Operations",
+            activeAssignments: 0, completionRate: 0, lastUpdated: "2026-09-15T10:00:00+08:00", archived: false,
+            competencies: [], draftVersionId: "version-1", draftDetail: draft,
+        }] });
+        renderBuilder(draft);
+        const submit = screen.getByRole("button", { name: /Submit to Admin/i });
+        expect(submit).toBeEnabled();
+        await user.click(submit);
+        await waitFor(() => expect(api.submitReview).toHaveBeenCalledWith("version-1"));
+        expect(await screen.findByText("Course submitted to Admin for publication review.")).toBeVisible();
+    });
+
+    it("opens an exit confirmation when HR has unsaved changes", async () => {
+        const user = userEvent.setup();
+        renderBuilder();
         await user.type(screen.getByLabelText(/Course Title/), "Changed");
-        await user.click(screen.getByRole("button", { name: /Exit/ }));
-        expect(
-            screen.getByRole("dialog", { name: "Exit Course Builder?" }),
-        ).toBeVisible();
-        expect(
-            screen.getByRole("button", { name: "Keep editing" }),
-        ).toBeEnabled();
-        await user.click(screen.getByRole("button", { name: "Keep editing" }));
-        await waitFor(() =>
-            expect(
-                screen.queryByRole("dialog", { name: "Exit Course Builder?" }),
-            ).not.toBeInTheDocument(),
-        );
-    });
-    it("calls the real save handler for a new Draft", async () => {
-        const user = userEvent.setup();
-        render(
-            <CourseBuilder
-                initialDraft={emptyDraft(1)}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-        await user.click(screen.getByRole("button", { name: /Save Draft/ }));
-        await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
-        expect(create.mock.calls[0][0].ownerId).toBe(1);
-    });
-    it("saves valid Step 1 before moving to Step 2", async () => {
-        const user = userEvent.setup();
-        const draft = emptyDraft(1);
-        draft.title = "Operational readiness";
-        draft.description =
-            "A complete description for the governed online course.";
-        draft.learningObjectives = ["Apply the documented process correctly."];
-        render(
-            <CourseBuilder
-                initialDraft={draft}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-        await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
-        expect(create.mock.calls[0][0].audience.personTypes).toEqual([]);
-        expect(screen.getByLabelText(/Catalog visibility/)).toBeVisible();
-        expect(screen.queryByText(/canonical personnel values/i)).not.toBeInTheDocument();
-    });
-    it("renders Audience Person Types only from canonical learner personnel", async () => {
-        const user = userEvent.setup();
-        const draft = emptyDraft(1);
-        draft.title = "Canonical audience";
-        draft.description = "A complete description for the governed online course.";
-        draft.learningObjectives = ["Apply the documented process correctly."];
-        const canonicalState: LearningState = {
-            ...state,
-            personnel: [
-                { ...state.personnel[0], id: 2, person_type: "Project Employee" },
-                { ...state.personnel[0], id: 3, person_type: "Trainee" },
-                { ...state.personnel[0], id: 4, person_type: "Project Employee" },
-                { ...state.personnel[0], id: 5, person_type: "" },
-            ],
-            governanceActors: [
-                { ...state.governanceActors[0], person_type: "System Administrator" },
-            ],
-        };
-        render(
-            <CourseBuilder
-                initialDraft={draft}
-                state={canonicalState}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-        expect(screen.getByRole("checkbox", { name: "Project Employee" })).toBeVisible();
-        expect(screen.getByRole("checkbox", { name: "Trainee" })).toBeVisible();
-        expect(screen.queryByRole("checkbox", { name: "Employee" })).not.toBeInTheDocument();
-        expect(screen.queryByText("System Administrator")).not.toBeInTheDocument();
-        expect(screen.getAllByRole("checkbox", { name: "Project Employee" })).toHaveLength(1);
-    });
-    it("reopens known legacy Audience values as selected canonical values", async () => {
-        const user = userEvent.setup();
-        const draft = emptyDraft(1);
-        Object.assign(draft, {
-            title: "Legacy audience",
-            description: "A complete description for the governed online course.",
-            learningObjectives: ["Apply the documented process correctly."],
-        });
-        draft.audience.personTypes = ["Employees"];
-        render(
-            <CourseBuilder
-                initialDraft={draft}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-        expect(create.mock.calls[0][0].audience.personTypes).toEqual(["Employee"]);
-        expect(screen.getByRole("checkbox", { name: "Employee" })).toBeChecked();
-    });
-    it("shows an actionable state when canonical Person Types are unavailable", async () => {
-        const user = userEvent.setup();
-        const draft = emptyDraft(1);
-        Object.assign(draft, {
-            title: "Unavailable audience",
-            description: "A complete description for the governed online course.",
-            learningObjectives: ["Apply the documented process correctly."],
-        });
-        render(
-            <CourseBuilder
-                initialDraft={draft}
-                state={{ ...state, personnel: [] }}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-        expect(
-            screen.getByText(/add or activate personnel with a person type/i),
-        ).toBeVisible();
-        expect(screen.getByRole("button", { name: /Continue/ })).toBeDisabled();
-    });
-    it("keeps the system Admin owner selected from governance actors without making it learner personnel", async () => {
-        const user = userEvent.setup();
-        const draft = emptyDraft(1);
-        draft.title = "Operational readiness";
-        draft.description =
-            "A complete description for the governed online course.";
-        draft.learningObjectives = ["Apply the documented process correctly."];
-        draft.audience.personTypes = ["Employee"];
-        render(
-            <CourseBuilder
-                initialDraft={draft}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-        await user.click(screen.getByRole("button", { name: /Continue/ }));
-
-        const owner = screen.getByLabelText("Course Owner");
-        expect(owner).toHaveValue("1");
-        expect(
-            within(owner).getByRole("option", { name: "Admin User — Admin" }),
-        ).toBeVisible();
-        expect(state.personnel.some((person) => person.id === 1)).toBe(false);
-    });
-    it("does not make future desktop stage controls actionable", () => {
-        render(
-            <CourseBuilder
-                initialDraft={emptyDraft(1)}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-        expect(screen.getByRole("button", { name: "7" })).toBeDisabled();
-    });
-    it("queues edits made during an active autosave and immediately flushes the newest revision", async () => {
-        vi.useFakeTimers();
-        const first = Promise.withResolvers<LearningState>();
-        const second = Promise.withResolvers<LearningState>();
-        const draft = emptyDraft(1);
-        Object.assign(draft, {
-            id: "v1",
-            courseId: "c1",
-            status: "Draft",
-            title: "Initial title",
-        });
-        const response = (title: string): LearningState => ({
-            ...state,
-            courses: [
-                {
-                    id: "c1",
-                    code: "LRN-2026-001",
-                    title,
-                    category: "General",
-                    status: "Draft",
-                    owner: "Author",
-                    ownerId: 1,
-                    audience: "Employees",
-                    activeAssignments: 0,
-                    completionRate: 0,
-                    lastUpdated: "2026-08-13T00:00:00+08:00",
-                    archived: false,
-                    competencies: [],
-                    draftVersionId: "v1",
-                    draftDetail: { ...draft, title },
-                },
-            ],
-        });
-        save.mockImplementationOnce(() => first.promise);
-        save.mockImplementationOnce(() => second.promise);
-        render(
-            <CourseBuilder
-                initialDraft={draft}
-                state={state}
-                onExit={vi.fn()}
-                onState={vi.fn()}
-            />,
-        );
-
-        fireEvent.change(screen.getByLabelText(/Course Title/), {
-            target: { value: "First revision" },
-        });
-        await vi.advanceTimersByTimeAsync(1500);
-        expect(save).toHaveBeenCalledTimes(1);
-
-        fireEvent.change(screen.getByLabelText(/Course Title/), {
-            target: { value: "Newest queued revision" },
-        });
-        first.resolve(response("First revision"));
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(save).toHaveBeenCalledTimes(2);
-        expect(save.mock.calls[1][1].title).toBe("Newest queued revision");
-        second.resolve(response("Newest queued revision"));
-        await Promise.resolve();
-        await Promise.resolve();
-        expect(
-            screen.getByDisplayValue("Newest queued revision"),
-        ).toBeVisible();
-        vi.useRealTimers();
+        await user.click(screen.getByRole("button", { name: "Exit" }));
+        expect(screen.getByRole("dialog", { name: "Exit Course Builder?" })).toBeVisible();
     });
 });

@@ -6,6 +6,7 @@ export interface User {
     id: number;
     name: string;
     email: string;
+    profile_photo_url: string | null;
     role: UserRole;
     personnel_key: string | null;
     core_person_id: string | null;
@@ -24,5 +25,6 @@ export type PageProps<
     auth: {
         user: User;
     };
+    securitySessionTimeoutMinutes: number;
     ziggy: Config & { location: string };
 };

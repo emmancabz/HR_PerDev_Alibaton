@@ -14,11 +14,15 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
+            \App\Http\Middleware\ApplySecurityHeaders::class,
+            \App\Http\Middleware\RecordSecurityActivity::class,
+            \App\Http\Middleware\EnsureActivePndAccess::class,
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ]);
 
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
+            'recent-auth' => \App\Http\Middleware\EnsureRecentAuthentication::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

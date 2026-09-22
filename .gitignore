@@ -25,3 +25,7 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+/backups/
+/public/build-before-*/
+/performance-before-*.zip
+*.tmp

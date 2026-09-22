@@ -7,6 +7,17 @@ import { createRoot } from 'react-dom/client';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Alibaton Workforce Portal';
 
+const persistedTheme = typeof window !== 'undefined'
+    ? window.localStorage.getItem('pd_theme_preference')
+    : null;
+const initialTheme = persistedTheme === 'dark' ? 'dark' : 'light';
+
+if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('dark', initialTheme === 'dark');
+    document.documentElement.dataset.theme = initialTheme;
+    document.documentElement.style.colorScheme = initialTheme;
+}
+
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
     resolve: (name) =>
