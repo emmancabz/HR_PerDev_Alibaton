@@ -6,7 +6,7 @@ use App\Services\Notifications\NotificationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
+use App\Support\SchemaPresence as Schema;
 use Throwable;
 
 class HeaderNotificationController extends Controller

@@ -3,6 +3,12 @@
 use Illuminate\Support\Str;
 use Pdo\Mysql;
 
+$serviceRole = env('SERVICE_ROLE', 'gateway');
+$domainSchemas = ['performance', 'competency', 'learning', 'training', 'succession', 'recognition'];
+$defaultSearchPath = in_array($serviceRole, $domainSchemas, true)
+    ? implode(',', array_values(array_unique([$serviceRole, 'public', ...$domainSchemas])))
+    : 'public,'.implode(',', $domainSchemas);
+
 return [
 
     /*
@@ -95,7 +101,7 @@ return [
             'charset' => env('DB_CHARSET', 'utf8'),
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'public',
+            'search_path' => env('DB_SEARCH_PATH', $defaultSearchPath),
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 

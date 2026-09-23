@@ -12,6 +12,8 @@ use App\Http\Controllers\PerformanceStateController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\LearningPageController;
 use App\Http\Controllers\LearningStateController;
+use App\Http\Controllers\Microservices\MicroserviceProxyController;
+use App\Http\Controllers\Microservices\MicroservicesHealthController;
 use App\Http\Controllers\TrainingPageController;
 use App\Http\Controllers\TrainingStateController;
 use App\Http\Controllers\UserManagementPageController;
@@ -36,8 +38,17 @@ Route::get('/', function () {
 
 Route::middleware('auth')->group(function () {
     Route::get('/competency', [CompetencyController::class, 'page'])->name('competency.index');
-    Route::get('/competency/api/state', [CompetencyController::class, 'show'])->name('competency.state');
-    Route::post('/competency/api/changes', [CompetencyController::class, 'update'])->middleware('throttle:180,1')->name('competency.changes');
+
+    if (config('microservices.enabled')) {
+        Route::any('/competency/api/{path?}', MicroserviceProxyController::class)
+            ->where('path', '.*')
+            ->defaults('service', 'competency')
+            ->middleware('throttle:180,1')
+            ->name('competency.proxy');
+    } else {
+        Route::get('/competency/api/state', [CompetencyController::class, 'show'])->name('competency.state');
+        Route::post('/competency/api/changes', [CompetencyController::class, 'update'])->middleware('throttle:180,1')->name('competency.changes');
+    }
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/api/global-search', GlobalSearchController::class)
         ->middleware('throttle:90,1')
@@ -52,6 +63,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/admin/dashboard', [DashboardController::class, 'admin'])
         ->middleware('role:admin')
         ->name('admin.dashboard');
+    Route::get('/admin/api/microservices/health', MicroservicesHealthController::class)
+        ->middleware(['role:admin', 'throttle:30,1'])
+        ->name('admin.microservices.health');
 
     Route::get('/hr/dashboard', [DashboardController::class, 'hr'])
         ->middleware('role:hr')
@@ -121,6 +135,25 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
         Route::delete('/settings/accounts/{user}/identity', [SettingsStateController::class, 'deleteIdentity'])->name('settings.accounts.delete-identity');
     });
 
+    if (config('microservices.enabled')) {
+        Route::any('/performance/api/{path?}', MicroserviceProxyController::class)
+            ->where('path', '.*')
+            ->defaults('service', 'performance')
+            ->middleware('throttle:120,1,mfa-status')
+            ->name('performance.proxy');
+
+        Route::any('/api/performance/360/{path?}', MicroserviceProxyController::class)
+            ->where('path', '.*')
+            ->defaults('service', 'performance')
+            ->middleware('throttle:120,1,mfa-status')
+            ->name('performance.360.proxy');
+
+        Route::any('/api/performance/user-reviews/{path?}', MicroserviceProxyController::class)
+            ->where('path', '.*')
+            ->defaults('service', 'performance')
+            ->middleware('throttle:120,1,mfa-status')
+            ->name('performance.user-reviews.proxy');
+    } else {
     Route::prefix('performance/api')->name('performance.api.')->middleware('throttle:120,1,mfa-status')->group(function () {
         Route::get('/state', [PerformanceStateController::class, 'show'])->name('state');
         Route::put('/reviews', [PerformanceStateController::class, 'reviews'])->name('reviews');
@@ -140,7 +173,27 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
             ->middleware('throttle:10,1')
             ->name('intelligence.draft');
     });
+    }
 
+    if (config('microservices.enabled')) {
+        Route::get('/learning/api/certificates/{certificate}/download', MicroserviceProxyController::class)
+            ->defaults('service', 'learning')
+            ->middleware(['signed', 'throttle:120,1,mfa-status'])
+            ->name('learning.api.certificates.download');
+        Route::get('/learning/api/materials/{material}/download', MicroserviceProxyController::class)
+            ->defaults('service', 'learning')
+            ->middleware(['signed', 'throttle:120,1,mfa-status'])
+            ->name('learning.api.materials.download');
+        Route::get('/learning/api/versions/{version}/thumbnail', MicroserviceProxyController::class)
+            ->defaults('service', 'learning')
+            ->middleware(['signed', 'throttle:120,1,mfa-status'])
+            ->name('learning.api.thumbnails.download');
+        Route::any('/learning/api/{path?}', MicroserviceProxyController::class)
+            ->where('path', '.*')
+            ->defaults('service', 'learning')
+            ->middleware('throttle:120,1,mfa-status')
+            ->name('learning.proxy');
+    } else {
     Route::prefix('learning/api')->name('learning.api.')->middleware('throttle:120,1,mfa-status')->group(function () {
         Route::get('/state', [LearningStateController::class, 'show'])->name('state');
         Route::post('/courses', [LearningStateController::class, 'create'])->name('courses.create');
@@ -175,7 +228,15 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
         Route::post('/recommendations', [LearningStateController::class, 'receiveRecommendation'])->name('recommendations.receive');
         Route::post('/recommendations/{learningRequest}/action', [LearningStateController::class, 'actRecommendation'])->name('recommendations.action');
     });
+    }
 
+    if (config('microservices.enabled')) {
+        Route::any('/training/api/{path?}', MicroserviceProxyController::class)
+            ->where('path', '.*')
+            ->defaults('service', 'training')
+            ->middleware('throttle:120,1,mfa-status')
+            ->name('training.proxy');
+    } else {
     Route::prefix('training/api')->name('training.api.')->middleware('throttle:120,1,mfa-status')->group(function () {
         Route::get('/state', [TrainingStateController::class, 'show'])->name('state');
         Route::post('/requirements/schedule', [TrainingStateController::class, 'scheduleRequirements'])->name('requirements.schedule');
@@ -200,7 +261,15 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
         Route::get('/reports/export', [TrainingStateController::class, 'export'])->name('reports.export');
         Route::get('/certificates/{certificate}', [TrainingStateController::class, 'certificate'])->name('certificates.download');
     });
+    }
 
+    if (config('microservices.enabled')) {
+        Route::any('/succession/api/{path?}', MicroserviceProxyController::class)
+            ->where('path', '.*')
+            ->defaults('service', 'succession')
+            ->middleware('throttle:120,1,mfa-status')
+            ->name('succession.proxy');
+    } else {
     Route::prefix('succession/api')->name('succession.api.')->middleware('throttle:120,1,mfa-status')->group(function () {
         Route::get('/state', [SuccessionStateController::class, 'show'])->name('state');
         Route::post('/positions', [SuccessionStateController::class, 'createPosition'])->name('positions.create');
@@ -219,7 +288,15 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
         Route::post('/evidence', [SuccessionStateController::class, 'receiveEvidence'])->name('evidence.receive');
         Route::get('/reports/export', [SuccessionStateController::class, 'export'])->name('reports.export');
     });
+    }
 
+    if (config('microservices.enabled')) {
+        Route::any('/recognition/api/{path?}', MicroserviceProxyController::class)
+            ->where('path', '.*')
+            ->defaults('service', 'recognition')
+            ->middleware('throttle:120,1,mfa-status')
+            ->name('recognition.proxy');
+    } else {
     Route::prefix('recognition/api')->name('recognition.api.')->middleware('throttle:120,1,mfa-status')->group(function () {
         Route::get('/state', [RecognitionStateController::class, 'show'])->name('state');
         Route::post('/records', [RecognitionStateController::class, 'create'])->middleware('throttle:20,1')->name('records.create');
@@ -230,6 +307,7 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
         Route::post('/categories', [RecognitionStateController::class, 'createCategory'])->name('categories.create');
         Route::put('/categories/{category}', [RecognitionStateController::class, 'updateCategory'])->name('categories.update');
     });
+    }
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -239,5 +317,9 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
 Route::post('/aevyn/chat', [\App\Http\Controllers\AI\AevynController::class, 'chat'])
     ->middleware('auth')
     ->name('aevyn.chat');
+
+if (! config('microservices.enabled')) {
+    require __DIR__.'/performance360.php';
+}
 
 require __DIR__.'/auth.php';

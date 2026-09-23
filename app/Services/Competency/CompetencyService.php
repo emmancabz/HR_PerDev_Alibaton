@@ -9,7 +9,7 @@ use App\Services\Personnel\CanonicalPersonnelService;
 use App\Services\Learning\LearningRequestService;
 use App\Services\Training\TrainingService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
+use App\Support\SchemaPresence as Schema;
 use Carbon\CarbonImmutable;
 
 class CompetencyService

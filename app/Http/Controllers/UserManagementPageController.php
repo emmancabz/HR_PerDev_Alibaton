@@ -10,7 +10,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
+use App\Support\SchemaPresence as Schema;
 use Inertia\Inertia;
 use Inertia\Response;
 

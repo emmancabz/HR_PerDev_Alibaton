@@ -19,7 +19,7 @@ use App\Services\Learning\LearningCatalogService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
+use App\Support\SchemaPresence as Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 

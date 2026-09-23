@@ -6,7 +6,7 @@ use App\Models\User;
 use App\Models\Competency\CompetencyDefinition;
 use App\Models\Competency\RoleProfile;
 use App\Services\Competency\CompetencyDomain;
-use Illuminate\Support\Facades\Schema;
+use App\Support\SchemaPresence as Schema;
 use Illuminate\Validation\ValidationException;
 
 class LearningCatalogService

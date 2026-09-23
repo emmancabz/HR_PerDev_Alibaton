@@ -1,0 +1,75 @@
+# Run from WSL. Replace ZIP path if needed.
+cd ~/projects/performance-development || exit 1
+
+ZIP="/mnt/c/Users/emman/Downloads/ALIBATON_ADMIN_MICROSERVICES_V1_CHANGED_FILES.zip"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP="$HOME/projects/performance-development/backups/microservices-v1-$STAMP"
+
+[ -f "$ZIP" ] || { echo "ZIP not found: $ZIP"; exit 1; }
+mkdir -p "$BACKUP"
+
+# Back up every existing file that the ZIP will replace.
+while IFS= read -r FILE; do
+    [ -z "$FILE" ] && continue
+    if [ -f "$FILE" ]; then
+        mkdir -p "$BACKUP/$(dirname "$FILE")"
+        cp -a "$FILE" "$BACKUP/$FILE"
+    fi
+done < <(unzip -Z1 "$ZIP" | grep -v '/$')
+
+# Apply the migration package into the existing repository.
+unzip -o "$ZIP" -d .
+
+# Configure microservice values without overwriting existing secrets.
+if ! grep -q '^MICROSERVICES_SHARED_SECRET=' .env; then
+    SECRET="$(php -r 'echo bin2hex(random_bytes(32));')"
+    cat >> .env <<ENV
+
+MICROSERVICES_ENABLED=false
+SERVICE_ROLE=gateway
+MICROSERVICES_SHARED_SECRET=$SECRET
+MICROSERVICES_SIGNATURE_TTL=60
+MICROSERVICES_CONNECT_TIMEOUT=3
+MICROSERVICES_TIMEOUT=30
+PERFORMANCE_SERVICE_URL=http://performance-service:8000
+COMPETENCY_SERVICE_URL=http://competency-service:8000
+LEARNING_SERVICE_URL=http://learning-service:8000
+TRAINING_SERVICE_URL=http://training-service:8000
+SUCCESSION_SERVICE_URL=http://succession-service:8000
+RECOGNITION_SERVICE_URL=http://recognition-service:8000
+DB_SEARCH_PATH=public,performance,competency,learning,training,succession,recognition
+ENV
+fi
+
+echo "Backup: $BACKUP"
+
+docker compose exec laravel.test php artisan optimize:clear || exit 1
+docker compose exec laravel.test composer dump-autoload -o || exit 1
+
+# Apply the non-destructive PostgreSQL domain-schema migration.
+docker compose exec laravel.test php artisan migrate --force || exit 1
+
+# Verify the architecture registration while still in compatibility mode.
+docker compose exec laravel.test php artisan test \
+  tests/Feature/Microservices/MicroservicesArchitectureTest.php || exit 1
+
+# Existing targeted safety checks.
+docker compose exec laravel.test php artisan test \
+  tests/Feature/Auth/MfaAuthenticationTest.php || exit 1
+
+docker compose exec laravel.test php artisan test \
+  tests/Feature/Performance/PerformanceReviewsBoardWorkflowTest.php || exit 1
+
+# Production frontend build.
+docker compose exec laravel.test npm run build || exit 1
+
+git diff --check || exit 1
+
+echo
+echo "✅ Microservices V1 source installed in compatibility mode."
+echo "✅ Existing UI should still use the local monolith runtime until you enable the multi-container stack."
+echo
+echo "To start the seven-runtime local microservices topology later:"
+echo "  1) Set MICROSERVICES_ENABLED=true in .env"
+echo "  2) docker compose -f compose.microservices.yaml up -d --build"
+echo "  3) Open /admin/api/microservices/health as Admin"

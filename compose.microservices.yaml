@@ -1,0 +1,133 @@
+name: alibaton-pnd-micro
+
+services:
+  gateway:
+    image: 'sail-8.5/app'
+    ports:
+      - '${APP_PORT:-80}:8000'
+      - '${VITE_PORT:-5173}:${VITE_PORT:-5173}'
+    environment:
+      WWWUSER: '${WWWUSER}'
+      LARAVEL_SAIL: 1
+      SERVICE_ROLE: gateway
+      MICROSERVICES_ENABLED: 'true'
+      MICROSERVICES_SHARED_SECRET: '${MICROSERVICES_SHARED_SECRET}'
+      PERFORMANCE_SERVICE_URL: 'http://performance-service:8000'
+      COMPETENCY_SERVICE_URL: 'http://competency-service:8000'
+      LEARNING_SERVICE_URL: 'http://learning-service:8000'
+      TRAINING_SERVICE_URL: 'http://training-service:8000'
+      SUCCESSION_SERVICE_URL: 'http://succession-service:8000'
+      RECOGNITION_SERVICE_URL: 'http://recognition-service:8000'
+    command: php artisan serve --host=0.0.0.0 --port=8000 --no-reload
+    volumes:
+      - '.:/var/www/html'
+    networks: [pnd]
+    depends_on:
+      pgsql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      performance-service:
+        condition: service_started
+      competency-service:
+        condition: service_started
+      learning-service:
+        condition: service_started
+      training-service:
+        condition: service_started
+      succession-service:
+        condition: service_started
+      recognition-service:
+        condition: service_started
+
+  performance-service:
+    <<: &domain-service
+      image: 'sail-8.5/app'
+      command: php artisan serve --host=0.0.0.0 --port=8000 --no-reload
+      volumes:
+        - '.:/var/www/html'
+      networks: [pnd]
+      depends_on:
+        pgsql:
+          condition: service_healthy
+        redis:
+          condition: service_healthy
+      environment: &domain-env
+        WWWUSER: '${WWWUSER}'
+        LARAVEL_SAIL: 1
+        MICROSERVICES_ENABLED: 'true'
+        MICROSERVICES_SHARED_SECRET: '${MICROSERVICES_SHARED_SECRET}'
+    environment:
+      <<: *domain-env
+      SERVICE_ROLE: performance
+
+  competency-service:
+    <<: *domain-service
+    environment:
+      <<: *domain-env
+      SERVICE_ROLE: competency
+
+  learning-service:
+    <<: *domain-service
+    environment:
+      <<: *domain-env
+      SERVICE_ROLE: learning
+
+  training-service:
+    <<: *domain-service
+    environment:
+      <<: *domain-env
+      SERVICE_ROLE: training
+
+  succession-service:
+    <<: *domain-service
+    environment:
+      <<: *domain-env
+      SERVICE_ROLE: succession
+
+  recognition-service:
+    <<: *domain-service
+    environment:
+      <<: *domain-env
+      SERVICE_ROLE: recognition
+
+  pgsql:
+    image: 'postgres:18-alpine'
+    ports:
+      - '${FORWARD_DB_PORT:-5432}:5432'
+    environment:
+      PGPASSWORD: '${DB_PASSWORD:-secret}'
+      POSTGRES_DB: '${DB_DATABASE}'
+      POSTGRES_USER: '${DB_USERNAME}'
+      POSTGRES_PASSWORD: '${DB_PASSWORD:-secret}'
+    volumes:
+      - 'sail-pgsql:/var/lib/postgresql'
+    networks: [pnd]
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-q', '-d', '${DB_DATABASE}', '-U', '${DB_USERNAME}']
+      retries: 5
+      timeout: 5s
+
+  redis:
+    image: 'redis:alpine'
+    ports:
+      - '${FORWARD_REDIS_PORT:-6379}:6379'
+    volumes:
+      - 'sail-redis:/data'
+    networks: [pnd]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      retries: 5
+      timeout: 5s
+
+networks:
+  pnd:
+    driver: bridge
+
+volumes:
+  sail-pgsql:
+    external: true
+    name: performance-development_sail-pgsql
+  sail-redis:
+    external: true
+    name: performance-development_sail-redis
