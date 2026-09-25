@@ -3,7 +3,11 @@
 use App\Http\Controllers\LearningStateController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['internal.service:learning', 'throttle:120,1'])->prefix('learning/api')->name('learning.api.')->group(function (): void {
+Route::middleware([
+    'internal.service:learning',
+    \Illuminate\Routing\Middleware\SubstituteBindings::class,
+    'throttle:120,1',
+])->prefix('learning/api')->name('learning.api.')->group(function (): void {
     Route::get('/state', [LearningStateController::class, 'show'])->name('state');
     Route::post('/courses', [LearningStateController::class, 'create'])->name('courses.create');
     Route::put('/versions/{version}', [LearningStateController::class, 'save'])->name('versions.save');
@@ -25,6 +29,7 @@ Route::middleware(['internal.service:learning', 'throttle:120,1'])->prefix('lear
     Route::put('/attempts/{attempt}/responses', [LearningStateController::class, 'saveResponses'])->name('attempts.responses');
     Route::post('/attempts/{attempt}/submit', [LearningStateController::class, 'submitAttempt'])->name('attempts.submit');
     Route::post('/attempts/{attempt}/regrade', [LearningStateController::class, 'regradeAttempt'])->name('attempts.regrade');
+    Route::post('/completions/{completion}/certificate', [LearningStateController::class, 'issueCertificate'])->name('certificates.issue');
     Route::post('/certificates/{certificate}/revoke', [LearningStateController::class, 'revokeCertificate'])->name('certificates.revoke');
     Route::get('/certificates/{certificate}/download', [LearningStateController::class, 'downloadCertificate'])->name('certificates.download');
     Route::post('/lessons/{lesson}/materials', [LearningStateController::class, 'uploadMaterial'])->middleware('throttle:20,1')->name('materials.upload');

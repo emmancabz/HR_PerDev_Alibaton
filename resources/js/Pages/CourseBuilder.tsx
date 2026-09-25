@@ -177,12 +177,6 @@ export default function CourseBuilder({
             : ["Add at least one module."];
         const assessment = [
             ...draft.assessments.flatMap((value) => assessmentErrors(value)),
-            ...(draft.assessments.filter((value) => value.type === "Pre-Test").length !== 1
-                ? ["Add one Pre-Test."]
-                : []),
-            ...(draft.assessments.filter((value) => value.type === "Post-Test").length !== 1
-                ? ["Add one Post-Test."]
-                : []),
             ...draft.assessments
                 .filter((value) => value.type === "Knowledge Check" && !value.moduleClientId)
                 .map((value) => `Knowledge Check “${value.title}” must be linked to a module.`),
@@ -1952,7 +1946,7 @@ function Assessment({ draft, update }: any) {
                             })
                         }
                     />
-                    Issue certificate
+                    Allow HR/Admin certificate issuance
                 </label>
                 <Field label="Validity months">
                     <input
@@ -2021,12 +2015,10 @@ function Assessment({ draft, update }: any) {
                                 set(list);
                             }}
                         >
-                            <option>Pre-Test</option>
-                            <option>Knowledge Check</option>
-                            <option>Post-Test</option>
-                            {assessment.type === "Final Assessment" && (
-                                <option>Final Assessment</option>
+                            {assessment.type !== "Knowledge Check" && (
+                                <option value={assessment.type}>{assessment.type} (Legacy - outside LMS)</option>
                             )}
+                            <option>Knowledge Check</option>
                         </SystemSelect>
                         <SystemSelect
                             aria-label={`Module for assessment ${assessment.title || ai + 1}`}
@@ -2383,17 +2375,6 @@ function Assessment({ draft, update }: any) {
                 </article>
             ))}
             <div className="flex flex-wrap gap-2">
-                {!draft.assessments.some((item: AssessmentDraft) => item.type === "Pre-Test") && (
-                    <button
-                        className={primary}
-                        onClick={() =>
-                            set([...draft.assessments, newAssessment("Pre-Test")])
-                        }
-                    >
-                        <Plus className="h-4 w-4" />
-                        Add Pre-Test
-                    </button>
-                )}
                 <button
                     className={button}
                     onClick={() =>
@@ -2403,17 +2384,6 @@ function Assessment({ draft, update }: any) {
                     <Plus className="h-4 w-4" />
                     Add Knowledge Check
                 </button>
-                {!draft.assessments.some((item: AssessmentDraft) => item.type === "Post-Test") && (
-                    <button
-                        className={primary}
-                        onClick={() =>
-                            set([...draft.assessments, newAssessment("Post-Test")])
-                        }
-                    >
-                        <Plus className="h-4 w-4" />
-                        Add Post-Test
-                    </button>
-                )}
             </div>
         </div>
     );
@@ -2427,8 +2397,6 @@ function Review({ draft, errors }: any) {
     const target = draft.audience.allDepartments
         ? "Company-wide"
         : draft.audience.departments.join(", ") || "Not set";
-    const preTest = draft.assessments.find((item: AssessmentDraft) => item.type === "Pre-Test");
-    const postTest = draft.assessments.find((item: AssessmentDraft) => item.type === "Post-Test");
     const knowledgeChecks = draft.assessments.filter(
         (item: AssessmentDraft) => item.type === "Knowledge Check",
     );
@@ -2440,7 +2408,7 @@ function Review({ draft, errors }: any) {
                     ["Target", target],
                     ["Source documents", `${draft.sourceDocumentIds.length} selected`],
                     ["Curriculum", `${draft.modules.length} modules · ${lessonCount} lessons`],
-                    ["Assessment", `${preTest ? "Pre-Test" : "No Pre-Test"} · ${postTest ? "Post-Test" : "No Post-Test"}`],
+                    ["Assessment", `${knowledgeChecks.length} module quiz${knowledgeChecks.length === 1 ? "" : "zes"}`],
                 ].map(([label, value]) => (
                     <div key={label} className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
                         <p className="text-xs font-semibold text-slate-500">{label}</p>
@@ -2460,7 +2428,7 @@ function Review({ draft, errors }: any) {
                     <ReviewLine label="Availability" value={draft.audience.catalogVisibility} />
                     <ReviewLine label="Competencies" value={`${draft.competencies.length} mapped`} />
                     <ReviewLine label="Knowledge checks" value={`${knowledgeChecks.length}`} />
-                    <ReviewLine label="Certificate" value={draft.completion.issueCertificate ? "Issued on completion" : "Not issued"} />
+                    <ReviewLine label="Certificate" value={draft.completion.issueCertificate ? "Issued by HR/Admin after completion" : "Not issued"} />
                     <ReviewLine label="Default due" value={draft.audience.defaultDueDays ? `${draft.audience.defaultDueDays} days` : "No default due date"} />
                 </div>
             </section>

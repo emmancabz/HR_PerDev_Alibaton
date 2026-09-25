@@ -76,12 +76,14 @@ class LearningAssignmentService
         if (($version->audience_rules['catalogVisibility'] ?? '') !== 'Eligible users may self-enroll' || ! $this->eligible($actor, $version)) {
             throw new AuthorizationException('This course is not available for self-enrollment.');
         }
+        if ($this->versionAssignmentExists($actor->id, $version->id)) throw ValidationException::withMessages(['course' => 'You are already enrolled in this published course version.']);
         if ($this->duplicateExists($actor->id, $version->course_id)) throw ValidationException::withMessages(['course' => 'You already have active work for this course.']);
         return DB::transaction(function () use ($actor, $version) {
             LearningCourse::query()->lockForUpdate()->findOrFail($version->course_id); User::query()->lockForUpdate()->findOrFail($actor->id);
             $locked=LearningCourseVersion::query()->lockForUpdate()->findOrFail($version->id); $this->assertAssignable($locked); if (! $this->availableNow($locked)) throw ValidationException::withMessages(['course' => 'This course is outside its self-enrollment window.']);
             $freshActor = User::query()->findOrFail($actor->id);
             if (($locked->audience_rules['catalogVisibility'] ?? '') !== 'Eligible users may self-enroll' || ! $this->eligible($freshActor, $locked)) throw new AuthorizationException('This course is not available for self-enrollment.');
+            if ($this->versionAssignmentExists($actor->id,$locked->id)) throw ValidationException::withMessages(['course'=>'You are already enrolled in this published course version.']);
             if ($this->duplicateExists($actor->id,$locked->course_id)) throw ValidationException::withMessages(['course'=>'You already have active work for this course.']);
             $assignment = LearningAssignment::create(['learner_id' => $actor->id, 'course_id' => $locked->course_id, 'course_version_id' => $locked->id, 'source' => 'Self-enrollment', 'assigned_by' => $actor->id, 'assigned_at' => now(), 'is_mandatory' => false, 'priority' => 'Normal', 'status' => 'Not Started', 'progress_percent' => 0]);
             $this->audit->record($actor, 'Assignment created', 'LearningAssignment', $assignment->id, ['source' => 'Self-enrollment']);
@@ -182,6 +184,7 @@ class LearningAssignmentService
         }
         return $payload;
     }
+    private function versionAssignmentExists(int $learnerId, string $versionId): bool { return LearningAssignment::where(['learner_id'=>$learnerId,'course_version_id'=>$versionId])->exists(); }
     private function duplicateExists(int $learnerId, string $courseId): bool { return LearningAssignment::where(['learner_id'=>$learnerId,'course_id'=>$courseId])->whereIn('status',self::ACTIVE)->exists(); }
     private function requireOperator(User $actor): void { if (! in_array($actor->role, [UserRole::Admin, UserRole::HR], true)) throw new AuthorizationException('Learning administration requires Admin or HR access.'); }
 }

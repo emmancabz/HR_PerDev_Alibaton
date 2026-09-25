@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 class LearningGroqService
 {
-    private const USE_CASES = ['Course Outline', 'Module and Lesson Titles', 'Learning Objectives', 'Lesson Content', 'Knowledge Check Questions', 'Pre-Test Questions', 'Post-Test Questions', 'Final Assessment Questions', 'Competency-aligned Objectives'];
+    private const USE_CASES = ['Course Outline', 'Module and Lesson Titles', 'Learning Objectives', 'Lesson Content', 'Knowledge Check Questions', 'Competency-aligned Objectives'];
     public function __construct(
         private readonly LearningAuditService $audit,
         private readonly LearningSourceLibraryService $sources,

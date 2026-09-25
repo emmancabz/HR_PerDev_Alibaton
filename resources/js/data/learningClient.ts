@@ -177,6 +177,10 @@ export const learningClient = {
         unwrap<any>(
             await axios.delete(`/learning/api/materials/${materialId}`),
         ),
+    issueCertificate: async (completionId: string) => {
+        await axios.post(`/learning/api/completions/${completionId}/certificate`);
+        return learningClient.state();
+    },
     revokeCertificate: async (certificateId: string, reason: string) =>
         stateResponse(
             await axios.post(

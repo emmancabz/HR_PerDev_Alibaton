@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Models\Learning\LearningCourseVersion;
 use App\Models\User;
 use App\Services\Learning\LearningCourseService;
+use App\Services\Microservices\InternalRequestSigner;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,15 @@ class LearningGovernanceActorTest extends TestCase
             'services.learning_lms.url' => null,
             'services.learning_lms.token' => null,
         ]);
+    }
+
+    private function internalHeaders(User $user): array
+    {
+        return app(InternalRequestSigner::class)->headers(
+            'learning',
+            \Illuminate\Http\Request::create('/'),
+            $user->id,
+        );
     }
 
     public function test_admin_cannot_create_or_edit_an_hr_course_draft(): void
@@ -77,11 +87,11 @@ class LearningGovernanceActorTest extends TestCase
     {
         [$hr, $admin] = $this->actors();
 
-        $this->actingAs($admin)
+        $this->withHeaders($this->internalHeaders($admin))
             ->postJson(route('learning.api.courses.create'), $this->payload($hr))
             ->assertForbidden();
 
-        $response = $this->actingAs($hr)
+        $response = $this->withHeaders($this->internalHeaders($hr))
             ->postJson(route('learning.api.courses.create'), $this->payload($hr))
             ->assertCreated()
             ->assertJsonPath('data.code', 'LRN-'.now()->format('Y').'-001');
@@ -258,22 +268,16 @@ class LearningGovernanceActorTest extends TestCase
             ]],
             'assessments' => [
                 [
-                    'type' => 'Pre-Test', 'title' => 'Pre-Test', 'required' => false,
-                    'passingScore' => 80, 'attemptsAllowed' => 1, 'shuffleQuestions' => false,
-                    'shuffleOptions' => false, 'feedbackPolicy' => 'After submission',
-                    'moduleClientId' => null, 'questions' => [$question('Before training, which action follows the procedure?')],
-                ],
-                [
-                    'type' => 'Post-Test', 'title' => 'Post-Test', 'required' => true,
+                    'type' => 'Knowledge Check', 'title' => 'Module Quiz', 'required' => true,
                     'passingScore' => 80, 'attemptsAllowed' => 3, 'shuffleQuestions' => false,
                     'shuffleOptions' => false, 'feedbackPolicy' => 'After submission',
-                    'moduleClientId' => null, 'questions' => [$question('After training, which action follows the procedure?')],
+                    'moduleClientId' => 'module-1', 'questions' => [$question('After studying this module, which action follows the procedure?')],
                 ],
             ],
             'completion' => [
                 'completeRequiredLessons' => true,
                 'passRequiredKnowledgeChecks' => true,
-                'passFinalAssessment' => true,
+                'passFinalAssessment' => false,
                 'issueCertificate' => true,
                 'certificateValidityMonths' => 12,
                 'renewalIntervalMonths' => 12,

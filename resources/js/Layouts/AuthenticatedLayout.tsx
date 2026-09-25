@@ -11,6 +11,7 @@ import {
     ChevronDown,
     ChevronRight,
     Clock,
+    ClipboardCheck,
     FileText,
     GraduationCap,
     LayoutGrid,
@@ -42,6 +43,7 @@ import { Children, KeyboardEvent, PropsWithChildren, ReactNode, RefObject, creat
 import { createPortal } from 'react-dom';
 
 type AppUserRole = 'admin' | 'hr' | 'user';
+type UserPersona = 'trainee' | 'employee' | 'supervisor' | 'manager';
 
 type NavChild = {
     label: string;
@@ -794,35 +796,180 @@ const adminNavItems: NavItem[] = [
 ];
 
 const hrNavItems: NavItem[] = [
-    { label: 'Learning Management', icon: GraduationCap, routeName: 'hr.learning.index', children: learningChildren },
-    { label: 'Training Management', icon: BookOpen, routeName: 'hr.training.index' },
-    { label: 'Competency Management', icon: Settings2, routeName: 'hr.competency.index' },
-    { label: 'Performance Management', icon: TrendingUp, routeName: 'hr.performance.index', children: performanceChildren },
-    { label: 'Succession Planning', icon: Network, routeName: 'hr.succession.index' },
-    { label: 'Social Recognition', icon: Award, routeName: 'hr.recognition.index' },
+    { label: 'Dashboard', icon: LayoutGrid, routeName: 'hr.dashboard' },
+    {
+        label: 'Users',
+        icon: Users,
+        routeName: 'hr.users.index',
+        children: [
+            { label: 'All Users', workspace: 'All Users' },
+            { label: 'Incoming Trainees', workspace: 'Incoming Trainees' },
+            { label: 'Account Issues', workspace: 'Account Issues' },
+        ],
+    },
+    { label: 'Performance', icon: TrendingUp, routeName: 'hr.performance.index', children: performanceChildren },
+    { label: 'Competency', icon: Settings2, routeName: 'hr.competency.index', children: competencyChildren },
+    { label: 'Learning', icon: GraduationCap, routeName: 'hr.learning.index', children: learningChildren },
+    {
+        label: 'Training',
+        icon: BookOpen,
+        routeName: 'hr.training.index',
+        children: [
+            { label: 'Overview', workspace: 'Overview' },
+            { label: 'Training Register', workspace: 'Training Register' },
+            { label: 'Training Records', workspace: 'Training Records' },
+        ],
+    },
+    {
+        label: 'Succession',
+        icon: Network,
+        routeName: 'hr.succession.index',
+        children: [
+            { label: 'Overview', workspace: 'Overview' },
+            { label: 'Succession Register', workspace: 'Succession Register' },
+            { label: 'Readiness Reviews', workspace: 'Readiness Reviews' },
+        ],
+    },
+    {
+        label: 'Recognition',
+        icon: Award,
+        routeName: 'hr.recognition.index',
+        children: [
+            { label: 'Overview', workspace: 'Overview' },
+            { label: 'Review Queue', workspace: 'Review Queue' },
+            { label: 'Recognition Register', workspace: 'Recognition Register' },
+        ],
+    },
     { label: 'Reports', icon: FileText, routeName: 'hr.reports.index' },
     { label: 'Settings', icon: Settings, routeName: 'hr.settings.index' },
 ];
 
-const userNavItems: NavItem[] = [
-    { label: 'My Learning', icon: GraduationCap, routeName: 'user.learning.index' },
-    { label: 'My Training', icon: BookOpen, routeName: 'user.training.index' },
-    { label: 'My Skills Wallet', icon: Wallet, routeName: 'user.skills.index' },
-    { label: 'My Performance', icon: TrendingUp, routeName: 'user.performance.index' },
-    { label: 'My Career Path', icon: Route, routeName: 'user.career.index' },
-    { label: 'Company Leaderboard', icon: Trophy, routeName: 'user.leaderboard.index' },
-    { label: 'My Transcripts', icon: FileText, routeName: 'user.transcripts.index' },
-    { label: 'My Reports', icon: FileText, routeName: 'user.reports.index' },
-    { label: 'Settings', icon: Settings, routeName: 'user.settings.index' },
+const learnerBaseNavItems: NavItem[] = [
+    { label: 'Dashboard', icon: LayoutGrid, routeName: 'user.dashboard' },
+    {
+        label: 'My Learning',
+        icon: GraduationCap,
+        routeName: 'user.learning.index',
+        children: [
+            { label: 'My Courses', workspace: 'My Courses' },
+            { label: 'Assigned Learning', workspace: 'Assigned Learning' },
+            { label: 'Recommended Learning', workspace: 'Recommended Learning' },
+            { label: 'Learning Progress', workspace: 'Learning Progress' },
+            { label: 'Course Catalog', workspace: 'Course Catalog' },
+        ],
+    },
+    {
+        label: 'Assessments',
+        icon: ClipboardCheck,
+        routeName: 'user.assessments.index',
+        children: [
+            { label: 'My Assessments', workspace: 'My Assessments' },
+            { label: 'Results', workspace: 'Results' },
+        ],
+    },
+    {
+        label: 'Training',
+        icon: BookOpen,
+        routeName: 'user.training.index',
+        children: [
+            { label: 'Schedule', workspace: 'Schedule' },
+            { label: 'Attendance', workspace: 'Attendance' },
+            { label: 'Training Requests', workspace: 'Training Requests' },
+        ],
+    },
+    {
+        label: 'Development',
+        icon: Wallet,
+        routeName: 'user.development.index',
+        children: [
+            { label: 'Competency Progress', workspace: 'Competency Progress' },
+            { label: 'Skill Gaps', workspace: 'Skill Gaps' },
+            { label: 'Learning History', workspace: 'Learning History' },
+        ],
+    },
+    {
+        label: 'Certificates',
+        icon: Award,
+        routeName: 'user.certificates.index',
+        children: [
+            { label: 'Certificates', workspace: 'Certificates' },
+            { label: 'Achievements', workspace: 'Achievements' },
+        ],
+    },
+    {
+        label: 'My Profile',
+        icon: UserRound,
+        routeName: 'user.profile.index',
+        children: [
+            { label: 'Employee Info', workspace: 'Employee Info' },
+            { label: 'Notifications', workspace: 'Notifications' },
+        ],
+    },
 ];
 
-function resolveNavItems(role: unknown): NavItem[] {
+const employeePerformanceNav: NavItem = {
+    label: 'Performance',
+    icon: TrendingUp,
+    routeName: 'user.performance.index',
+    children: [{ label: 'My Performance', workspace: 'My Performance' }],
+};
+
+const teamPerformanceNav: NavItem = {
+    label: 'Performance',
+    icon: TrendingUp,
+    routeName: 'user.performance.index',
+    children: [
+        { label: 'My Performance', workspace: 'My Performance' },
+        { label: 'My Team Reviews', workspace: 'My Team Reviews' },
+        { label: 'Leadership Feedback', workspace: 'Leadership Feedback' },
+    ],
+};
+
+const recognitionNav: NavItem = {
+    label: 'Recognition',
+    icon: Award,
+    routeName: 'user.leaderboard.index',
+};
+
+const traineeNavItems: NavItem[] = learnerBaseNavItems.map((item) => {
+    if (item.routeName === 'user.profile.index') {
+        return { ...item, children: undefined };
+    }
+
+    if (item.routeName === 'user.training.index') {
+        const children = item.children ?? [];
+        return {
+            ...item,
+            children: [
+                ...children.slice(0, 2),
+                { label: 'Trainer Evaluations', workspace: 'Trainer Evaluations' },
+                ...children.slice(2),
+            ],
+        };
+    }
+
+    return item;
+});
+const employeeNavItems: NavItem[] = [...learnerBaseNavItems, employeePerformanceNav, recognitionNav];
+const supervisorNavItems: NavItem[] = [...learnerBaseNavItems, teamPerformanceNav, recognitionNav];
+const managerNavItems: NavItem[] = [...learnerBaseNavItems, teamPerformanceNav, recognitionNav];
+
+function resolveNavItems(role: unknown, persona?: unknown): NavItem[] {
     const normalizedRole: AppUserRole =
         role === 'admin' || role === 'hr' || role === 'user' ? role : 'user';
 
     if (normalizedRole === 'admin') return adminNavItems;
     if (normalizedRole === 'hr') return hrNavItems;
-    return userNavItems;
+
+    const normalizedPersona: UserPersona =
+        persona === 'trainee' || persona === 'employee' || persona === 'supervisor' || persona === 'manager'
+            ? persona
+            : 'employee';
+
+    if (normalizedPersona === 'trainee') return traineeNavItems;
+    if (normalizedPersona === 'supervisor') return supervisorNavItems;
+    if (normalizedPersona === 'manager') return managerNavItems;
+    return employeeNavItems;
 }
 
 function isNavItemActive(routeName: string): boolean {
@@ -846,10 +993,13 @@ function readHash(): string {
     return decodeURIComponent(window.location.hash.replace(/^#/, ''));
 }
 
-function roleLabel(role: unknown): string {
+function roleLabel(role: unknown, persona?: unknown): string {
     if (role === 'admin') return 'Admin';
     if (role === 'hr') return 'HR';
-    return 'User';
+    if (persona === 'trainee') return 'Trainee';
+    if (persona === 'supervisor') return 'Supervisor';
+    if (persona === 'manager') return 'Manager';
+    return 'Employee';
 }
 
 
@@ -1323,7 +1473,7 @@ export default function Authenticated({
     const page = usePage();
     const user = page.props.auth.user;
     const sessionTimeoutMinutes = Math.max(1, Number(page.props.securitySessionTimeoutMinutes ?? 5));
-    const navItems = useMemo(() => resolveNavItems(user.role), [user.role]);
+    const navItems = useMemo(() => resolveNavItems(user.role, user.persona), [user.role, user.persona]);
 
     const [collapsed, setCollapsed] = useState<boolean>(() => {
         if (typeof window === 'undefined') return false;
@@ -1685,7 +1835,7 @@ export default function Authenticated({
         return crumbs.length >= 3 ? crumbs : [];
     }, [activeModule, breadcrumbDetails, currentHash, page.url]);
 
-    const currentRoleLabel = roleLabel(user.role);
+    const currentRoleLabel = roleLabel(user.role, user.persona);
     const isDashboardRoute = Boolean(route().current('admin.dashboard') || route().current('hr.dashboard') || route().current('user.dashboard'));
     const liveGreeting = useMemo(() => greetingForTime(now, timeZone), [now, timeZone]);
     const dashboardTitle =
@@ -2073,17 +2223,29 @@ export default function Authenticated({
         window.sessionStorage.setItem(sidebarScrollStorageKey, String(node.scrollTop));
     };
 
+    const warmSidebarHref = (href: string) => {
+        // Inertia v2 can cache a prefetched GET response. Keep this optional so the
+        // sidebar still works if a future router build omits the prefetch API.
+        const prefetch = (router as typeof router & { prefetch?: (url: string) => void }).prefetch;
+        if (typeof prefetch === 'function') {
+            try {
+                prefetch.call(router, href);
+            } catch {
+                // Prefetch is only a latency optimization; navigation must never depend on it.
+            }
+        }
+    };
+
     const navigateSidebarHref = (href: string) => {
-        // Preserve the nested sidebar scroll before the Inertia page swap.
-        // preserveScroll only covers the document/main page scroll.
+        // Keep module switches inside the Inertia SPA. Do not preserve the previous
+        // page component state across different modules; carrying large module state
+        // forward makes sidebar navigation feel slower and can retain stale filters.
         persistSidebarScroll();
 
-        // Keep sidebar navigation inside the existing Inertia SPA runtime.
-        // This avoids native document reloads and keeps the app shell feeling continuous.
         router.visit(href, {
             method: 'get',
-            preserveState: true,
-            preserveScroll: true,
+            preserveState: false,
+            preserveScroll: false,
         });
 
         setCollapsedFlyout(null);
@@ -2117,6 +2279,10 @@ export default function Authenticated({
                 const nextUrl = `${window.location.pathname}${window.location.search}${targetHash}`;
                 window.history.pushState(null, '', nextUrl);
                 window.dispatchEvent(new HashChangeEvent('hashchange'));
+            } else {
+                // Re-selecting the current workspace still resets any nested
+                // course/module/lesson view owned by the page.
+                window.dispatchEvent(new HashChangeEvent('hashchange'));
             }
         } else {
             // Sub-pages (for example Course Builder-like administration pages) return to
@@ -2136,7 +2302,43 @@ export default function Authenticated({
         setRemoteSearchResults([]);
 
         if (result.href) {
-            router.visit(result.href);
+            const target = new URL(result.href, window.location.origin);
+            const isSameOrigin = target.origin === window.location.origin;
+            const isDeepSearchTarget =
+                target.searchParams.has('gs_table')
+                || target.searchParams.has('gs_record')
+                || target.searchParams.has('gs_match')
+                || target.searchParams.has('gs_open');
+
+            if (isDeepSearchTarget && isSameOrigin) {
+                const targetPath = `${target.pathname}${target.search}`;
+
+                router.visit(targetPath, {
+                    method: 'get',
+                    preserveState: false,
+                    preserveScroll: false,
+                    onSuccess: () => {
+                        // Inertia does not reliably notify hash-driven workspaces when a
+                        // search result changes route + query + hash together. Apply the
+                        // workspace hash after the page swap and explicitly notify both
+                        // the workspace hook and URL-driven record locators.
+                        window.requestAnimationFrame(() => {
+                            const nextUrl = `${target.pathname}${target.search}${target.hash}`;
+                            window.history.replaceState(window.history.state, '', nextUrl);
+                            window.dispatchEvent(new HashChangeEvent('hashchange'));
+                            window.dispatchEvent(new CustomEvent('global-search:navigate'));
+                        });
+                    },
+                });
+                return;
+            }
+
+            if (!isSameOrigin) {
+                window.location.assign(target.toString());
+                return;
+            }
+
+            router.visit(`${target.pathname}${target.search}${target.hash}`);
             return;
         }
 
@@ -2274,11 +2476,10 @@ export default function Authenticated({
                                 </div>
                             </div>
 
-                            <div className={`${collapsed ? 'lg:hidden' : ''} mt-2 pt-1.5`}>
-                                <p className="w-full whitespace-nowrap text-center text-[9.5px] font-extrabold uppercase leading-none tracking-[0.1em] text-[#F4B400]">
-                                    Performance &amp; Development
-                                </p>
-                            </div>
+                            <p className={`mt-2 text-center text-[9px] font-extrabold uppercase tracking-[0.08em] text-[#F4B400] ${collapsed ? 'lg:hidden' : ''}`}>
+                                Performance &amp; Development
+                            </p>
+
                         </button>
 
                         <button
@@ -2305,6 +2506,8 @@ export default function Authenticated({
                                             key={item.routeName}
                                             type="button"
                                             onClick={() => navigateSidebarHref(resolveNavHref(item.routeName))}
+                                            onMouseEnter={() => warmSidebarHref(resolveNavHref(item.routeName))}
+                                            onFocus={() => warmSidebarHref(resolveNavHref(item.routeName))}
                                             title={collapsed ? item.label : undefined}
                                             aria-current={isActive ? 'page' : undefined}
                                             className={`group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors duration-150 ${collapsed ? 'lg:justify-center lg:px-2.5' : ''
@@ -2326,7 +2529,17 @@ export default function Authenticated({
                                         <button
                                             type="button"
                                             onClick={(event) => openModule(item, event.currentTarget)}
-                                            onMouseEnter={(event) => revealCollapsedModule(item, event.currentTarget)}
+                                            onMouseEnter={(event) => {
+                                                revealCollapsedModule(item, event.currentTarget);
+                                                if (!isActive && item.children?.[0]) {
+                                                    warmSidebarHref(resolveNavHref(item.routeName, item.children[0].workspace));
+                                                }
+                                            }}
+                                            onFocus={() => {
+                                                if (!isActive && item.children?.[0]) {
+                                                    warmSidebarHref(resolveNavHref(item.routeName, item.children[0].workspace));
+                                                }
+                                            }}
                                             onMouseLeave={scheduleCollapsedFlyoutClose}
                                             data-collapsed-module-trigger="true"
                                             aria-expanded={collapsed ? collapsedFlyout?.routeName === item.routeName : expanded}
@@ -2463,7 +2676,7 @@ export default function Authenticated({
                                     <Menu className="h-5 w-5" />
                                 </button>
                                 <div className="min-w-0 flex-1">
-                                    {isDashboardRoute ? (
+                                    {isDashboardRoute && !(user.role === 'user' && header) ? (
                                         <HeaderOverflowPan key={`dashboard-message-${dashboardMessageIndex}`} className="animate-in fade-in slide-in-from-bottom-1 duration-500">
                                             <h1 className="py-0.5 text-xl font-extrabold leading-[1.2] tracking-tight text-slate-950">
                                                 {dashboardMessageIndex === 0 ? (
@@ -2696,10 +2909,17 @@ export default function Authenticated({
                                                 </div>
                                                 <button
                                                     type="button"
-                                                    onClick={openNotificationCenter}
+                                                    onClick={() => {
+                                                        if (user.role === 'user' && route().has('user.notifications.index')) {
+                                                            setNotificationOpen(false);
+                                                            router.visit(route('user.notifications.index'));
+                                                            return;
+                                                        }
+                                                        openNotificationCenter();
+                                                    }}
                                                     className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 px-2.5 text-[10px] font-bold text-slate-600 transition hover:border-amber-200 hover:bg-amber-50/60 hover:text-amber-800"
                                                 >
-                                                    Open center
+                                                    View all
                                                 </button>
                                             </div>
                                             <div className="max-h-[23rem] overflow-y-auto p-1.5">
@@ -2873,13 +3093,11 @@ export default function Authenticated({
                                             </div>
                                             <div className="p-1.5">
                                                 <Link
-                                                    href={`${route(
-                                                        user.role === 'admin'
-                                                            ? 'admin.settings.index'
-                                                            : user.role === 'hr'
-                                                                ? 'hr.settings.index'
-                                                                : 'user.settings.index',
-                                                    )}?section=profile`}
+                                                    href={
+                                                        user.role === 'user'
+                                                            ? route('user.profile.index')
+                                                            : `${route(user.role === 'admin' ? 'admin.settings.index' : 'hr.settings.index')}?section=profile`
+                                                    }
                                                     role="menuitem"
                                                     onClick={() => setAccountOpen(false)}
                                                     className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
@@ -2948,6 +3166,7 @@ export default function Authenticated({
                     />
 
                     <AevynShell
+                        key={`${page.url.split('#')[0]}::${isDashboardRoute ? 'Overall' : currentHash || activeModule?.label || 'Workspace'}`}
                         open={aevynOpen}
                         onOpenChange={setAevynOpen}
                         dockSide={aevynDockSide}

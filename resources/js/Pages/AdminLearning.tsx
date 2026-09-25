@@ -2123,6 +2123,20 @@ function Completions({
         if (attemptPage > pages) setAttemptPage(pages);
     }, [submittedAttempts.length, attemptPage]);
 
+    const issue = async () => {
+        if (!selected?.id) return;
+        setBusy(true);
+        try {
+            update(await learningClient.issueCertificate(selected.id));
+            notice("Certificate issued by HR/Admin.");
+            setSelected(null);
+        } catch (error) {
+            notice(learningError(error));
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const revoke = async () => {
         if (!certificate || !reason.trim()) return;
         try {
@@ -2294,6 +2308,11 @@ function Completions({
                 maxWidthClassName="!max-w-[1040px]"
                 footer={
                     <>
+                        {!selected?.certificate_id && selected?.certificate_eligible && (
+                            <button className={primary} disabled={busy} onClick={() => void issue()}>
+                                Issue Certificate
+                            </button>
+                        )}
                         {selected?.certificate_download_url && (
                             <a className={btn} href={selected.certificate_download_url}>
                                 Printable Certificate

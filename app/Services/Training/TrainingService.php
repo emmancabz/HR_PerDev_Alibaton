@@ -16,6 +16,7 @@ use App\Models\Training\TrainingSession;
 use App\Models\Training\TrainingSessionParticipant;
 use App\Models\User;
 use App\Services\Learning\LearningCatalogService;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\DB;
@@ -69,6 +70,9 @@ class TrainingService
                     'assessment', 'completion.certificate',
                 ])->orderByDesc('assigned_at')->get();
 
+        $trainerEvaluationQuarter = $this->trainerEvaluationQuarter();
+        $trainerEvaluationTasks = $operator ? [] : $this->trainerEvaluationTasks($actor);
+
         return [
             'actor' => [
                 'id' => $actor->id,
@@ -99,6 +103,16 @@ class TrainingService
                 'id' => $row->id,
                 'sessionId' => $row->session_id,
                 'participantId' => $row->participant_id,
+                'knowledgeRating' => $row->knowledge_rating,
+                'clarityRating' => $row->clarity_rating,
+                'communicationRating' => $row->communication_rating,
+                'engagementRating' => $row->engagement_rating,
+                'professionalismRating' => $row->professionalism_rating,
+                'practicalRelevanceRating' => $row->practical_relevance_rating,
+                'timeManagementRating' => $row->time_management_rating,
+                'safetyEmphasisRating' => $row->safety_emphasis_rating,
+                'trainerStrengths' => $row->trainer_strengths,
+                'trainerImprovements' => $row->trainer_improvements,
                 'contentRating' => $row->content_rating,
                 'facilitatorRating' => $row->facilitator_rating,
                 'relevanceRating' => $row->relevance_rating,
@@ -107,6 +121,8 @@ class TrainingService
                 'comments' => $row->comments,
                 'submittedAt' => $row->submitted_at?->toIso8601String(),
             ])->values()->all(),
+            'trainerEvaluationQuarter' => $trainerEvaluationQuarter,
+            'trainerEvaluationTasks' => $trainerEvaluationTasks,
             'recommendations' => $operator ? TrainingRecommendation::query()->latest()->get()->map(fn (TrainingRecommendation $row) => $this->recommendationPayload($row, $programs))->all() : [],
         ];
     }
@@ -768,19 +784,226 @@ class TrainingService
         $this->audit->record($actor, 'CertificateRevoked', 'TrainingCertificate', $certificate->id, ['reason' => trim($reason)]);
     }
 
-    public function submitFeedback(User $actor, TrainingSession $session, array $data): void
+    public function submitQuarterlyTrainerEvaluation(User $actor, string $quarterKey, string $trainerKey, array $data): void
     {
-        $eligible = TrainingSessionParticipant::query()->where('session_id', $session->id)
-            ->whereHas('enrollment', fn ($query) => $query->where('participant_id', $actor->id)
-                ->whereNotIn('status', ['Withdrawn', 'Cancelled']))->exists();
-        if (! $eligible) {
-            throw new AuthorizationException('Only assigned participants may submit feedback for this session.');
+        if ($actor->role !== UserRole::User || strcasecmp((string) $actor->person_type, 'Trainee') !== 0) {
+            throw new AuthorizationException('Quarterly trainer evaluation is available only to the authenticated trainee.');
         }
-        if (! in_array($session->status, ['Ongoing', 'Completed'], true)) {
-            throw ValidationException::withMessages(['session' => 'Feedback opens when a session is Ongoing or Completed.']);
+
+        if (! Schema::hasTable('training_trainer_evaluations')) {
+            throw ValidationException::withMessages([
+                'evaluation' => 'Quarterly trainer evaluation storage is not available.',
+            ]);
         }
-        TrainingFeedback::query()->updateOrCreate(['session_id' => $session->id, 'participant_id' => $actor->id], array_merge($data, ['submitted_at' => now()]));
-        $this->audit->record($actor, 'FeedbackSubmitted', 'TrainingSession', $session->id);
+
+        $task = collect($this->trainerEvaluationTasks($actor))->first(
+            fn (array $row) => $row['quarterKey'] === $quarterKey && $row['trainerKey'] === $trainerKey,
+        );
+
+        if (! $task) {
+            throw ValidationException::withMessages([
+                'evaluation' => 'No eligible quarterly trainer evaluation was found for this trainee and trainer.',
+            ]);
+        }
+
+        if (! $task['isOpen']) {
+            throw ValidationException::withMessages([
+                'evaluation' => 'This quarterly trainer evaluation is not open yet.',
+            ]);
+        }
+
+        if ($task['status'] === 'Done') {
+            throw ValidationException::withMessages([
+                'evaluation' => 'This quarterly trainer evaluation has already been submitted.',
+            ]);
+        }
+
+        $trainerRatings = collect([
+            $data['knowledge_rating'],
+            $data['clarity_rating'],
+            $data['communication_rating'],
+            $data['engagement_rating'],
+            $data['professionalism_rating'],
+            $data['practical_relevance_rating'],
+            $data['time_management_rating'],
+            $data['safety_emphasis_rating'] ?? null,
+        ])->filter(fn ($value) => $value !== null)->map(fn ($value) => (int) $value);
+
+        DB::transaction(function () use ($actor, $quarterKey, $trainerKey, $data, $task, $trainerRatings): void {
+            $alreadySubmitted = DB::table('training_trainer_evaluations')
+                ->where('participant_id', $actor->id)
+                ->where('quarter_key', $quarterKey)
+                ->where('trainer_key', $trainerKey)
+                ->lockForUpdate()
+                ->exists();
+
+            if ($alreadySubmitted) {
+                throw ValidationException::withMessages([
+                    'evaluation' => 'This quarterly trainer evaluation has already been submitted.',
+                ]);
+            }
+
+            $id = (string) Str::uuid();
+
+            DB::table('training_trainer_evaluations')->insert([
+                'id' => $id,
+                'participant_id' => $actor->id,
+                'quarter_key' => $quarterKey,
+                'trainer_key' => $trainerKey,
+                'trainer_user_id' => $task['trainerId'],
+                'trainer_name' => $task['trainerName'],
+                'covered_session_ids' => json_encode(array_column($task['sessions'], 'sessionId'), JSON_THROW_ON_ERROR),
+                'covered_training_titles' => json_encode($task['trainingTitles'], JSON_THROW_ON_ERROR),
+                'knowledge_rating' => $data['knowledge_rating'],
+                'clarity_rating' => $data['clarity_rating'],
+                'communication_rating' => $data['communication_rating'],
+                'engagement_rating' => $data['engagement_rating'],
+                'professionalism_rating' => $data['professionalism_rating'],
+                'practical_relevance_rating' => $data['practical_relevance_rating'],
+                'time_management_rating' => $data['time_management_rating'],
+                'safety_emphasis_rating' => $data['safety_emphasis_rating'] ?? null,
+                'facilitator_rating' => (int) round($trainerRatings->avg()),
+                'content_rating' => $data['content_rating'],
+                'relevance_rating' => $data['relevance_rating'],
+                'organization_rating' => $data['organization_rating'],
+                'overall_satisfaction' => $data['overall_satisfaction'],
+                'trainer_strengths' => trim((string) ($data['trainer_strengths'] ?? '')) ?: null,
+                'trainer_improvements' => trim((string) ($data['trainer_improvements'] ?? '')) ?: null,
+                'comments' => trim((string) ($data['comments'] ?? '')) ?: null,
+                'submitted_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $this->audit->record($actor, 'QuarterlyTrainerEvaluationSubmitted', 'TrainingTrainerEvaluation', $id, [
+                'quarterKey' => $quarterKey,
+                'trainerKey' => $trainerKey,
+                'trainerName' => $task['trainerName'],
+                'coveredSessions' => count($task['sessions']),
+            ]);
+        }, 3);
+    }
+
+    private function trainerEvaluationTasks(User $actor): array
+    {
+        if (
+            $actor->role !== UserRole::User
+            || strcasecmp((string) $actor->person_type, 'Trainee') !== 0
+            || ! Schema::hasTable('training_trainer_evaluations')
+        ) {
+            return [];
+        }
+
+        $rows = DB::table('training_session_participants as links')
+            ->join('training_enrollments as enrollments', 'enrollments.id', '=', 'links.enrollment_id')
+            ->join('training_sessions as sessions', 'sessions.id', '=', 'links.session_id')
+            ->join('training_programs as programs', 'programs.id', '=', 'sessions.program_id')
+            ->join('training_attendance_records as attendance', 'attendance.session_participant_id', '=', 'links.id')
+            ->leftJoin('users as trainers', 'trainers.id', '=', 'sessions.facilitator_id')
+            ->where('enrollments.participant_id', $actor->id)
+            ->whereNotIn('enrollments.status', ['Withdrawn', 'Cancelled'])
+            ->whereNotIn('links.status', ['Withdrawn', 'Cancelled'])
+            ->where('sessions.status', 'Completed')
+            ->whereNotNull('sessions.ends_at')
+            ->whereNotNull('attendance.finalized_at')
+            ->whereIn('attendance.training_status', ['Present', 'Late', 'Partial'])
+            ->orderBy('sessions.ends_at')
+            ->get([
+                'sessions.id as session_id',
+                'sessions.label as session_label',
+                'sessions.ends_at',
+                'sessions.facilitator_id',
+                'sessions.external_facilitator_name',
+                'trainers.name as trainer_name',
+                'programs.title as program_title',
+            ]);
+
+        $submitted = DB::table('training_trainer_evaluations')
+            ->where('participant_id', $actor->id)
+            ->get(['quarter_key', 'trainer_key'])
+            ->keyBy(fn (object $row) => $row->quarter_key.'|'.$row->trainer_key);
+
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $quarter = $this->quarterForDate($row->ends_at);
+            $trainerName = trim((string) ($row->trainer_name ?: $row->external_facilitator_name));
+            if ($trainerName === '') {
+                continue;
+            }
+
+            $trainerKey = $row->facilitator_id
+                ? 'user:'.$row->facilitator_id
+                : 'external:'.hash('sha256', Str::lower(Str::squish($trainerName)));
+
+            $groupKey = $quarter['key'].'|'.$trainerKey;
+            if (! isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'quarterKey' => $quarter['key'],
+                    'quarterLabel' => $quarter['label'],
+                    'quarterStart' => $quarter['startDate'],
+                    'quarterEnd' => $quarter['endDate'],
+                    'opensAt' => $quarter['opensAt'],
+                    'isOpen' => $quarter['isOpen'],
+                    'trainerKey' => $trainerKey,
+                    'trainerId' => $row->facilitator_id ? (int) $row->facilitator_id : null,
+                    'trainerName' => $trainerName,
+                    'sessionCount' => 0,
+                    'trainingTitles' => [],
+                    'sessions' => [],
+                    'status' => 'Not Open',
+                ];
+            }
+
+            $groups[$groupKey]['sessionCount']++;
+            $groups[$groupKey]['trainingTitles'][] = (string) $row->program_title;
+            $groups[$groupKey]['sessions'][] = [
+                'sessionId' => (string) $row->session_id,
+                'label' => (string) $row->session_label,
+                'programTitle' => (string) $row->program_title,
+                'endedAt' => CarbonImmutable::parse($row->ends_at)->timezone('Asia/Manila')->toIso8601String(),
+            ];
+        }
+
+        foreach ($groups as $groupKey => &$group) {
+            $group['trainingTitles'] = array_values(array_unique($group['trainingTitles']));
+            $group['status'] = isset($submitted[$groupKey])
+                ? 'Done'
+                : ($group['isOpen'] ? 'Pending' : 'Not Open');
+        }
+        unset($group);
+
+        return collect(array_values($groups))
+            ->sortByDesc(fn (array $row) => $row['quarterKey'].'|'.$row['trainerName'])
+            ->values()
+            ->all();
+    }
+
+    private function trainerEvaluationQuarter(): array
+    {
+        return $this->quarterForDate(CarbonImmutable::now('Asia/Manila'));
+    }
+
+    private function quarterForDate(mixed $value): array
+    {
+        $at = $value instanceof \DateTimeInterface
+            ? CarbonImmutable::instance($value)->timezone('Asia/Manila')
+            : CarbonImmutable::parse((string) $value, 'Asia/Manila')->timezone('Asia/Manila');
+
+        $quarter = intdiv($at->month - 1, 3) + 1;
+        $startMonth = (($quarter - 1) * 3) + 1;
+        $start = CarbonImmutable::create($at->year, $startMonth, 1, 0, 0, 0, 'Asia/Manila');
+        $opensAt = $start->addMonths(3)->startOfDay();
+        $end = $opensAt->subDay()->endOfDay();
+
+        return [
+            'key' => $at->year.'-Q'.$quarter,
+            'label' => 'Q'.$quarter.' '.$at->year,
+            'startDate' => $start->toDateString(),
+            'endDate' => $end->toDateString(),
+            'opensAt' => $opensAt->toIso8601String(),
+            'isOpen' => CarbonImmutable::now('Asia/Manila')->greaterThanOrEqualTo($opensAt),
+        ];
     }
 
     public function receiveRecommendation(User $actor, array $data): TrainingRecommendation

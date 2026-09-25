@@ -551,7 +551,7 @@ export function normalizeCourseDraft(
                 completion.passRequiredKnowledgeChecks,
                 true,
             ),
-            passFinalAssessment: flag(completion.passFinalAssessment, true),
+            passFinalAssessment: flag(completion.passFinalAssessment, false),
             issueCertificate: flag(completion.issueCertificate),
             certificateValidityMonths: nullableNumber(
                 completion.certificateValidityMonths,
@@ -802,7 +802,7 @@ export const emptyDraft = (actorId: number): CourseDraft => ({
     completion: {
         completeRequiredLessons: true,
         passRequiredKnowledgeChecks: true,
-        passFinalAssessment: true,
+        passFinalAssessment: false,
         issueCertificate: false,
         certificateValidityMonths: null,
         renewalIntervalMonths: null,
@@ -915,10 +915,6 @@ export function draftErrors(draft: CourseDraft): string[] {
                 );
         });
     });
-    if (draft.assessments.filter((assessment) => assessment.type === "Pre-Test").length !== 1)
-        errors.push("Add one Pre-Test.");
-    if (draft.assessments.filter((assessment) => assessment.type === "Post-Test").length !== 1)
-        errors.push("Add one Post-Test.");
     draft.assessments.forEach((assessment) => {
         if (assessment.type === "Knowledge Check" && !assessment.moduleClientId)
             errors.push(`Knowledge Check “${assessment.title}” must be linked to a module.`);

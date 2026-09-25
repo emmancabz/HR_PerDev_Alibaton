@@ -16,6 +16,7 @@ use App\Services\Learning\LearningDeliveryService;
 use App\Services\Learning\LearningMaterialService;
 use App\Services\Learning\LearningRequestService;
 use App\Services\Learning\LearningGroqService;
+use App\Services\Microservices\InternalRequestSigner;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -40,6 +41,15 @@ class LearningWorkflowTest extends TestCase
             'services.learning_lms.url' => null,
             'services.learning_lms.token' => null,
         ]);
+    }
+
+    private function internalHeaders(User $user): array
+    {
+        return app(InternalRequestSigner::class)->headers(
+            'learning',
+            \Illuminate\Http\Request::create('/'),
+            $user->id,
+        );
     }
 
     public function test_new_draft_persists_without_incrementing_official_version(): void
@@ -243,8 +253,9 @@ class LearningWorkflowTest extends TestCase
                 && collect($payload['sourceDocuments'] ?? [])->contains(
                     fn (array $source) => ($source['documentId'] ?? null) === 'ALB-PND-SOP-002',
                 )
-                && collect($payload['assessments'] ?? [])->pluck('type')->contains('Pre-Test')
-                && collect($payload['assessments'] ?? [])->pluck('type')->contains('Post-Test');
+                && collect($payload['assessments'] ?? [])->pluck('type')->contains('Knowledge Check')
+                && ! collect($payload['assessments'] ?? [])->pluck('type')->contains('Pre-Test')
+                && ! collect($payload['assessments'] ?? [])->pluck('type')->contains('Post-Test');
         });
     }
 
@@ -404,15 +415,16 @@ class LearningWorkflowTest extends TestCase
 
     public function test_submitted_attempts_are_immutable_attempt_limits_and_passing_score_apply(): void
     {
-        [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('A');$payload=$this->payload($admin,$reviewer,$publisher);$payload['assessments'][1]['attemptsAllowed']=1;$v1=$this->publish($admin,$reviewer,$publisher,$payload);$assignment=LearningAssignment::find(app(LearningAssignmentService::class)->assign($admin,$v1,$this->assignment([$learner->id]))[0]);$lesson=LearningCourseLesson::whereIn('module_id',DB::table('learning_course_modules')->where('course_version_id',$v1->id)->pluck('id'))->firstOrFail();app(LearningDeliveryService::class)->recordLesson($learner,$assignment,$lesson->id,true);$assessment=LearningAssessment::where('course_version_id',$v1->id)->where('assessment_type','Post-Test')->firstOrFail();$attempt=app(LearningDeliveryService::class)->startAttempt($learner,$assignment->fresh(),$assessment);$correct=collect($attempt->question_snapshot[0]['options'])->firstWhere('correct',true)['id'];$result=app(LearningDeliveryService::class)->submitAttempt($learner,$attempt,[['questionId'=>$attempt->question_snapshot[0]['id'],'optionIds'=>[$correct]]]);$this->assertTrue($result['passed']);$this->assertSame(100.0,$result['score']);
+        [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('A');$payload=$this->payload($admin,$reviewer,$publisher);$payload['assessments'][0]['attemptsAllowed']=1;$v1=$this->publish($admin,$reviewer,$publisher,$payload);$assignment=LearningAssignment::find(app(LearningAssignmentService::class)->assign($admin,$v1,$this->assignment([$learner->id]))[0]);$lesson=LearningCourseLesson::whereIn('module_id',DB::table('learning_course_modules')->where('course_version_id',$v1->id)->pluck('id'))->firstOrFail();app(LearningDeliveryService::class)->recordLesson($learner,$assignment,$lesson->id,true);$assessment=LearningAssessment::where('course_version_id',$v1->id)->where('assessment_type','Knowledge Check')->firstOrFail();$attempt=app(LearningDeliveryService::class)->startAttempt($learner,$assignment->fresh(),$assessment);$correct=collect($attempt->question_snapshot[0]['options'])->firstWhere('correct',true)['id'];$result=app(LearningDeliveryService::class)->submitAttempt($learner,$attempt,[['questionId'=>$attempt->question_snapshot[0]['id'],'optionIds'=>[$correct]]]);$this->assertTrue($result['passed']);$this->assertSame(100.0,$result['score']);
         $this->expectException(ValidationException::class);app(LearningDeliveryService::class)->saveResponses($learner,$attempt->fresh(),[]);
     }
 
-    public function test_completion_creates_certificate_and_exact_version_transcript_without_closing_gap(): void
+    public function test_completion_records_transcript_then_hr_or_admin_issues_certificate_without_closing_gap(): void
     {
-        [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('A');$v1=$this->publish($admin,$reviewer,$publisher);$assignment=LearningAssignment::find(app(LearningAssignmentService::class)->assign($admin,$v1,$this->assignment([$learner->id]))[0]);$lesson=LearningCourseLesson::whereIn('module_id',DB::table('learning_course_modules')->where('course_version_id',$v1->id)->pluck('id'))->firstOrFail();app(LearningDeliveryService::class)->recordLesson($learner,$assignment,$lesson->id,true);$assessment=LearningAssessment::where('course_version_id',$v1->id)->where('assessment_type','Post-Test')->firstOrFail();$attempt=app(LearningDeliveryService::class)->startAttempt($learner,$assignment->fresh(),$assessment);$correct=collect($attempt->question_snapshot[0]['options'])->firstWhere('correct',true)['id'];app(LearningDeliveryService::class)->submitAttempt($learner,$attempt,[['questionId'=>$attempt->question_snapshot[0]['id'],'optionIds'=>[$correct]]]);
-        $completion=DB::table('learning_completions')->where('assignment_id',$assignment->id)->first();$this->assertNotNull($completion);$this->assertSame($v1->id,$completion->course_version_id);$this->assertDatabaseHas('learning_certificates',['completion_id'=>$completion->id,'status'=>'Valid']);$this->assertDatabaseHas('learning_transcript_entries',['completion_id'=>$completion->id,'course_version_id'=>$v1->id]);$this->assertStringContainsString('"competencyGapClosed":false',DB::table('learning_audit_events')->where('event_type','Completion recorded')->value('metadata'));
-        $certificateId=DB::table('learning_certificates')->where('completion_id',$completion->id)->value('id');app(LearningDeliveryService::class)->revokeCertificate($admin,$certificateId,'Superseded credential record');$this->assertDatabaseHas('learning_certificates',['id'=>$certificateId,'status'=>'Revoked','revocation_reason'=>'Superseded credential record']);$this->assertDatabaseHas('learning_transcript_entries',['completion_id'=>$completion->id,'certificate_id'=>$certificateId]);$this->assertDatabaseHas('learning_audit_events',['event_type'=>'Certificate revoked','auditable_id'=>$certificateId]);
+        [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('A');$v1=$this->publish($admin,$reviewer,$publisher);$assignment=LearningAssignment::find(app(LearningAssignmentService::class)->assign($admin,$v1,$this->assignment([$learner->id]))[0]);$lesson=LearningCourseLesson::whereIn('module_id',DB::table('learning_course_modules')->where('course_version_id',$v1->id)->pluck('id'))->firstOrFail();app(LearningDeliveryService::class)->recordLesson($learner,$assignment,$lesson->id,true);$assessment=LearningAssessment::where('course_version_id',$v1->id)->where('assessment_type','Knowledge Check')->firstOrFail();$attempt=app(LearningDeliveryService::class)->startAttempt($learner,$assignment->fresh(),$assessment);$correct=collect($attempt->question_snapshot[0]['options'])->firstWhere('correct',true)['id'];app(LearningDeliveryService::class)->submitAttempt($learner,$attempt,[['questionId'=>$attempt->question_snapshot[0]['id'],'optionIds'=>[$correct]]]);
+        $completion=DB::table('learning_completions')->where('assignment_id',$assignment->id)->first();$this->assertNotNull($completion);$this->assertSame($v1->id,$completion->course_version_id);$this->assertDatabaseMissing('learning_certificates',['completion_id'=>$completion->id]);$this->assertDatabaseHas('learning_transcript_entries',['completion_id'=>$completion->id,'course_version_id'=>$v1->id,'certificate_id'=>null]);$this->assertStringContainsString('"competencyGapClosed":false',DB::table('learning_audit_events')->where('event_type','Completion recorded')->value('metadata'));
+        $certificate=app(LearningDeliveryService::class)->issueCertificate($reviewer,$completion->id);$this->assertDatabaseHas('learning_certificates',['id'=>$certificate->id,'completion_id'=>$completion->id,'status'=>'Valid']);$this->assertDatabaseHas('learning_transcript_entries',['completion_id'=>$completion->id,'certificate_id'=>$certificate->id]);$this->assertDatabaseHas('learning_audit_events',['event_type'=>'Certificate issued by HR/Admin','auditable_id'=>$certificate->id]);
+        app(LearningDeliveryService::class)->revokeCertificate($admin,$certificate->id,'Superseded credential record');$this->assertDatabaseHas('learning_certificates',['id'=>$certificate->id,'status'=>'Revoked','revocation_reason'=>'Superseded credential record']);$this->assertDatabaseHas('learning_audit_events',['event_type'=>'Certificate revoked','auditable_id'=>$certificate->id]);
     }
 
     public function test_cancelled_assignments_are_excluded_from_analytics_denominator(): void
@@ -529,8 +541,8 @@ class LearningWorkflowTest extends TestCase
 
     public function test_attempt_start_response_never_exposes_correct_answers_or_explanations(): void
     {
-        [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('Leak');$v1=$this->publish($admin,$reviewer,$publisher);$assignment=LearningAssignment::find(app(LearningAssignmentService::class)->assign($admin,$v1,$this->assignment([$learner->id]))[0]);$lesson=LearningCourseLesson::whereIn('module_id',DB::table('learning_course_modules')->where('course_version_id',$v1->id)->pluck('id'))->firstOrFail();app(LearningDeliveryService::class)->recordLesson($learner,$assignment,$lesson->id,true);$assessment=LearningAssessment::where('course_version_id',$v1->id)->where('assessment_type','Post-Test')->firstOrFail();
-        $response=$this->actingAs($learner)->postJson(route('learning.api.attempts.start',['assignment'=>$assignment,'assessment'=>$assessment]));$response->assertCreated();$json=json_encode($response->json());$this->assertStringNotContainsString('"correct"',$json);$this->assertStringNotContainsString('"explanation"',$json);
+        [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('Leak');$v1=$this->publish($admin,$reviewer,$publisher);$assignment=LearningAssignment::find(app(LearningAssignmentService::class)->assign($admin,$v1,$this->assignment([$learner->id]))[0]);$lesson=LearningCourseLesson::whereIn('module_id',DB::table('learning_course_modules')->where('course_version_id',$v1->id)->pluck('id'))->firstOrFail();app(LearningDeliveryService::class)->recordLesson($learner,$assignment,$lesson->id,true);$assessment=LearningAssessment::where('course_version_id',$v1->id)->where('assessment_type','Knowledge Check')->firstOrFail();
+        $response=$this->withHeaders($this->internalHeaders($learner))->postJson(route('learning.api.attempts.start',['assignment'=>$assignment,'assessment'=>$assessment]));$response->assertCreated();$json=json_encode($response->json());$this->assertStringNotContainsString('"correct"',$json);$this->assertStringNotContainsString('"explanation"',$json);
     }
 
     public function test_archive_retires_working_state_and_rejects_content_review_ai_governance_and_material_mutations(): void
@@ -608,13 +620,13 @@ class LearningWorkflowTest extends TestCase
         } finally { Carbon::setTestNow(); }
     }
 
-    public function test_authorized_regrade_reconciles_assignment_completion_certificate_transcript_and_audit(): void
+    public function test_authorized_regrade_reconciles_assignment_completion_transcript_and_audit_without_auto_certificate(): void
     {
         $queries = [];
         DB::listen(function ($query) use (&$queries): void { $queries[] = strtolower($query->sql); });
-        [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('Regrade');$v1=$this->publish($admin,$reviewer,$publisher);$assignment=LearningAssignment::findOrFail(app(LearningAssignmentService::class)->assign($admin,$v1,$this->assignment([$learner->id]))[0]);$lesson=LearningCourseLesson::whereIn('module_id',DB::table('learning_course_modules')->where('course_version_id',$v1->id)->pluck('id'))->firstOrFail();app(LearningDeliveryService::class)->recordLesson($learner,$assignment,$lesson->id,true);$assessment=LearningAssessment::where('course_version_id',$v1->id)->where('assessment_type','Post-Test')->firstOrFail();$attempt=app(LearningDeliveryService::class)->startAttempt($learner,$assignment->fresh(),$assessment);$question=$attempt->question_snapshot[0];$correct=collect($question['options'])->firstWhere('correct',true)['id'];app(LearningDeliveryService::class)->saveResponses($learner,$attempt,[['questionId'=>$question['id'],'optionIds'=>[$correct]]]);
+        [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('Regrade');$v1=$this->publish($admin,$reviewer,$publisher);$assignment=LearningAssignment::findOrFail(app(LearningAssignmentService::class)->assign($admin,$v1,$this->assignment([$learner->id]))[0]);$lesson=LearningCourseLesson::whereIn('module_id',DB::table('learning_course_modules')->where('course_version_id',$v1->id)->pluck('id'))->firstOrFail();app(LearningDeliveryService::class)->recordLesson($learner,$assignment,$lesson->id,true);$assessment=LearningAssessment::where('course_version_id',$v1->id)->where('assessment_type','Knowledge Check')->firstOrFail();$attempt=app(LearningDeliveryService::class)->startAttempt($learner,$assignment->fresh(),$assessment);$question=$attempt->question_snapshot[0];$correct=collect($question['options'])->firstWhere('correct',true)['id'];app(LearningDeliveryService::class)->saveResponses($learner,$attempt,[['questionId'=>$question['id'],'optionIds'=>[$correct]]]);
         $savedSnapshot=$attempt->question_snapshot;LearningAssessmentAttempt::whereKey($attempt->id)->update(['status'=>'Submitted','score_percent'=>0,'passed'=>false,'submitted_at'=>now()]);$assignment->update(['status'=>'Failed/Attempts Exhausted']);$result=app(LearningDeliveryService::class)->regradeAttempt($admin,$attempt->fresh(),'Correct deterministic grading regression');
-        $this->assertTrue($result['passed']);$this->assertNotNull($result['completionId']);$this->assertDatabaseHas('learning_assignments',['id'=>$assignment->id,'status'=>'Completed']);$this->assertDatabaseHas('learning_certificates',['completion_id'=>$result['completionId'],'status'=>'Valid']);$this->assertDatabaseHas('learning_transcript_entries',['completion_id'=>$result['completionId'],'course_version_id'=>$v1->id]);$this->assertDatabaseHas('learning_audit_events',['event_type'=>'Attempt regraded','auditable_id'=>$attempt->id]);
+        $this->assertTrue($result['passed']);$this->assertNotNull($result['completionId']);$this->assertDatabaseHas('learning_assignments',['id'=>$assignment->id,'status'=>'Completed']);$this->assertDatabaseMissing('learning_certificates',['completion_id'=>$result['completionId']]);$this->assertDatabaseHas('learning_transcript_entries',['completion_id'=>$result['completionId'],'course_version_id'=>$v1->id,'certificate_id'=>null]);$this->assertDatabaseHas('learning_audit_events',['event_type'=>'Attempt regraded','auditable_id'=>$attempt->id]);
         $this->assertSame($savedSnapshot,$attempt->fresh()->question_snapshot);$audit=json_decode(DB::table('learning_audit_events')->where(['event_type'=>'Attempt regraded','auditable_id'=>$attempt->id])->value('metadata'),true);$this->assertSame('Correct deterministic grading regression',$audit['reason']);
         $this->assertTrue(collect($queries)->contains(fn (string $sql) => str_contains($sql, 'learning_attempt_responses') && str_contains($sql, 'for update')));
         $this->assertFalse(collect($queries)->contains(fn (string $sql) => str_contains($sql, 'for update') && preg_match('/\b(count|sum|avg|min|max)\s*\(/', $sql) === 1));
@@ -681,9 +693,9 @@ class LearningWorkflowTest extends TestCase
     public function test_learning_http_authorization_and_validation_are_server_enforced(): void
     {
         [$admin,$reviewer,$publisher]=$this->actors();$learner=$this->learner('Http');$draft=$this->draft($admin,$reviewer,$publisher);
-        $this->actingAs($learner)->putJson(route('learning.api.versions.save',['version'=>$draft]),$this->payload($admin,$reviewer,$publisher))->assertForbidden();
-        $this->actingAs($reviewer)->postJson(route('learning.api.versions.review',['version'=>$draft]),[])->assertForbidden();
-        $this->actingAs($admin)->postJson(route('learning.api.versions.review',['version'=>$draft]),[])->assertOk();
+        $this->withHeaders($this->internalHeaders($learner))->putJson(route('learning.api.versions.save',['version'=>$draft]),$this->payload($admin,$reviewer,$publisher))->assertForbidden();
+        $this->withHeaders($this->internalHeaders($reviewer))->postJson(route('learning.api.versions.review',['version'=>$draft]),[])->assertForbidden();
+        $this->withHeaders($this->internalHeaders($admin))->postJson(route('learning.api.versions.review',['version'=>$draft]),[])->assertOk();
     }
 
     public function test_assignment_migration_is_explicit_version_pinned_and_preserves_cancelled_history(): void
@@ -804,34 +816,22 @@ class LearningWorkflowTest extends TestCase
             ]],
             'assessments' => [
                 [
-                    'type' => 'Pre-Test',
-                    'title' => 'Pre-Test',
-                    'required' => false,
-                    'passingScore' => 80,
-                    'attemptsAllowed' => 1,
-                    'shuffleQuestions' => false,
-                    'shuffleOptions' => false,
-                    'feedbackPolicy' => 'After submission',
-                    'moduleClientId' => null,
-                    'questions' => [$question('Before training, which action follows the procedure?')],
-                ],
-                [
-                    'type' => 'Post-Test',
-                    'title' => 'Post-Test',
+                    'type' => 'Knowledge Check',
+                    'title' => 'Module Quiz',
                     'required' => true,
                     'passingScore' => 80,
                     'attemptsAllowed' => 3,
                     'shuffleQuestions' => false,
                     'shuffleOptions' => false,
                     'feedbackPolicy' => 'After submission',
-                    'moduleClientId' => null,
-                    'questions' => [$question('After training, which action follows the procedure?')],
+                    'moduleClientId' => 'module-1',
+                    'questions' => [$question('After studying this module, which action follows the procedure?')],
                 ],
             ],
             'completion' => [
                 'completeRequiredLessons' => true,
                 'passRequiredKnowledgeChecks' => true,
-                'passFinalAssessment' => true,
+                'passFinalAssessment' => false,
                 'issueCertificate' => true,
                 'certificateValidityMonths' => 12,
                 'renewalIntervalMonths' => 12,

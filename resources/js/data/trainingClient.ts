@@ -22,7 +22,7 @@ export const trainingClient = {
     finalizeCompletion: async (enrollmentId: string, status: string, note?: string) => stateResponse(await axios.post(`/training/api/enrollments/${enrollmentId}/completion`, { status, note })),
     finalizeReadyParticipants: async (sessionId: string) => stateResponse(await axios.post(`/training/api/sessions/${sessionId}/completion/finalize-ready`)),
     revokeCertificate: async (id: string, reason: string) => stateResponse(await axios.post(`/training/api/certificates/${id}/revoke`, { reason })),
-    feedback: async (sessionId: string, payload: Record<string, unknown>) => stateResponse(await axios.put(`/training/api/sessions/${sessionId}/feedback`, payload)),
+    submitTrainerEvaluation: async (payload: Record<string, unknown>) => stateResponse(await axios.post("/training/api/trainer-evaluations", payload)),
     actRecommendation: async (id: string, payload: Record<string, unknown>) => stateResponse(await axios.post(`/training/api/recommendations/${id}/action`, payload)),
 };
 

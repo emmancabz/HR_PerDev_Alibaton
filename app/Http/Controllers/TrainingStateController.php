@@ -180,17 +180,34 @@ class TrainingStateController extends Controller
         return $this->show($request);
     }
 
-    public function feedback(Request $request, TrainingSession $session): JsonResponse
+    public function submitTrainerEvaluation(Request $request): JsonResponse
     {
         $data = $request->validate([
+            'quarterKey' => ['required', 'regex:/^\d{4}-Q[1-4]$/'],
+            'trainerKey' => ['required', 'string', 'max:255'],
+            'knowledge_rating' => ['required', 'integer', 'between:1,5'],
+            'clarity_rating' => ['required', 'integer', 'between:1,5'],
+            'communication_rating' => ['required', 'integer', 'between:1,5'],
+            'engagement_rating' => ['required', 'integer', 'between:1,5'],
+            'professionalism_rating' => ['required', 'integer', 'between:1,5'],
+            'practical_relevance_rating' => ['required', 'integer', 'between:1,5'],
+            'time_management_rating' => ['required', 'integer', 'between:1,5'],
+            'safety_emphasis_rating' => ['nullable', 'integer', 'between:1,5'],
+            'trainer_strengths' => ['nullable', 'string', 'max:3000'],
+            'trainer_improvements' => ['nullable', 'string', 'max:3000'],
             'content_rating' => ['required', 'integer', 'between:1,5'],
-            'facilitator_rating' => ['required', 'integer', 'between:1,5'],
             'relevance_rating' => ['required', 'integer', 'between:1,5'],
             'organization_rating' => ['required', 'integer', 'between:1,5'],
             'overall_satisfaction' => ['required', 'integer', 'between:1,5'],
             'comments' => ['nullable', 'string', 'max:5000'],
         ]);
-        $this->training->submitFeedback($request->user(), $session, $data);
+
+        $this->training->submitQuarterlyTrainerEvaluation(
+            $request->user(),
+            $data['quarterKey'],
+            $data['trainerKey'],
+            $data,
+        );
 
         return $this->show($request);
     }

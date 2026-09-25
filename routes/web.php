@@ -76,10 +76,12 @@ Route::middleware('auth')->group(function () {
         ->name('user.dashboard');
 
     Route::middleware('role:hr')->prefix('hr')->name('hr.')->group(function () {
+        Route::get('/users', [UserManagementPageController::class, 'index'])->name('users.index');
+        Route::get('/performance', [PerformancePageController::class, 'administration'])->name('performance.index');
+        Route::get('/performance/manage-evaluators', [PerformancePageController::class, 'evaluatorAdministration'])->name('performance.evaluators');
+        Route::get('/competency', [CompetencyController::class, 'page'])->name('competency.index');
         Route::get('/learning', [LearningPageController::class, 'administration'])->name('learning.index');
         Route::get('/training', [TrainingPageController::class, 'administration'])->name('training.index');
-        Route::get('/competency', [CompetencyController::class, 'page'])->name('competency.index');
-        Route::get('/performance', [PerformancePageController::class, 'administration'])->name('performance.index');
         Route::get('/succession', [SuccessionPageController::class, 'administration'])->name('succession.index');
         Route::get('/recognition', [RecognitionPageController::class, 'administration'])->name('recognition.index');
         Route::get('/reports', [ReportsPageController::class, 'index'])->name('reports.index');
@@ -87,14 +89,42 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::middleware('role:user')->prefix('user')->name('user.')->group(function () {
-        Route::get('/learning', [LearningPageController::class, 'learner'])->name('learning.index');
-        Route::get('/training', [TrainingPageController::class, 'learner'])->name('training.index');
-        Route::get('/skills-wallet', [CompetencyController::class, 'wallet'])->name('skills.index');
-        Route::get('/performance', [PerformancePageController::class, 'user'])->name('performance.index');
-        Route::get('/leaderboard', [RecognitionPageController::class, 'user'])->name('leaderboard.index');
-        Route::get('/transcripts', fn () => redirect(route('user.learning.index').'#Learning%20Transcript'))->name('transcripts.index');
-        Route::get('/reports', [ReportsPageController::class, 'index'])->name('reports.index');
-        Route::get('/settings', [SettingsPageController::class, 'index'])->name('settings.index');
+        Route::get('/learning', [LearningPageController::class, 'learner'])
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('learning.index');
+        Route::get('/assessments', [LearningPageController::class, 'learner'])
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('assessments.index');
+        Route::get('/certificates', [LearningPageController::class, 'learner'])
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('certificates.index');
+        Route::get('/training', [TrainingPageController::class, 'learner'])
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('training.index');
+        Route::get('/development', [CompetencyController::class, 'wallet'])
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('development.index');
+        Route::get('/skills-wallet', [CompetencyController::class, 'wallet'])
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('skills.index');
+        Route::get('/profile', fn () => Inertia::render('UserProfile'))
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('profile.index');
+        Route::get('/notifications', fn () => Inertia::render('UserNotifications'))
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('notifications.index');
+        Route::get('/performance', [PerformancePageController::class, 'user'])
+            ->middleware('persona:employee,supervisor,manager')
+            ->name('performance.index');
+        Route::get('/leaderboard', [RecognitionPageController::class, 'user'])
+            ->middleware('persona:employee,supervisor,manager')
+            ->name('leaderboard.index');
+        Route::get('/transcripts', fn () => redirect(route('user.learning.index').'#Learning%20History'))
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('transcripts.index');
+        Route::get('/settings', [SettingsPageController::class, 'index'])
+            ->middleware('persona:trainee,employee,supervisor,manager')
+            ->name('settings.index');
     });
 
     // User-governance mutation endpoints remain under /admin, but authorization is enforced
@@ -216,7 +246,8 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
         Route::put('/attempts/{attempt}/responses', [LearningStateController::class, 'saveResponses'])->name('attempts.responses');
         Route::post('/attempts/{attempt}/submit', [LearningStateController::class, 'submitAttempt'])->name('attempts.submit');
         Route::post('/attempts/{attempt}/regrade', [LearningStateController::class, 'regradeAttempt'])->name('attempts.regrade');
-        Route::post('/certificates/{certificate}/revoke', [LearningStateController::class, 'revokeCertificate'])->name('certificates.revoke');
+        Route::post('/completions/{completion}/certificate', [LearningStateController::class, 'issueCertificate'])->name('certificates.issue');
+    Route::post('/certificates/{certificate}/revoke', [LearningStateController::class, 'revokeCertificate'])->name('certificates.revoke');
         Route::get('/certificates/{certificate}/download', [LearningStateController::class, 'downloadCertificate'])->middleware('signed')->name('certificates.download');
         Route::post('/lessons/{lesson}/materials', [LearningStateController::class, 'uploadMaterial'])->middleware('throttle:20,1')->name('materials.upload');
         Route::delete('/materials/{material}', [LearningStateController::class, 'revokeMaterial'])->name('materials.revoke');

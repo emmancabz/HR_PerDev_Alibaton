@@ -93,8 +93,7 @@ const validCourse = () => {
         ],
     };
     draft.assessments = [
-        { type: "Pre-Test", title: "Pre-Test", required: false, passingScore: 80, attemptsAllowed: 1, shuffleQuestions: false, shuffleOptions: false, feedbackPolicy: "After submission", moduleClientId: null, questions: [question] },
-        { type: "Post-Test", title: "Post-Test", required: true, passingScore: 80, attemptsAllowed: 3, shuffleQuestions: false, shuffleOptions: false, feedbackPolicy: "After submission", moduleClientId: null, questions: [structuredClone(question)] },
+        { type: "Knowledge Check", title: "Module quiz", required: true, passingScore: 80, attemptsAllowed: 3, shuffleQuestions: false, shuffleOptions: false, feedbackPolicy: "After submission", moduleClientId: "module-1", questions: [question] },
     ];
     return draft;
 };
@@ -169,12 +168,12 @@ describe("final HR Course Builder", () => {
         expect(screen.getByRole("button", { name: "Aevyn Assist" })).toBeVisible();
     });
 
-    it("keeps Pre-Test, Knowledge Check, and Post-Test authoring in Assessment & Completion", () => {
+    it("offers module Knowledge Check authoring without LMS Pre-Test or Post-Test creation", () => {
         const draft = validCourse();
         draft.workingStage = 4;
         renderBuilder(draft);
-        expect(screen.getByRole("button", { name: "Assessment Pre-Test type dropdown" })).toBeVisible();
-        expect(screen.getByRole("button", { name: "Assessment Post-Test type dropdown" })).toBeVisible();
+        expect(screen.queryByRole("button", { name: "Assessment Pre-Test type dropdown" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Assessment Post-Test type dropdown" })).not.toBeInTheDocument();
         expect(screen.getByRole("button", { name: /Add Knowledge Check/i })).toBeVisible();
     });
 

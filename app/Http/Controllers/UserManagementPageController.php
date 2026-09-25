@@ -23,13 +23,15 @@ class UserManagementPageController extends Controller
 
     public function index(Request $request): Response
     {
-        abort_unless($request->user()?->role === UserRole::Admin, 403);
+        $actor = $request->user();
+        abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
 
         // User Management is a P&D personnel/account directory. Governance-only accounts,
         // anonymized identities, and archived records are intentionally excluded here.
         // Archived personnel are governed in Settings > Archive.
         $personnel = User::query()
             ->canonicalPersonnel()
+            ->when($actor->role === UserRole::HR, fn ($query) => $query->where('role', '!=', UserRole::Admin->value))
             ->with('manager:id,personnel_key,name,position,department')
             ->whereNull('anonymized_at')
             ->whereNull('archived_at')

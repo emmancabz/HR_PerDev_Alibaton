@@ -485,14 +485,8 @@ function infoTile(icon: LucideIcon, label: string, value: ReactNode) {
 }
 
 function moduleRoute(key: 'performance' | 'competency' | 'learning' | 'training' | 'recognition' | 'succession'): string {
-    return {
-        performance: 'admin.performance.index',
-        competency: 'admin.competency.index',
-        learning: 'admin.learning.index',
-        training: 'admin.training.index',
-        recognition: 'admin.recognition.index',
-        succession: 'admin.succession.index',
-    }[key];
+    const prefix = route().current('hr.*') ? 'hr' : 'admin';
+    return `${prefix}.${key}.index`;
 }
 
 // User Management is hydrated from the persistent users/security/module records supplied by Laravel.
@@ -1776,12 +1770,14 @@ function UserDetailsDrawer({
                                     <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Account Lifecycle & Administrative Activity</h4>
                                     <p className="mt-1 text-xs text-slate-500">Only personnel/account governance events are summarized here.</p>
                                 </div>
-                                <a
-                                    href={`${buildHref('admin.settings.index')}#Security%20Logs`}
-                                    className="text-xs font-bold text-[#C88F00] hover:underline focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
-                                >
-                                    View Full Security Logs
-                                </a>
+                                {route().current('admin.*') && (
+                                    <a
+                                        href={`${buildHref('admin.settings.index')}#Security%20Logs`}
+                                        className="text-xs font-bold text-[#C88F00] hover:underline focus-visible:ring-2 focus-visible:ring-[#F4B400] focus:outline-none"
+                                    >
+                                        View Full Security Logs
+                                    </a>
+                                )}
                             </div>
 
                             <div className="space-y-3">
@@ -2133,7 +2129,7 @@ function UserManagement() {
     const inertiaPage = usePage();
     const props = inertiaPage.props as typeof inertiaPage.props & UserManagementPageProps;
     const availablePersonnel = props.availablePersonnel ?? [];
-    const currentAdminName = (inertiaPage.props.auth.user as { name?: string }).name ?? 'Current Admin';
+    const currentOperatorName = (inertiaPage.props.auth.user as { name?: string }).name ?? 'Current P&D Operator';
     const [state, setState] = useState<DirectoryState>(() => normalizeDirectoryState(props.initialUserDirectoryState));
     useEffect(() => {
         setState(normalizeDirectoryState(props.initialUserDirectoryState));
@@ -2251,6 +2247,66 @@ function UserManagement() {
     const totalPages = Math.max(1, Math.ceil(filteredUsers.length / ITEMS_PER_PAGE));
     const currentPage = Math.min(page, totalPages);
     const pagedUsers = filteredUsers.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    const searchLocation = typeof window === 'undefined'
+        ? ''
+        : `${window.location.search}${window.location.hash}`;
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || activeMajorTab !== 'All Users') return;
+
+        const params = new URLSearchParams(window.location.search);
+        const targetTable = (params.get('gs_table') ?? '').trim().toLowerCase();
+        const targetRecord = (params.get('gs_record') ?? '').trim();
+        const targetMatch = (params.get('gs_match') ?? '').trim().toLowerCase();
+
+        if (targetTable && targetTable !== 'all users') return;
+        if (!targetRecord && !targetMatch) return;
+
+        // Global Search must be able to reveal a person even when an old directory
+        // filter would otherwise hide that person.
+        const filtersAreDefault =
+            roleFilter === 'All'
+            && statusFilter === 'All'
+            && personTypeFilter === 'All'
+            && departmentFilter === 'All'
+            && positionFilter === 'All';
+
+        if (!filtersAreDefault) {
+            setRoleFilter('All');
+            setStatusFilter('All');
+            setPersonTypeFilter('All');
+            setDepartmentFilter('All');
+            setPositionFilter('All');
+            return;
+        }
+
+        const orderedUsers = [...nonArchivedUsers].sort((a, b) =>
+            a.fullName.localeCompare(b.fullName),
+        );
+
+        const targetIndex = orderedUsers.findIndex((user) =>
+            (targetRecord !== '' && (
+                user.id === targetRecord
+                || String(user.databaseId ?? '') === targetRecord
+            ))
+            || (targetMatch !== '' && user.fullName.toLowerCase().includes(targetMatch)),
+        );
+
+        if (targetIndex < 0) return;
+
+        const targetPage = Math.floor(targetIndex / ITEMS_PER_PAGE) + 1;
+        if (page !== targetPage) setPage(targetPage);
+    }, [
+        activeMajorTab,
+        departmentFilter,
+        nonArchivedUsers,
+        page,
+        personTypeFilter,
+        positionFilter,
+        roleFilter,
+        searchLocation,
+        statusFilter,
+    ]);
 
     const selectedUser = state.users.find((u) => u.id === selectedUserId) ?? null;
     const suspendTargetUser = state.users.find((u) => u.id === suspendTargetUserId) ?? null;
@@ -2290,7 +2346,7 @@ function UserManagement() {
                 status: 'Suspended',
                 reason: `${form.basis}: ${form.justification}${form.supportingNotes ? ` · ${form.supportingNotes}` : ''}`,
                 reference: form.referenceNumber || null,
-                authorizedBy: form.authorizedBy || currentAdminName,
+                authorizedBy: form.authorizedBy || currentOperatorName,
                 securityEmergency: form.isSecurityEmergency,
             });
             setSuspendTargetUserId(null);
@@ -2308,7 +2364,7 @@ function UserManagement() {
                 status: 'Inactive',
                 reason: `${form.basis}: ${form.reason}${form.notes ? ` · ${form.notes}` : ''}`,
                 reference: form.referenceNumber || null,
-                authorizedBy: currentAdminName,
+                authorizedBy: currentOperatorName,
             });
             setDeactivateTargetUserId(null);
             pushToast('info', `${deactivateTargetUser.fullName}'s P&D access was deactivated and active sessions were revoked.`);
@@ -2494,7 +2550,7 @@ function UserManagement() {
                     break;
                 }
                 case 'unlock':
-                    updateUser(entityId, (u) => appendActivity({ ...u, locked: false, failedSignInCount: 0 }, 'Account unlocked', 'Admin unlocked the account.', ts));
+                    updateUser(entityId, (u) => appendActivity({ ...u, locked: false, failedSignInCount: 0 }, 'Account unlocked', 'Authorized P&D operator unlocked the account.', ts));
                     pushToast('success', 'Account unlocked.');
                     break;
                 case 'activate': {
@@ -2503,8 +2559,8 @@ function UserManagement() {
                     try {
                         await axios.patch(`/admin/users/${user.databaseId}/access`, {
                             status: 'Active',
-                            reason: 'Administrator restored P&D access from User Management.',
-                            authorizedBy: currentAdminName,
+                            reason: 'Authorized P&D operator restored P&D access from User Management.',
+                            authorizedBy: currentOperatorName,
                         });
                         pushToast('success', 'P&D access restored.');
                         reloadDirectory();
@@ -2521,7 +2577,7 @@ function UserManagement() {
                     if (!user?.databaseId) break;
                     try {
                         await axios.post(`/governance/api/settings/accounts/${user.databaseId}/restore`, {
-                            reason: 'Administrator restored this retained account from User Management.',
+                            reason: 'Authorized P&D operator restored this retained account from User Management.',
                         });
                         pushToast('success', 'Account restored.');
                         reloadDirectory();
@@ -2767,7 +2823,7 @@ function UserManagement() {
             department: manualForm.department || 'Unassigned',
             requestedRole: manualForm.accessRole,
             personType: manualForm.personType,
-            requestedBy: currentAdminName,
+            requestedBy: currentOperatorName,
             reason: manualForm.reason,
             notes: manualForm.notes || undefined,
             submittedAt: ts,

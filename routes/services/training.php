@@ -21,7 +21,7 @@ Route::middleware(['internal.service:training', 'throttle:120,1'])->prefix('trai
     Route::post('/enrollments/{enrollment}/completion', [TrainingStateController::class, 'finalizeCompletion'])->name('completions.finalize');
     Route::post('/sessions/{session}/completion/finalize-ready', [TrainingStateController::class, 'finalizeReadyParticipants'])->name('completions.finalize-ready');
     Route::post('/certificates/{certificate}/revoke', [TrainingStateController::class, 'revokeCertificate'])->name('certificates.revoke');
-    Route::put('/sessions/{session}/feedback', [TrainingStateController::class, 'feedback'])->name('feedback.save');
+    Route::post('/trainer-evaluations', [TrainingStateController::class, 'submitTrainerEvaluation'])->name('trainer-evaluations.submit');
     Route::post('/recommendations', [TrainingStateController::class, 'receiveRecommendation'])->name('recommendations.receive');
     Route::post('/recommendations/{recommendation}/action', [TrainingStateController::class, 'actRecommendation'])->name('recommendations.action');
     Route::get('/reports/export', [TrainingStateController::class, 'export'])->name('reports.export');

@@ -168,6 +168,59 @@ export type TrainingRecommendation = {
     createdAt: string;
 };
 
+export type TrainingFeedback = {
+    id: string;
+    sessionId: string;
+    participantId: number;
+    knowledgeRating: number | null;
+    clarityRating: number | null;
+    communicationRating: number | null;
+    engagementRating: number | null;
+    professionalismRating: number | null;
+    practicalRelevanceRating: number | null;
+    timeManagementRating: number | null;
+    safetyEmphasisRating: number | null;
+    trainerStrengths: string | null;
+    trainerImprovements: string | null;
+    contentRating: number;
+    facilitatorRating: number;
+    relevanceRating: number;
+    organizationRating: number;
+    overallSatisfaction: number;
+    comments: string | null;
+    submittedAt: string | null;
+};
+
+export type TrainerEvaluationQuarter = {
+    key: string;
+    label: string;
+    startDate: string;
+    endDate: string;
+    opensAt: string;
+    isOpen: boolean;
+};
+
+export type TrainerEvaluationTask = {
+    quarterKey: string;
+    quarterLabel: string;
+    quarterStart: string;
+    quarterEnd: string;
+    opensAt: string;
+    isOpen: boolean;
+    trainerKey: string;
+    trainerId: number | null;
+    trainerName: string;
+    sessionCount: number;
+    trainingTitles: string[];
+    sessions: Array<{
+        sessionId: string;
+        label: string;
+        programTitle: string;
+        endedAt: string;
+    }>;
+    status: "Not Open" | "Pending" | "Done";
+};
+
 export type TrainingState = {
     actor: { id: number; role: string; canManage: boolean; canFinalize: boolean; canFacilitate: boolean };
     integration: {
@@ -183,7 +236,9 @@ export type TrainingState = {
     programs: TrainingProgram[];
     enrollments: TrainingEnrollment[];
     facilitation: TrainingEnrollment[];
-    feedback: Array<Record<string, any>>;
+    feedback: TrainingFeedback[];
+    trainerEvaluationQuarter: TrainerEvaluationQuarter;
+    trainerEvaluationTasks: TrainerEvaluationTask[];
     recommendations: TrainingRecommendation[];
 };
 
@@ -234,6 +289,15 @@ export function normalizeTrainingState(value: unknown): TrainingState {
         enrollments: Array.isArray(source.enrollments) ? source.enrollments : [],
         facilitation: Array.isArray(source.facilitation) ? source.facilitation : [],
         feedback: Array.isArray(source.feedback) ? source.feedback : [],
+        trainerEvaluationQuarter: source.trainerEvaluationQuarter ?? {
+            key: "",
+            label: "",
+            startDate: "",
+            endDate: "",
+            opensAt: "",
+            isOpen: false,
+        },
+        trainerEvaluationTasks: Array.isArray(source.trainerEvaluationTasks) ? source.trainerEvaluationTasks : [],
         recommendations: Array.isArray(source.recommendations) ? source.recommendations : [],
     };
 }

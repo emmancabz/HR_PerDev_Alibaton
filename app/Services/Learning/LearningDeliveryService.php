@@ -36,7 +36,16 @@ class LearningDeliveryService
                 'download_url' => URL::temporarySignedRoute('learning.api.materials.download', now()->addMinutes(15), ['material' => $material->id]),
             ])->values(),
         ])->values()])->values();
-        return ['assignment' => $assignment, 'course' => ['id' => $version->id, 'title' => $version->title, 'status' => $version->status, 'version_number' => $version->version_number, 'assessments' => $version->assessments->map(fn ($assessment) => ['id' => $assessment->id, 'title' => $assessment->title, 'assessment_type' => $assessment->assessment_type, 'passing_score' => $assessment->passing_score, 'attempts_allowed' => $assessment->attempts_allowed])], 'modules' => $modules, 'progress' => $assignment->progress, 'attempts' => $assignment->attempts()->select(['id', 'assignment_id', 'assessment_id', 'attempt_number', 'status', 'score_percent', 'passed', 'started_at', 'submitted_at'])->orderByDesc('started_at')->get()];
+        return ['assignment' => $assignment, 'course' => ['id' => $version->id, 'title' => $version->title, 'status' => $version->status, 'version_number' => $version->version_number, 'assessments' => $version->assessments
+            ->where('assessment_type', 'Knowledge Check')
+            ->map(fn ($assessment) => [
+                'id' => $assessment->id,
+                'module_id' => $assessment->module_id,
+                'title' => $assessment->title,
+                'assessment_type' => $assessment->assessment_type,
+                'passing_score' => $assessment->passing_score,
+                'attempts_allowed' => $assessment->attempts_allowed,
+            ])->values()], 'modules' => $modules, 'progress' => $assignment->progress, 'attempts' => $assignment->attempts()->select(['id', 'assignment_id', 'assessment_id', 'attempt_number', 'status', 'score_percent', 'passed', 'started_at', 'submitted_at'])->orderByDesc('started_at')->get()];
     }
 
     public function recordLesson(User $actor, LearningAssignment $assignment, string $lessonId, bool $completed, int $seconds = 0): array
@@ -61,10 +70,23 @@ class LearningDeliveryService
     {
         $this->own($actor, $assignment); $this->active($assignment);
         if ($assessment->course_version_id !== $assignment->course_version_id) throw ValidationException::withMessages(['assessment' => 'Assessment version does not match the assignment.']);
-        if (in_array($assessment->assessment_type, ['Post-Test', 'Final Assessment'], true)) {
-            $requiredLessons = DB::table('learning_course_lessons as lesson')->join('learning_course_modules as module', 'module.id', '=', 'lesson.module_id')->where('module.course_version_id', $assignment->course_version_id)->where('lesson.is_required', true)->pluck('lesson.id');
-            $complete = DB::table('learning_lesson_progress')->where('assignment_id', $assignment->id)->whereIn('lesson_id', $requiredLessons)->where('status', 'Completed')->count();
-            if ($complete !== $requiredLessons->count()) throw ValidationException::withMessages(['assessment' => 'Complete all required lessons before starting the Post-Test.']);
+        if ($assessment->assessment_type !== 'Knowledge Check') {
+            throw ValidationException::withMessages(['assessment' => 'Pre-Test and Post-Test are handled outside the Learning Management module.']);
+        }
+        if (! $assessment->module_id) {
+            throw ValidationException::withMessages(['assessment' => 'A module quiz must be linked to a course module.']);
+        }
+        $requiredLessons = DB::table('learning_course_lessons')
+            ->where('module_id', $assessment->module_id)
+            ->where('is_required', true)
+            ->pluck('id');
+        $complete = DB::table('learning_lesson_progress')
+            ->where('assignment_id', $assignment->id)
+            ->whereIn('lesson_id', $requiredLessons)
+            ->where('status', 'Completed')
+            ->count();
+        if ($complete !== $requiredLessons->count()) {
+            throw ValidationException::withMessages(['assessment' => 'Complete the required lessons in this module before starting its quiz.']);
         }
         return DB::transaction(function () use ($assignment,$assessment) {
             LearningAssignment::query()->lockForUpdate()->findOrFail($assignment->id);
@@ -171,42 +193,68 @@ class LearningDeliveryService
             $requiredLessons = DB::table('learning_course_lessons as l')->join('learning_course_modules as m', 'm.id', '=', 'l.module_id')->where('m.course_version_id', $assignment->course_version_id)->where('l.is_required', true)->pluck('l.id');
             $done = DB::table('learning_lesson_progress')->where('assignment_id', $assignment->id)->whereIn('lesson_id', $requiredLessons)->where('status', 'Completed')->count();
             if (($rules['completeRequiredLessons'] ?? true) && $done !== $requiredLessons->count()) return null;
-            $requiredAssessments = LearningAssessment::where('course_version_id', $assignment->course_version_id)->where('is_required', true)
-                ->where(function ($query) use ($rules) {
-                    $types = [];
-                    if ($rules['passRequiredKnowledgeChecks'] ?? true) $types[] = 'Knowledge Check';
-                    if ($rules['passFinalAssessment'] ?? true) { $types[] = 'Post-Test'; $types[] = 'Final Assessment'; }
-                    $query->whereIn('assessment_type', $types ?: ['__none__']);
-                })->get();
+            $requiredAssessments = LearningAssessment::where('course_version_id', $assignment->course_version_id)
+                ->where('is_required', true)
+                ->where('assessment_type', 'Knowledge Check')
+                ->when(! ($rules['passRequiredKnowledgeChecks'] ?? true), fn ($query) => $query->whereRaw('1 = 0'))
+                ->get();
             foreach ($requiredAssessments as $assessment) if (! LearningAssessmentAttempt::where(['assignment_id' => $assignment->id, 'assessment_id' => $assessment->id, 'status' => 'Submitted', 'passed' => true])->exists()) return null;
 
-            $score = LearningAssessmentAttempt::where('assignment_id', $assignment->id)->where('passed', true)->avg('score_percent');
+            $score = LearningAssessmentAttempt::query()
+                ->join('learning_assessments as assessment', 'assessment.id', '=', 'learning_assessment_attempts.assessment_id')
+                ->where('learning_assessment_attempts.assignment_id', $assignment->id)
+                ->where('learning_assessment_attempts.passed', true)
+                ->where('assessment.assessment_type', 'Knowledge Check')
+                ->avg('learning_assessment_attempts.score_percent');
             $completion = LearningCompletion::create(['assignment_id' => $assignment->id, 'learner_id' => $assignment->learner_id, 'course_id' => $assignment->course_id, 'course_version_id' => $assignment->course_version_id, 'completed_at' => now(), 'rules_satisfied' => $rules, 'assessment_score' => $score, 'completion_basis' => 'Published online course rules', 'source_context' => 'Online Learning']);
             $assignment->update(['status' => 'Completed', 'progress_percent' => 100, 'completed_at' => now()]);
             $certificateId = null;
-            if ($rules['issueCertificate'] ?? false) {
-                $certificateId = (string) Str::uuid(); $validMonths = (int) ($rules['certificateValidityMonths'] ?? 0);
-                DB::table('learning_certificates')->insert(['id' => $certificateId, 'completion_id' => $completion->id, 'certificate_number' => 'ALB-LRN-'.now()->format('Ym').'-'.strtoupper(Str::random(8)), 'issued_on' => today(), 'expires_on' => $validMonths ? today()->addMonths($validMonths) : null, 'status' => 'Valid', 'created_at' => now(), 'updated_at' => now()]);
-                if ($assignment->source === 'Reassignment/Renewal') {
-                    $previous = DB::table('learning_certificates as certificate')
-                        ->join('learning_completions as completion', 'completion.id', '=', 'certificate.completion_id')
-                        ->where('completion.learner_id', $assignment->learner_id)
-                        ->where('completion.course_id', $assignment->course_id)
-                        ->when($assignment->renewal_from_certificate_id, fn ($query) => $query->where('certificate.id', $assignment->renewal_from_certificate_id))
-                        ->when(! $assignment->renewal_from_certificate_id && $assignment->renewal_from_completion_id, fn ($query) => $query->where('completion.id', $assignment->renewal_from_completion_id))
-                        ->whereIn('certificate.status', ['Valid', 'Expired'])
-                        ->lockForUpdate()
-                        ->first(['certificate.id']);
-                    if ($previous) DB::table('learning_certificates')->where('id', $previous->id)->update(['status' => 'Replaced', 'replaced_by_certificate_id' => $certificateId, 'updated_at' => now()]);
-                }
-                $this->audit->record($actor, 'Certificate issued', 'LearningCertificate', $certificateId, ['completionId' => $completion->id]);
-            }
             DB::table('learning_transcript_entries')->insert(['id' => (string) Str::uuid(), 'learner_id' => $assignment->learner_id, 'completion_id' => $completion->id, 'course_id' => $assignment->course_id, 'course_version_id' => $assignment->course_version_id, 'certificate_id' => $certificateId, 'recorded_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
             foreach (DB::table('learning_course_competencies')->where('course_version_id', $assignment->course_version_id)->get() as $mapping) {
                 DB::table('learning_competency_evidence')->insert(['id' => (string) Str::uuid(), 'completion_id' => $completion->id, 'course_version_id' => $assignment->course_version_id, 'competency_id' => $mapping->competency_id, 'competency_version' => $mapping->competency_version, 'competency_code' => $mapping->competency_code, 'official_result_changed' => false, 'gap_closed' => false, 'recorded_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
             }
             $this->audit->record($actor, 'Completion recorded', 'LearningCompletion', $completion->id, ['courseVersionId' => $assignment->course_version_id, 'competencyGapClosed' => false]);
             return $completion;
+        }, 3);
+    }
+
+    public function issueCertificate(User $actor, string $completionId): LearningCertificate
+    {
+        if (! $actor->isPerformanceOperator()) {
+            throw new AuthorizationException('Only Admin or HR may issue a Learning certificate.');
+        }
+
+        return DB::transaction(function () use ($actor, $completionId) {
+            $completion = LearningCompletion::query()->lockForUpdate()->findOrFail($completionId);
+            $existing = LearningCertificate::query()->where('completion_id', $completion->id)->first();
+            if ($existing) {
+                return $existing;
+            }
+
+            $rules = $completion->rules_satisfied ?? [];
+            if (is_string($rules)) {
+                $rules = json_decode($rules, true) ?? [];
+            }
+            if (! ($rules['issueCertificate'] ?? false)) {
+                throw ValidationException::withMessages(['certificate' => 'This course version is not configured for certificate issuance.']);
+            }
+
+            $validMonths = (int) ($rules['certificateValidityMonths'] ?? 0);
+            $certificate = LearningCertificate::create([
+                'completion_id' => $completion->id,
+                'certificate_number' => 'ALB-LRN-'.now()->format('Ym').'-'.strtoupper(Str::random(8)),
+                'issued_on' => today(),
+                'expires_on' => $validMonths ? today()->addMonths($validMonths) : null,
+                'status' => 'Valid',
+            ]);
+
+            DB::table('learning_transcript_entries')
+                ->where('completion_id', $completion->id)
+                ->update(['certificate_id' => $certificate->id, 'updated_at' => now()]);
+
+            $this->audit->record($actor, 'Certificate issued by HR/Admin', 'LearningCertificate', $certificate->id, ['completionId' => $completion->id]);
+
+            return $certificate;
         }, 3);
     }
 

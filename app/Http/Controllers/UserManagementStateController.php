@@ -23,7 +23,8 @@ class UserManagementStateController extends Controller
     public function updateAccess(Request $request, User $user): JsonResponse
     {
         $actor = $request->user();
-        abort_unless($actor?->role === UserRole::Admin, 403);
+        abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
+        abort_if($actor->role === UserRole::HR && $user->role === UserRole::Admin, 403);
 
         $validated = $request->validate([
             'status' => ['required', Rule::in(['Active', 'Suspended', 'Inactive'])],
@@ -37,7 +38,7 @@ class UserManagementStateController extends Controller
             throw ValidationException::withMessages(['account' => 'Archived or anonymized accounts cannot be changed through active-access controls.']);
         }
         if ($actor->is($user) && $validated['status'] !== 'Active') {
-            throw ValidationException::withMessages(['account' => 'You cannot suspend or deactivate your own signed-in Admin account.']);
+            throw ValidationException::withMessages(['account' => 'You cannot suspend or deactivate your own signed-in P&D operator account.']);
         }
 
         $previous = (string) ($user->pnd_access_status ?: 'Active');
@@ -83,7 +84,8 @@ class UserManagementStateController extends Controller
     public function sendAccessLink(Request $request, User $user): JsonResponse
     {
         $actor = $request->user();
-        abort_unless($actor?->role === UserRole::Admin, 403);
+        abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
+        abort_if($actor->role === UserRole::HR && $user->role === UserRole::Admin, 403);
 
         $validated = $request->validate([
             'purpose' => ['required', Rule::in(['account_setup', 'password_reset'])],
@@ -108,7 +110,8 @@ class UserManagementStateController extends Controller
     public function updateRole(Request $request, User $user): JsonResponse
     {
         $actor = $request->user();
-        abort_unless($actor?->role === UserRole::Admin, 403);
+        abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
+        abort_if($actor->role === UserRole::HR && $user->role === UserRole::Admin, 403);
 
         $validated = $request->validate([
             'role' => ['required', Rule::in(array_map(fn (UserRole $role) => $role->value, UserRole::cases()))],

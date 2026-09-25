@@ -64,7 +64,7 @@ const validDraft = (): CourseDraft => ({
             required: true,
         }],
     }],
-    assessments: [assessment("Pre-Test"), assessment("Post-Test")],
+    assessments: [{ ...assessment("Knowledge Check"), title: "Module check", moduleClientId: "m1" }],
 });
 
 describe("final Learning domain rules", () => {
@@ -128,25 +128,24 @@ describe("final Learning domain rules", () => {
         expect(draftErrors(d)).toContain("Select at least one source document.");
     });
 
-    it("requires exactly one Pre-Test and one Post-Test", () => {
+    it("does not require Pre-Test or Post-Test inside the LMS course draft", () => {
         const d = validDraft();
-        d.assessments = [assessment("Post-Test")];
-        expect(draftErrors(d)).toContain("Add one Pre-Test.");
-        d.assessments = [assessment("Pre-Test")];
-        expect(draftErrors(d)).toContain("Add one Post-Test.");
+        d.assessments = [];
+        expect(draftErrors(d)).not.toContain("Add one Pre-Test.");
+        expect(draftErrors(d)).not.toContain("Add one Post-Test.");
     });
 
     it("links every Knowledge Check to a curriculum module", () => {
         const d = validDraft();
-        d.assessments.push({ ...assessment("Knowledge Check"), title: "Module check" });
+        d.assessments = [{ ...assessment("Knowledge Check"), title: "Module check" }];
         expect(draftErrors(d).some((error) => error.includes("must be linked"))).toBe(true);
-        d.assessments[2].moduleClientId = "m1";
+        d.assessments[0].moduleClientId = "m1";
         expect(draftErrors(d).some((error) => error.includes("must be linked"))).toBe(false);
     });
 
-    it("keeps Pre-Test and Post-Test course-wide", () => {
+    it("keeps legacy external assessments course-wide when older data is loaded", () => {
         const d = validDraft();
-        d.assessments[0].moduleClientId = "m1";
+        d.assessments = [{ ...assessment("Pre-Test"), moduleClientId: "m1" }];
         expect(draftErrors(d)).toContain("Pre-Test must apply to the whole course.");
     });
 
@@ -159,14 +158,14 @@ describe("final Learning domain rules", () => {
     });
 
     it("validates objective assessment integrity", () => {
-        const a = assessment("Post-Test");
+        const a = assessment("Knowledge Check");
         expect(assessmentErrors(a)).toEqual([]);
         a.questions[0].options.forEach((option) => { option.correct = false; });
         expect(assessmentErrors(a)).toContain("Question 1 has no correct answer.");
     });
 
     it("rejects duplicate choices case-insensitively", () => {
-        const a = assessment("Post-Test");
+        const a = assessment("Knowledge Check");
         a.questions[0].options[1].text = " FOLLOW THE PROCEDURE ";
         expect(assessmentErrors(a)).toContain("Question 1 has duplicate choices.");
     });

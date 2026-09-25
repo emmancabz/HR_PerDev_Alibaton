@@ -1,6 +1,7 @@
 import { Config } from 'ziggy-js';
 
 export type UserRole = 'admin' | 'hr' | 'user';
+export type UserPersona = 'trainee' | 'employee' | 'supervisor' | 'manager';
 
 export interface User {
     id: number;
@@ -13,9 +14,12 @@ export interface User {
     employee_or_trainee_id: string | null;
     position: string | null;
     department: string | null;
-    person_type: 'Employee' | 'Trainee' | null;
-    employment_status: 'Incoming' | 'Trainee' | 'Employee' | 'Inactive';
+    person_type: string | null;
+    employment_status: string | null;
     evaluator_capable: boolean;
+    manager_id: number | null;
+    persona: UserPersona;
+    persona_label: string;
     email_verified_at: string | null;
 }
 

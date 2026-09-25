@@ -1808,6 +1808,9 @@ export function AssessmentsView({
     const [department, setDepartment] = useState("All");
     const [personType, setPersonType] = useState("All");
     const [sort, setSort] = useState("due");
+    const searchLocation = typeof window === "undefined"
+        ? ""
+        : `${window.location.search}${window.location.hash}`;
     useEffect(() => {
         if (focus && focus !== "All" && focus !== "Assessment Queue")
             setCycleId(focus);
@@ -1844,6 +1847,123 @@ export function AssessmentsView({
                   : a.assessment.dueDate.localeCompare(b.assessment.dueDate),
         );
     const pagination = usePagination(rows);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const params = new URLSearchParams(window.location.search);
+        const targetTable = (params.get("gs_table") ?? "").trim().toLowerCase();
+        const targetRecord = (params.get("gs_record") ?? "").trim();
+        const targetMatch = (params.get("gs_match") ?? "").trim().toLowerCase();
+
+        if (targetTable && !targetTable.includes("assessment")) return;
+        if (!targetRecord && !targetMatch) return;
+
+        const target = allRows.find((row) =>
+            (targetRecord !== "" && String(row.assessment.id) === targetRecord)
+            || (targetMatch !== "" && row.person.fullName.toLowerCase().includes(targetMatch)),
+        );
+
+        if (!target) return;
+
+        if (query !== target.person.fullName) setQuery(target.person.fullName);
+        if (cycleId !== "All") setCycleId("All");
+        if (status !== "All") setStatus("All");
+        if (department !== "All") setDepartment("All");
+        if (personType !== "All") setPersonType("All");
+        if (sort !== "person") setSort("person");
+        if (pagination.page !== 1) pagination.setPage(1);
+    }, [
+        allRows,
+        cycleId,
+        department,
+        pagination.page,
+        personType,
+        query,
+        searchLocation,
+        sort,
+        status,
+    ]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const params = new URLSearchParams(window.location.search);
+        const targetTable = (params.get("gs_table") ?? "").trim().toLowerCase();
+        const targetRecord = (params.get("gs_record") ?? "").trim();
+        const targetMatch = (params.get("gs_match") ?? "").trim().toLowerCase();
+        const shouldOpen = params.get("gs_open") === "1";
+
+        if (targetTable && !targetTable.includes("assessment")) return;
+        if (!targetRecord && !targetMatch) return;
+
+        const target = pagination.pageRows.find((row) =>
+            (targetRecord !== "" && String(row.assessment.id) === targetRecord)
+            || (targetMatch !== "" && row.person.fullName.toLowerCase().includes(targetMatch)),
+        );
+
+        if (!target) return;
+
+        const clearSearchFocusParams = () => {
+            const url = new URL(window.location.href);
+            [
+                "gs_table",
+                "gs_record",
+                "gs_match",
+                "gs_context",
+                "gs_open",
+                "gs_person",
+            ].forEach((key) => url.searchParams.delete(key));
+
+            window.history.replaceState(
+                window.history.state,
+                "",
+                `${url.pathname}${url.search}${url.hash}`,
+            );
+        };
+
+        const timer = window.setTimeout(() => {
+            const candidates = Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    "[data-global-search-competency-assessment]",
+                ),
+            );
+            const element = candidates.find(
+                (candidate) =>
+                    candidate.getAttribute("data-global-search-competency-assessment")
+                    === String(target.assessment.id),
+            );
+
+            if (!element) return;
+
+            element.scrollIntoView({ behavior: "smooth", block: "center" });
+            element.animate(
+                [
+                    {
+                        backgroundColor: "rgba(244, 180, 0, 0.30)",
+                        boxShadow: "inset 0 0 0 2px rgba(244, 180, 0, 0.85)",
+                    },
+                    {
+                        backgroundColor: "rgba(254, 243, 199, 0.50)",
+                        boxShadow: "inset 0 0 0 1px rgba(244, 180, 0, 0.35)",
+                    },
+                    {
+                        backgroundColor: "transparent",
+                        boxShadow: "inset 0 0 0 0 rgba(244, 180, 0, 0)",
+                    },
+                ],
+                { duration: 1000, easing: "ease-out" },
+            );
+
+            if (shouldOpen) {
+                window.setTimeout(() => onSelect(target.assessment.id), 600);
+            }
+            window.setTimeout(clearSearchFocusParams, 1050);
+        }, 100);
+
+        return () => window.clearTimeout(timer);
+    }, [onSelect, pagination.pageRows, searchLocation]);
+
     const departments = [
         ...new Set(SHARED_PERSONNEL.map((item) => item.department)),
     ].sort();
@@ -1973,6 +2093,7 @@ export function AssessmentsView({
                                 {pagination.pageRows.map((row) => (
                                     <tr
                                         key={row.assessment.id}
+                                        data-global-search-competency-assessment={row.assessment.id}
                                         role="button"
                                         tabIndex={0}
                                         onClick={() => onSelect(row.assessment.id)}

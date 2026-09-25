@@ -40,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
             'recent-auth' => \App\Http\Middleware\EnsureRecentAuthentication::class,
             'internal.service' => \App\Http\Middleware\VerifyInternalServiceRequest::class,
+            'persona' => \App\Http\Middleware\EnsureUserPersona::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) use ($isGateway): void {

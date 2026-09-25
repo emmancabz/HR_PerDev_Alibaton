@@ -246,6 +246,9 @@ export default function PerformanceReviewsWorkspace(props: Props) {
   const blankRowCount = count > 0 ? Math.max(0, 10 - visiblePageRowCount) : 0;
   const historySelection = history.find((r) => `${r.cycle_id}-${r.personnel_key}` === historyId);
   const preReviewSelection = readinessRows.find((r) => r.person.id === preReviewPersonId);
+  const searchLocation = typeof window === 'undefined'
+    ? ''
+    : `${window.location.search}${window.location.hash}`;
 
   useEffect(() => {
     setPage(1);
@@ -253,6 +256,207 @@ export default function PerformanceReviewsWorkspace(props: Props) {
     setPreReviewPersonId(null);
     props.onCloseDetails();
   }, [activePeriodId, departmentFilter, statusFilter, ratingFilter]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const table = (params.get('gs_table') ?? '').toLowerCase();
+
+    if (!table.includes('review')) return;
+
+    const targetRecord = params.get('gs_record') ?? '';
+    const targetPerson = params.get('gs_person') ?? '';
+    const targetMatch = (params.get('gs_match') ?? '').trim().toLowerCase();
+    const shouldOpen = params.get('gs_open') === '1';
+
+    const clearSearchFocusParams = () => {
+      const url = new URL(window.location.href);
+
+      [
+        'gs_table',
+        'gs_record',
+        'gs_match',
+        'gs_context',
+        'gs_open',
+        'gs_person',
+      ].forEach((key) => url.searchParams.delete(key));
+
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    };
+
+    // Table-name search: only reveal the Reviews register.
+    if (!targetRecord && !targetPerson && !targetMatch) {
+      const timer = window.setTimeout(() => {
+        const section = document.querySelector<HTMLElement>(
+          '[data-global-search-table="Reviews"]',
+        );
+
+        if (!section) return;
+
+        section.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+
+        section.animate(
+          [
+            { boxShadow: '0 0 0 3px rgba(244, 180, 0, 0.75)' },
+            { boxShadow: '0 0 0 1px rgba(244, 180, 0, 0.20)' },
+            { boxShadow: '0 0 0 0 rgba(244, 180, 0, 0)' },
+          ],
+          { duration: 1100, easing: 'ease-out' },
+        );
+
+        window.setTimeout(clearSearchFocusParams, 1150);
+      }, 100);
+
+      return () => window.clearTimeout(timer);
+    }
+
+    let targetIndex = -1;
+    let targetDomKey = '';
+    let openTarget: (() => void) | null = null;
+
+    if (preReview) {
+      targetIndex = readinessRows.findIndex((row) =>
+        (targetPerson && row.person.id === targetPerson)
+        || (
+          targetMatch
+          && row.person.fullName.toLowerCase().includes(targetMatch)
+        ),
+      );
+
+      if (targetIndex >= 0) {
+        const row = readinessRows[targetIndex];
+        targetDomKey = `readiness-${activePeriodId}-${row.person.id}`;
+
+        openTarget = () => {
+          setHistoryId(null);
+          props.onCloseDetails();
+          setPreReviewPersonId(row.person.id);
+        };
+      }
+    } else if (historical) {
+      targetIndex = history.findIndex((row) =>
+        (
+          targetPerson
+          && row.personnel_key === targetPerson
+        )
+        || (
+          targetMatch
+          && row.name.toLowerCase().includes(targetMatch)
+        ),
+      );
+
+      if (targetIndex >= 0) {
+        const row = history[targetIndex];
+        targetDomKey = `${row.cycle_id}-${row.personnel_key}`;
+
+        openTarget = () => {
+          setPreReviewPersonId(null);
+          props.onCloseDetails();
+          setHistoryId(targetDomKey);
+        };
+      }
+    } else {
+      targetIndex = live.findIndex((row) =>
+        (
+          targetRecord
+          && row.evaluation.id === targetRecord
+        )
+        || (
+          targetPerson
+          && row.person.id === targetPerson
+        )
+        || (
+          targetMatch
+          && row.person.fullName.toLowerCase().includes(targetMatch)
+        ),
+      );
+
+      if (targetIndex >= 0) {
+        const row = live[targetIndex];
+        targetDomKey = row.evaluation.id;
+
+        openTarget = () => {
+          void props.onOpen(row);
+        };
+      }
+    }
+
+    // Data may still be loading or the requested quarter is changing.
+    if (targetIndex < 0) return;
+
+    const targetPage = Math.floor(targetIndex / 10) + 1;
+
+    if (targetPage !== currentPage) {
+      setPage(targetPage);
+    }
+
+    const timer = window.setTimeout(() => {
+      const rows = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-global-search-review-row]',
+        ),
+      );
+
+      const element = rows.find(
+        (row) =>
+          row.getAttribute('data-global-search-review-row')
+          === targetDomKey,
+      );
+
+      if (!element) return;
+
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+
+      element.animate(
+        [
+          {
+            backgroundColor: 'rgba(244, 180, 0, 0.34)',
+            boxShadow: 'inset 0 0 0 2px rgba(244, 180, 0, 0.90)',
+          },
+          {
+            backgroundColor: 'rgba(254, 243, 199, 0.55)',
+            boxShadow: 'inset 0 0 0 1px rgba(244, 180, 0, 0.40)',
+          },
+          {
+            backgroundColor: 'transparent',
+            boxShadow: 'inset 0 0 0 0 rgba(244, 180, 0, 0)',
+          },
+        ],
+        {
+          duration: 1100,
+          easing: 'ease-out',
+        },
+      );
+
+      if (shouldOpen && openTarget) {
+        window.setTimeout(openTarget, 750);
+      }
+
+      window.setTimeout(clearSearchFocusParams, 1150);
+    }, targetPage !== currentPage ? 200 : 100);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activePeriodId,
+    currentPage,
+    historical,
+    history.length,
+    live.length,
+    preReview,
+    readinessRows.length,
+    searchLocation,
+  ]);
 
   function changePage(next: number) {
     setPage(next);
@@ -289,7 +493,10 @@ export default function PerformanceReviewsWorkspace(props: Props) {
   const countLabel = preReview ? 'personnel' : 'reviews';
 
   return (
-    <section className="relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <section
+      data-global-search-table="Reviews"
+      className="relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+    >
 
       {preReviewSelection && cycle && (
         <PerformanceDetailsModal
@@ -545,6 +752,7 @@ export default function PerformanceReviewsWorkspace(props: Props) {
             {preReview ? readinessRows.slice(start, start + 10).map((row) => (
               <tr
                 key={`readiness-${activePeriodId}-${row.person.id}`}
+                data-global-search-review-row={`readiness-${activePeriodId}-${row.person.id}`}
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
@@ -589,6 +797,7 @@ export default function PerformanceReviewsWorkspace(props: Props) {
               return (
                 <tr
                   key={id}
+                  data-global-search-review-row={id}
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -624,6 +833,7 @@ export default function PerformanceReviewsWorkspace(props: Props) {
               return (
                 <tr
                   key={r.id}
+                  data-global-search-review-row={r.id}
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {

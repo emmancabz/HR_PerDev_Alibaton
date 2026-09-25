@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\SchemaPresence;
+use Illuminate\Support\Facades\Route;
+
 use App\Models\User;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use App\Support\SchemaPresence as Schema;
 
 class GlobalSearchController extends Controller
 {
@@ -27,6 +29,7 @@ class GlobalSearchController extends Controller
         $results = collect();
 
         $results->push(...$this->systemPageResults($term, $role));
+        $results->push(...$this->tableNameResults($term, $role));
         $results->push(...$this->peopleResults($actor, $pattern, $role));
         $results->push(...$this->competencyResults($actor, $pattern, $role, $operator));
         $results->push(...$this->learningResults($actor, $pattern, $role, $operator));
@@ -73,7 +76,7 @@ class GlobalSearchController extends Controller
         $reportsRoute = match ($role) {
             'admin' => 'admin.reports.index',
             'hr' => 'hr.reports.index',
-            default => 'user.reports.index',
+            default => null,
         };
         $settingsRoute = match ($role) {
             'admin' => 'admin.settings.index',
@@ -83,18 +86,24 @@ class GlobalSearchController extends Controller
 
         $add('page:dashboard', 'Navigation', 'Dashboard', 'Dashboard', 'Workforce overview, activity, training, performance, and people summary', route($dashboardRoute));
 
-        foreach ([
-            'workforce-development' => ['Workforce Development Summary', 'Cross-module workforce development, competency, learning, training, performance and recognition'],
-            'performance-cycle' => ['Performance Cycle Status', 'Performance reviews, cycle status, final ratings and completion'],
-            'learning-compliance' => ['Learning Completion & Certificate Status', 'Learning assignments, completions, assessments and certificates'],
-            'training-effectiveness' => ['Training Attendance & Completion', 'Training attendance, practical results, completion and certificates'],
-            'succession-risk' => ['Succession Coverage & Risk', 'Critical positions, successor coverage, readiness and succession risk'],
-            'recognition-activity' => ['Recognition Activity', 'Social recognition nominations, recipients, categories and status'],
-        ] as $reportKey => [$label, $description]) {
-            if ($role === 'user' && $reportKey !== 'workforce-development') {
-                continue;
+        if (in_array($role, ['admin', 'hr'], true)) {
+            $usersRoute = $role === 'admin' ? 'admin.users.index' : 'hr.users.index';
+            if (Route::has($usersRoute)) {
+                $add('page:users', 'Navigation', 'Users', 'People & Personnel', 'Personnel directory, incoming trainees, account issues, access and role governance', $this->workspaceHref($usersRoute, 'All Users'));
             }
-            $add('report:'.$reportKey, 'Reports', $label, 'Reports', $description, route($reportsRoute, ['report' => $reportKey]));
+        }
+
+        if ($reportsRoute !== null) {
+            foreach ([
+                'workforce-development' => ['Workforce Development Summary', 'Cross-module workforce development, competency, learning, training, performance and recognition'],
+                'performance-cycle' => ['Performance Cycle Status', 'Performance reviews, cycle status, final ratings and completion'],
+                'learning-compliance' => ['Learning Completion & Certificate Status', 'Learning assignments, completions, assessments and certificates'],
+                'training-effectiveness' => ['Training Attendance & Completion', 'Training attendance, practical results, completion and certificates'],
+                'succession-risk' => ['Succession Coverage & Risk', 'Critical positions, successor coverage, readiness and succession risk'],
+                'recognition-activity' => ['Recognition Activity', 'Social recognition nominations, recipients, categories and status'],
+            ] as $reportKey => [$label, $description]) {
+                $add('report:'.$reportKey, 'Reports', $label, 'Reports', $description, route($reportsRoute, ['report' => $reportKey]));
+            }
         }
 
         $settingsSections = [
@@ -121,7 +130,12 @@ class GlobalSearchController extends Controller
         ];
 
         foreach ($settingsSections as $section => [$label, $module, $description]) {
-            $add('settings:'.$section, 'Settings', $label, $module, $description, route($settingsRoute, ['section' => $section]));
+            $href = match (true) {
+                $role === 'user' && $section === 'profile' => route('user.profile.index').'#Employee%20Info',
+                $role === 'user' && $section === 'notifications' => route('user.profile.index').'#Notifications',
+                default => route($settingsRoute, ['section' => $section]),
+            };
+            $add('settings:'.$section, 'Settings', $label, $module, $description, $href);
         }
 
         return array_slice($items, 0, 18);
@@ -137,7 +151,7 @@ class GlobalSearchController extends Controller
             default => 'user.skills.index',
         };
 
-        if ($operator && Schema::hasTable('competency_definitions')) {
+        if ($operator && SchemaPresence::hasTable('competency_definitions')) {
             $definitions = DB::table('competency_definitions')
                 ->where(function (Builder $builder) use ($pattern): void {
                     $builder->whereRaw("LOWER(COALESCE(id, '')) LIKE ?", [$pattern])
@@ -163,7 +177,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if ($operator && Schema::hasTable('competency_role_profiles')) {
+        if ($operator && SchemaPresence::hasTable('competency_role_profiles')) {
             $profiles = DB::table('competency_role_profiles')
                 ->where(function (Builder $builder) use ($pattern): void {
                     $builder->whereRaw("LOWER(COALESCE(id, '')) LIKE ?", [$pattern])
@@ -188,7 +202,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if ($operator && Schema::hasTable('competency_cycles')) {
+        if ($operator && SchemaPresence::hasTable('competency_cycles')) {
             $cycles = DB::table('competency_cycles')
                 ->where(function (Builder $builder) use ($pattern): void {
                     $builder->whereRaw("LOWER(COALESCE(id, '')) LIKE ?", [$pattern])
@@ -212,7 +226,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('competency_assessments') && Schema::hasTable('users')) {
+        if (SchemaPresence::hasTable('competency_assessments') && SchemaPresence::hasTable('users')) {
             $assessments = DB::table('competency_assessments as assessments')
                 ->join('users as people', 'people.id', '=', 'assessments.person_id')
                 ->join('users as assessors', 'assessors.id', '=', 'assessments.assessor_id')
@@ -238,7 +252,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('competency_recommendations') && Schema::hasTable('users')) {
+        if (SchemaPresence::hasTable('competency_recommendations') && SchemaPresence::hasTable('users')) {
             $recommendations = DB::table('competency_recommendations as recommendations')
                 ->join('users as people', 'people.id', '=', 'recommendations.person_id')
                 ->when(! $operator, fn (Builder $builder) => $builder->where('recommendations.person_id', $actor->id))
@@ -270,7 +284,7 @@ class GlobalSearchController extends Controller
     /** @return array<int, array<string, string>> */
     private function peopleResults(User $actor, string $pattern, string $role): array
     {
-        if (! Schema::hasTable('users')) {
+        if (! SchemaPresence::hasTable('users')) {
             return [];
         }
 
@@ -293,6 +307,7 @@ class GlobalSearchController extends Controller
             ->limit(7)
             ->get([
                 'id',
+                'personnel_key',
                 'name',
                 'email',
                 'employee_or_trainee_id',
@@ -311,12 +326,12 @@ class GlobalSearchController extends Controller
 
             $href = match ($role) {
                 'admin' => $this->workspaceHref('admin.users.index', 'All Users'),
-                'hr' => $this->workspaceHref('hr.performance.index', 'Overview'),
-                default => route('profile.edit'),
+                'hr' => $this->workspaceHref('hr.users.index', 'All Users'),
+                default => route('user.profile.index').'#Employee%20Info',
             };
 
             return $this->result(
-                key: 'person:'.$user->id,
+                key: 'person:'.($user->personnel_key ?: $user->id),
                 group: 'People',
                 label: (string) $user->name,
                 module: 'People & Personnel',
@@ -334,7 +349,7 @@ class GlobalSearchController extends Controller
             ? 'admin.learning.index'
             : ($role === 'hr' ? 'hr.learning.index' : 'user.learning.index');
 
-        if (Schema::hasTable('learning_courses') && Schema::hasTable('learning_course_versions') && ($operator || Schema::hasTable('learning_assignments'))) {
+        if (SchemaPresence::hasTable('learning_courses') && SchemaPresence::hasTable('learning_course_versions') && ($operator || SchemaPresence::hasTable('learning_assignments'))) {
             $courses = DB::table('learning_course_versions as versions')
                 ->join('learning_courses as courses', 'courses.id', '=', 'versions.course_id')
                 ->when(! $operator, function (Builder $builder) use ($actor): void {
@@ -378,7 +393,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if ($operator && Schema::hasTable('learning_requests')) {
+        if ($operator && SchemaPresence::hasTable('learning_requests')) {
             $requests = DB::table('learning_requests')
                 ->where(function (Builder $builder) use ($pattern): void {
                     $this->whereLikeAny($builder, [
@@ -405,7 +420,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('learning_certificates') && Schema::hasTable('learning_completions') && Schema::hasTable('learning_course_versions') && Schema::hasTable('users')) {
+        if (SchemaPresence::hasTable('learning_certificates') && SchemaPresence::hasTable('learning_completions') && SchemaPresence::hasTable('learning_course_versions') && SchemaPresence::hasTable('users')) {
             $certificates = DB::table('learning_certificates as certificates')
                 ->join('learning_completions as completions', 'completions.id', '=', 'certificates.completion_id')
                 ->join('users as learners', 'learners.id', '=', 'completions.learner_id')
@@ -443,7 +458,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if ($operator && Schema::hasTable('learning_course_modules') && Schema::hasTable('learning_course_versions')) {
+        if ($operator && SchemaPresence::hasTable('learning_course_modules') && SchemaPresence::hasTable('learning_course_versions')) {
             $content = DB::table('learning_course_modules as modules')
                 ->join('learning_course_versions as versions', 'versions.id', '=', 'modules.course_version_id')
                 ->where(function (Builder $builder) use ($pattern): void {
@@ -465,7 +480,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('learning_assignments') && Schema::hasTable('learning_course_versions') && Schema::hasTable('users')) {
+        if (SchemaPresence::hasTable('learning_assignments') && SchemaPresence::hasTable('learning_course_versions') && SchemaPresence::hasTable('users')) {
             $assignments = DB::table('learning_assignments as assignments')
                 ->join('learning_course_versions as versions', 'versions.id', '=', 'assignments.course_version_id')
                 ->join('users as learners', 'learners.id', '=', 'assignments.learner_id')
@@ -507,9 +522,9 @@ class GlobalSearchController extends Controller
             ? 'admin.performance.index'
             : ($role === 'hr' ? 'hr.performance.index' : 'user.performance.index');
 
-        if (Schema::hasTable('performance_cycles') && ($operator || (Schema::hasTable('performance_goals') && Schema::hasTable('performance_review_assignments')))) {
+        if (SchemaPresence::hasTable('performance_cycles') && ($operator || (SchemaPresence::hasTable('performance_goals') && SchemaPresence::hasTable('performance_review_assignments')))) {
             $cycles = DB::table('performance_cycles')
-                ->when(! $operator && Schema::hasTable('performance_goals') && Schema::hasTable('performance_review_assignments'), function (Builder $builder) use ($actor): void {
+                ->when(! $operator && SchemaPresence::hasTable('performance_goals') && SchemaPresence::hasTable('performance_review_assignments'), function (Builder $builder) use ($actor): void {
                     $builder->where(function (Builder $visible) use ($actor): void {
                         $visible->whereExists(function (Builder $subquery) use ($actor): void {
                             $subquery->selectRaw('1')
@@ -546,7 +561,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('performance_goals') && Schema::hasTable('users') && Schema::hasTable('performance_cycles')) {
+        if (SchemaPresence::hasTable('performance_goals') && SchemaPresence::hasTable('users') && SchemaPresence::hasTable('performance_cycles')) {
             $goals = DB::table('performance_goals as goals')
                 ->join('users as people', 'people.id', '=', 'goals.user_id')
                 ->leftJoin('performance_cycles as cycles', 'cycles.id', '=', 'goals.performance_cycle_id')
@@ -562,21 +577,36 @@ class GlobalSearchController extends Controller
                 })
                 ->orderByDesc('goals.updated_at')
                 ->limit(6)
-                ->get(['goals.id', 'goals.title', 'goals.status', 'people.name as person_name', 'cycles.name as cycle_name']);
+                ->get([
+                    'goals.id',
+                    'goals.external_key as goal_key',
+                    'goals.title',
+                    'goals.status',
+                    'people.name as person_name',
+                    'people.personnel_key as person_key',
+                    'cycles.name as cycle_name',
+                    'cycles.external_key as cycle_key',
+                ]);
 
             foreach ($goals as $goal) {
                 $results->push($this->result(
-                    key: 'performance-goal:'.$goal->id,
+                    key: 'performance-goal:'.$goal->goal_key,
                     group: 'Performance',
                     label: (string) $goal->title,
-                    module: 'Performance Overview',
+                    module: 'Reviews',
                     description: collect([$goal->person_name, $goal->cycle_name, $goal->status])->filter()->implode(' · '),
-                    href: $this->workspaceHref($performanceRoute, $operator ? 'Overview' : null),
+                    href: $this->appendSearchParams(
+                        $this->workspaceHref($performanceRoute, $operator ? 'Reviews' : null),
+                        [
+                            'performance_cycle' => (string) $goal->cycle_key,
+                            'gs_person' => (string) $goal->person_key,
+                        ],
+                    ),
                 ));
             }
         }
 
-        if (Schema::hasTable('performance_reviews') && Schema::hasTable('performance_review_assignments') && Schema::hasTable('users') && Schema::hasTable('performance_cycles')) {
+        if (SchemaPresence::hasTable('performance_reviews') && SchemaPresence::hasTable('performance_review_assignments') && SchemaPresence::hasTable('users') && SchemaPresence::hasTable('performance_cycles')) {
             $reviews = DB::table('performance_reviews as reviews')
                 ->join('performance_review_assignments as assignments', 'assignments.id', '=', 'reviews.performance_review_assignment_id')
                 ->join('users as subjects', 'subjects.id', '=', 'assignments.subject_user_id')
@@ -602,26 +632,38 @@ class GlobalSearchController extends Controller
                 ->limit(6)
                 ->get([
                     'reviews.id',
+                    'reviews.external_key as review_key',
                     'reviews.status',
                     'reviews.workflow_state',
                     'subjects.name as subject_name',
+                    'subjects.personnel_key as subject_key',
                     'evaluators.name as evaluator_name',
                     'cycles.name as cycle_name',
+                    'cycles.external_key as cycle_key',
                 ]);
 
             foreach ($reviews as $review) {
                 $results->push($this->result(
-                    key: 'performance-review:'.$review->id,
+                    key: 'performance-review:'.$review->review_key,
                     group: 'Performance',
                     label: (string) $review->subject_name,
                     module: 'Reviews',
                     description: collect([$review->cycle_name, $review->status, 'Evaluator: '.$review->evaluator_name])->filter()->implode(' · '),
-                    href: $this->workspaceHref($performanceRoute, $operator ? 'Reviews' : null),
+                    href: $this->appendSearchParams(
+                        $this->workspaceHref(
+                            $performanceRoute,
+                            $operator ? 'Reviews' : null,
+                        ),
+                        [
+                            'performance_cycle' => (string) $review->cycle_key,
+                            'gs_person' => (string) $review->subject_key,
+                        ],
+                    ),
                 ));
             }
         }
 
-        if (Schema::hasTable('performance_improvement_plans') && Schema::hasTable('users')) {
+        if (SchemaPresence::hasTable('performance_improvement_plans') && SchemaPresence::hasTable('users')) {
             $pips = DB::table('performance_improvement_plans as pips')
                 ->join('users as subjects', 'subjects.id', '=', 'pips.subject_user_id')
                 ->when(! $operator, fn (Builder $builder) => $builder->where('pips.subject_user_id', $actor->id))
@@ -653,7 +695,7 @@ class GlobalSearchController extends Controller
         $results = collect();
         $trainingRoute = $role === 'admin' ? 'admin.training.index' : 'hr.training.index';
 
-        if (Schema::hasTable('training_programs')) {
+        if (SchemaPresence::hasTable('training_programs')) {
             $programs = DB::table('training_programs')
                 ->where(function (Builder $builder) use ($pattern): void {
                     $this->whereLikeAny($builder, [
@@ -681,7 +723,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('training_sessions') && Schema::hasTable('training_programs')) {
+        if (SchemaPresence::hasTable('training_sessions') && SchemaPresence::hasTable('training_programs')) {
             $sessions = DB::table('training_sessions as sessions')
                 ->join('training_programs as programs', 'programs.id', '=', 'sessions.program_id')
                 ->leftJoin('users as facilitators', 'facilitators.id', '=', 'sessions.facilitator_id')
@@ -723,11 +765,11 @@ class GlobalSearchController extends Controller
         }
 
         if (
-            Schema::hasTable('training_certificates') &&
-            Schema::hasTable('training_completions') &&
-            Schema::hasTable('training_enrollments') &&
-            Schema::hasTable('training_programs') &&
-            Schema::hasTable('users')
+            SchemaPresence::hasTable('training_certificates') &&
+            SchemaPresence::hasTable('training_completions') &&
+            SchemaPresence::hasTable('training_enrollments') &&
+            SchemaPresence::hasTable('training_programs') &&
+            SchemaPresence::hasTable('users')
         ) {
             $records = DB::table('training_certificates as certificates')
                 ->join('training_completions as completions', 'completions.id', '=', 'certificates.completion_id')
@@ -767,7 +809,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('training_recommendations')) {
+        if (SchemaPresence::hasTable('training_recommendations')) {
             $requirements = DB::table('training_recommendations as recommendations')
                 ->leftJoin('users as people', 'people.personnel_key', '=', 'recommendations.personnel_key')
                 ->where(function (Builder $builder) use ($pattern): void {
@@ -808,7 +850,7 @@ class GlobalSearchController extends Controller
         $results = collect();
         $successionRoute = $role === 'admin' ? 'admin.succession.index' : 'hr.succession.index';
 
-        if (Schema::hasTable('succession_critical_positions')) {
+        if (SchemaPresence::hasTable('succession_critical_positions')) {
             $positions = DB::table('succession_critical_positions as positions')
                 ->leftJoin('users as incumbents', 'incumbents.id', '=', 'positions.incumbent_id')
                 ->where(function (Builder $builder) use ($pattern): void {
@@ -845,7 +887,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('succession_candidates') && Schema::hasTable('succession_critical_positions') && Schema::hasTable('users')) {
+        if (SchemaPresence::hasTable('succession_candidates') && SchemaPresence::hasTable('succession_critical_positions') && SchemaPresence::hasTable('users')) {
             $candidates = DB::table('succession_candidates as candidates')
                 ->join('succession_critical_positions as positions', 'positions.id', '=', 'candidates.critical_position_id')
                 ->join('users as people', 'people.id', '=', 'candidates.candidate_id')
@@ -883,7 +925,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('succession_development_plans') && Schema::hasTable('succession_candidates') && Schema::hasTable('succession_critical_positions') && Schema::hasTable('users')) {
+        if (SchemaPresence::hasTable('succession_development_plans') && SchemaPresence::hasTable('succession_candidates') && SchemaPresence::hasTable('succession_critical_positions') && SchemaPresence::hasTable('users')) {
             $plans = DB::table('succession_development_plans as plans')
                 ->join('succession_candidates as candidates', 'candidates.id', '=', 'plans.succession_candidate_id')
                 ->join('succession_critical_positions as positions', 'positions.id', '=', 'candidates.critical_position_id')
@@ -920,7 +962,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('succession_readiness_assessments') && Schema::hasTable('succession_candidates') && Schema::hasTable('succession_critical_positions') && Schema::hasTable('users')) {
+        if (SchemaPresence::hasTable('succession_readiness_assessments') && SchemaPresence::hasTable('succession_candidates') && SchemaPresence::hasTable('succession_critical_positions') && SchemaPresence::hasTable('users')) {
             $reviews = DB::table('succession_readiness_assessments as assessments')
                 ->join('succession_candidates as candidates', 'candidates.id', '=', 'assessments.succession_candidate_id')
                 ->join('succession_critical_positions as positions', 'positions.id', '=', 'candidates.critical_position_id')
@@ -963,7 +1005,7 @@ class GlobalSearchController extends Controller
         $results = collect();
         $recognitionRoute = $role === 'admin' ? 'admin.recognition.index' : 'hr.recognition.index';
 
-        if (Schema::hasTable('recognition_records') && Schema::hasTable('recognition_categories')) {
+        if (SchemaPresence::hasTable('recognition_records') && SchemaPresence::hasTable('recognition_categories')) {
             $records = DB::table('recognition_records as records')
                 ->join('recognition_categories as categories', 'categories.id', '=', 'records.category_id')
                 ->leftJoin('users as recipients', 'recipients.id', '=', 'records.recipient_id')
@@ -1006,7 +1048,7 @@ class GlobalSearchController extends Controller
             }
         }
 
-        if (Schema::hasTable('recognition_categories')) {
+        if (SchemaPresence::hasTable('recognition_categories')) {
             $categories = DB::table('recognition_categories')
                 ->where(function (Builder $builder) use ($pattern): void {
                     $this->whereLikeAny($builder, ['code', 'name', 'description'], $pattern);
@@ -1054,6 +1096,276 @@ class GlobalSearchController extends Controller
         }
     }
 
+    /**
+     * Search business table/workspace names.
+     *
+     * @return array<int, array<string, string>>
+     */
+    private function tableNameResults(string $term, string $role): array
+    {
+        if (! in_array($role, ['admin', 'hr'], true)) {
+            return [];
+        }
+
+        $needle = mb_strtolower(trim($term));
+
+        if ($needle === '') {
+            return [];
+        }
+
+        $routes = [
+            'people' => $role === 'admin'
+                ? 'admin.users.index'
+                : 'hr.users.index',
+
+            'performance' => $role === 'admin'
+                ? 'admin.performance.index'
+                : 'hr.performance.index',
+
+            'competency' => $role === 'admin'
+                ? 'admin.competency.index'
+                : 'hr.competency.index',
+
+            'learning' => $role === 'admin'
+                ? 'admin.learning.index'
+                : 'hr.learning.index',
+
+            'training' => $role === 'admin'
+                ? 'admin.training.index'
+                : 'hr.training.index',
+
+            'succession' => $role === 'admin'
+                ? 'admin.succession.index'
+                : 'hr.succession.index',
+
+            'recognition' => $role === 'admin'
+                ? 'admin.recognition.index'
+                : 'hr.recognition.index',
+        ];
+
+        $tables = [
+            [
+                'All Users',
+                'People & Personnel',
+                'people',
+                'All Users',
+                'users personnel people workforce directory employees trainees accounts',
+            ],
+            [
+                'Incoming Trainees',
+                'People & Personnel',
+                'people',
+                'Incoming Trainees',
+                'incoming trainees onboarding personnel',
+            ],
+            [
+                'Account Issues',
+                'People & Personnel',
+                'people',
+                'Account Issues',
+                'account issues access activation locked suspended personnel',
+            ],
+            [
+                'Reviews',
+                'Performance',
+                'performance',
+                'Reviews',
+                'reviews review formal evaluation performance review',
+            ],
+            [
+                'Goals & KPIs',
+                'Performance',
+                'performance',
+                'Overview',
+                'goal goals kpi kpis performance goals',
+            ],
+            [
+                'Review Governance',
+                'Performance',
+                'performance',
+                'Review Governance',
+                'review governance evaluator evaluators authority',
+            ],
+            [
+                'Performance Improvement',
+                'Performance',
+                'performance',
+                'Performance Improvement',
+                'performance improvement pip improvement plans',
+            ],
+
+            [
+                'Competency Framework',
+                'Competency',
+                'competency',
+                'Competency Framework',
+                'competency framework competencies profiles',
+            ],
+            [
+                'Competency Assessments',
+                'Competency',
+                'competency',
+                'Assessments',
+                'competency assessment assessments',
+            ],
+
+            [
+                'Courses',
+                'Learning',
+                'learning',
+                'Courses',
+                'course courses learning catalog',
+            ],
+            [
+                'Learning Assignments',
+                'Learning',
+                'learning',
+                'Assignments',
+                'learning assignment assignments',
+            ],
+            [
+                'Learning Records',
+                'Learning',
+                'learning',
+                'Learning Records',
+                'learning records transcript completion certificates',
+            ],
+
+            [
+                'Training Register',
+                'Training',
+                'training',
+                'Training Register',
+                'training register sessions schedule',
+            ],
+            [
+                'Attendance',
+                'Training',
+                'training',
+                'Training Records',
+                'attendance training attendance records',
+            ],
+            [
+                'Training Records',
+                'Training',
+                'training',
+                'Training Records',
+                'training records completions certificates',
+            ],
+
+            [
+                'Succession Register',
+                'Succession',
+                'succession',
+                'Succession Register',
+                'succession register candidates critical positions',
+            ],
+            [
+                'Readiness Reviews',
+                'Succession',
+                'succession',
+                'Readiness Reviews',
+                'readiness reviews succession readiness',
+            ],
+
+            [
+                'Recognition Register',
+                'Recognition',
+                'recognition',
+                'Recognition Register',
+                'recognition register awards records',
+            ],
+            [
+                'Recognition Review Queue',
+                'Recognition',
+                'recognition',
+                'Review Queue',
+                'recognition review queue decisions',
+            ],
+        ];
+
+        $results = [];
+
+        foreach ($tables as [$label, $module, $family, $workspace, $aliases]) {
+            $haystack = mb_strtolower(
+                $label.' '.$module.' '.$aliases
+            );
+
+            if (! str_contains($haystack, $needle)) {
+                continue;
+            }
+
+            $routeName = $routes[$family] ?? null;
+
+            if (! $routeName || ! Route::has($routeName)) {
+                continue;
+            }
+
+            $results[] = [
+                'key' => 'table:'.sha1(
+                    $family.'|'.$workspace.'|'.$label
+                ),
+                'group' => 'Tables',
+                'label' => $label,
+                'module' => $module,
+                'description' => 'Open '.$label.' table',
+                'href' => $this->appendSearchParams(
+                    $this->workspaceHref(
+                        $routeName,
+                        $workspace,
+                    ),
+                    [
+                        'gs_table' => $label === 'Attendance'
+                            ? 'Training Records'
+                            : $label,
+                    ],
+                ),
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * Append query parameters while preserving workspace hash.
+     *
+     * @param array<string, scalar|null> $params
+     */
+    private function appendSearchParams(
+        string $href,
+        array $params,
+    ): string {
+        [$base, $fragment] = array_pad(
+            explode('#', $href, 2),
+            2,
+            null,
+        );
+
+        $params = array_filter(
+            $params,
+            static fn ($value) =>
+                $value !== null
+                && $value !== '',
+        );
+
+        if ($params !== []) {
+            $base .= (
+                str_contains($base, '?')
+                    ? '&'
+                    : '?'
+            ).http_build_query($params);
+        }
+
+        if (
+            is_string($fragment)
+            && $fragment !== ''
+        ) {
+            return $base.'#'.$fragment;
+        }
+
+        return $base;
+    }
+
     /** @return array<string, string> */
     private function result(
         string $key,
@@ -1063,7 +1375,49 @@ class GlobalSearchController extends Controller
         string $description,
         string $href,
     ): array {
-        return compact('key', 'group', 'label', 'module', 'description', 'href');
+        if (in_array($group, [
+            'People',
+            'Competency',
+            'Learning',
+            'Performance',
+            'Training',
+            'Succession',
+            'Recognition',
+        ], true)) {
+            $record = str_contains($key, ':')
+                ? substr(
+                    $key,
+                    strpos($key, ':') + 1,
+                )
+                : $key;
+
+            $targetTable = match (true) {
+                $group === 'People' => 'All Users',
+                str_starts_with($key, 'performance-review:') => 'Reviews',
+                str_starts_with($key, 'performance-goal:') => 'Reviews',
+                default => $module,
+            };
+
+            $href = $this->appendSearchParams(
+                $href,
+                [
+                    'gs_table' => $targetTable,
+                    'gs_record' => $record,
+                    'gs_match' => $label,
+                    'gs_context' => $description,
+                    'gs_open' => '1',
+                ],
+            );
+        }
+
+        return compact(
+            'key',
+            'group',
+            'label',
+            'module',
+            'description',
+            'href',
+        );
     }
 
     private function workspaceHref(string $routeName, ?string $workspace): string

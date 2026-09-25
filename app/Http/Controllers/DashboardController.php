@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\SchemaPresence;
+
 use App\Enums\UserRole;
+use App\Enums\UserPersona;
+use App\Services\UserWorkspace\UserPersonaResolver;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use App\Support\SchemaPresence as Schema;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -32,15 +36,26 @@ class DashboardController extends Controller
     {
         return Inertia::render('HRDashboard', [
             'userName' => $request->user()->name,
-            'dashboard' => $this->hrDashboardState(),
+            'dashboard' => $this->hrDashboardState($request->user()),
         ]);
     }
 
     public function user(Request $request): Response
     {
-        return Inertia::render('UserDashboard', [
-            'userName' => $request->user()->name,
-            'dashboard' => $this->userDashboardState($request->user()),
+        $user = $request->user();
+        $persona = app(UserPersonaResolver::class)->resolve($user);
+        $page = match ($persona) {
+            UserPersona::Trainee => 'TraineeDashboard',
+            UserPersona::Employee => 'EmployeeDashboard',
+            UserPersona::Supervisor => 'SupervisorDashboard',
+            UserPersona::Manager => 'ManagerDashboard',
+        };
+
+        return Inertia::render($page, [
+            'userName' => $user->name,
+            'persona' => $persona->value,
+            'dashboard' => $this->userDashboardState($user),
+            'team' => $this->userTeamState($user, $persona),
         ]);
     }
 
@@ -113,7 +128,7 @@ class DashboardController extends Controller
             'averageFinalizedRating' => null,
         ];
 
-        if (! Schema::hasTable('performance_cycles') || ! Schema::hasTable('performance_review_assignments')) {
+        if (! SchemaPresence::hasTable('performance_cycles') || ! SchemaPresence::hasTable('performance_review_assignments')) {
             return $empty;
         }
 
@@ -140,7 +155,7 @@ class DashboardController extends Controller
             ->where('active', true);
         $total = (clone $assignments)->count();
 
-        $reviewBase = Schema::hasTable('performance_reviews')
+        $reviewBase = SchemaPresence::hasTable('performance_reviews')
             ? DB::table('performance_reviews as reviews')
                 ->join('performance_review_assignments as assignments', 'assignments.id', '=', 'reviews.performance_review_assignment_id')
                 ->where('assignments.performance_cycle_id', $cycle->id)
@@ -210,7 +225,7 @@ class DashboardController extends Controller
     /** @return array{actions:int,pending:int,reassessmentDue:int} */
     private function adminCompetencySnapshot(): array
     {
-        if (! Schema::hasTable('competency_assessments')) {
+        if (! SchemaPresence::hasTable('competency_assessments')) {
             return ['actions' => 0, 'pending' => 0, 'reassessmentDue' => 0];
         }
 
@@ -231,7 +246,7 @@ class DashboardController extends Controller
         $overdue = 0;
         $governance = 0;
 
-        if (Schema::hasTable('learning_assignments')) {
+        if (SchemaPresence::hasTable('learning_assignments')) {
             $inProgress = DB::table('learning_assignments')
                 ->whereIn('status', ['Not Started', 'In Progress'])
                 ->count();
@@ -241,7 +256,7 @@ class DashboardController extends Controller
                 ->where('due_at', '<', now())
                 ->count();
         }
-        if (Schema::hasTable('learning_course_versions')) {
+        if (SchemaPresence::hasTable('learning_course_versions')) {
             $governance = DB::table('learning_course_versions')
                 ->whereIn('status', ['In Review', 'Approved'])
                 ->count();
@@ -253,16 +268,16 @@ class DashboardController extends Controller
     /** @return array{requirements:int,pendingFinalization:int,upcoming:int,actions:int} */
     private function adminTrainingSnapshot(): array
     {
-        $requirements = Schema::hasTable('training_recommendations')
+        $requirements = SchemaPresence::hasTable('training_recommendations')
             ? DB::table('training_recommendations')->whereIn('status', ['Pending', 'Under Review'])->count()
             : 0;
-        $pendingFinalization = Schema::hasTable('training_sessions')
+        $pendingFinalization = SchemaPresence::hasTable('training_sessions')
             ? DB::table('training_sessions')
                 ->where('ends_at', '<', now())
                 ->whereIn('status', ['Scheduled', 'Ongoing'])
                 ->count()
             : 0;
-        $upcoming = Schema::hasTable('training_sessions')
+        $upcoming = SchemaPresence::hasTable('training_sessions')
             ? DB::table('training_sessions')
                 ->whereBetween('starts_at', [now(), now()->addDays(7)])
                 ->whereNotIn('status', ['Draft', 'Cancelled', 'Completed'])
@@ -280,7 +295,7 @@ class DashboardController extends Controller
     /** @return array{positionsAtRisk:int,reviewsPending:int,activeDevelopmentPlans:int} */
     private function adminSuccessionSnapshot(): array
     {
-        if (! Schema::hasTable('succession_critical_positions')) {
+        if (! SchemaPresence::hasTable('succession_critical_positions')) {
             return ['positionsAtRisk' => 0, 'reviewsPending' => 0, 'activeDevelopmentPlans' => 0];
         }
 
@@ -288,7 +303,7 @@ class DashboardController extends Controller
             ->where('status', 'Active')
             ->get(['id', 'next_review_at']);
         $positionIds = $positions->pluck('id');
-        $accepted = Schema::hasTable('succession_candidates')
+        $accepted = SchemaPresence::hasTable('succession_candidates')
             ? DB::table('succession_candidates')
                 ->whereIn('critical_position_id', $positionIds)
                 ->where('status', 'Accepted')
@@ -297,7 +312,7 @@ class DashboardController extends Controller
         $candidateIds = $accepted->pluck('id');
         $latestReadiness = collect();
 
-        if ($candidateIds->isNotEmpty() && Schema::hasTable('succession_readiness_assessments')) {
+        if ($candidateIds->isNotEmpty() && SchemaPresence::hasTable('succession_readiness_assessments')) {
             $latestReadiness = DB::table('succession_readiness_assessments')
                 ->whereIn('succession_candidate_id', $candidateIds)
                 ->where('status', 'Finalized')
@@ -323,10 +338,10 @@ class DashboardController extends Controller
                 || $reviewOverdue;
         })->count();
 
-        $reviewsPending = Schema::hasTable('succession_candidates')
+        $reviewsPending = SchemaPresence::hasTable('succession_candidates')
             ? DB::table('succession_candidates')->whereIn('status', ['Proposed', 'Under Review'])->count()
             : 0;
-        $activeDevelopmentPlans = Schema::hasTable('succession_development_plans')
+        $activeDevelopmentPlans = SchemaPresence::hasTable('succession_development_plans')
             ? DB::table('succession_development_plans')->where('status', 'Active')->count()
             : 0;
 
@@ -336,7 +351,7 @@ class DashboardController extends Controller
     /** @return array{pending:int} */
     private function adminRecognitionSnapshot(): array
     {
-        return ['pending' => Schema::hasTable('recognition_records')
+        return ['pending' => SchemaPresence::hasTable('recognition_records')
             ? DB::table('recognition_records')->where('status', 'Pending Review')->count()
             : 0];
     }
@@ -344,7 +359,7 @@ class DashboardController extends Controller
     /** @return array{flagged:int} */
     private function adminSecuritySnapshot(): array
     {
-        return ['flagged' => Schema::hasTable('security_audit_events')
+        return ['flagged' => SchemaPresence::hasTable('security_audit_events')
             ? DB::table('security_audit_events')
                 ->where('flagged', true)
                 ->where('occurred_at', '>=', now()->subDay())
@@ -395,7 +410,7 @@ class DashboardController extends Controller
         $now = CarbonImmutable::now('Asia/Manila');
         $horizon = $now->addDays(30);
 
-        if (Schema::hasTable('training_sessions') && Schema::hasTable('training_programs')) {
+        if (SchemaPresence::hasTable('training_sessions') && SchemaPresence::hasTable('training_programs')) {
             DB::table('training_sessions as sessions')
                 ->join('training_programs as programs', 'programs.id', '=', 'sessions.program_id')
                 ->whereBetween('sessions.starts_at', [$now, $horizon])
@@ -414,7 +429,7 @@ class DashboardController extends Controller
                 });
         }
 
-        if (Schema::hasTable('succession_critical_positions')) {
+        if (SchemaPresence::hasTable('succession_critical_positions')) {
             DB::table('succession_critical_positions')
                 ->where('status', 'Active')
                 ->whereNotNull('next_review_at')
@@ -475,7 +490,7 @@ class DashboardController extends Controller
             ];
         });
 
-        if (Schema::hasTable('competency_finalizations') && Schema::hasTable('competency_assessments')) {
+        if (SchemaPresence::hasTable('competency_finalizations') && SchemaPresence::hasTable('competency_assessments')) {
             DB::table('competency_finalizations as finalizations')
                 ->join('competency_assessments as assessments', 'assessments.id', '=', 'finalizations.assessment_id')
                 ->join('users as people', 'people.id', '=', 'assessments.person_id')
@@ -493,7 +508,7 @@ class DashboardController extends Controller
                 });
         }
 
-        if (Schema::hasTable('succession_readiness_assessments') && Schema::hasTable('succession_candidates') && Schema::hasTable('succession_critical_positions')) {
+        if (SchemaPresence::hasTable('succession_readiness_assessments') && SchemaPresence::hasTable('succession_candidates') && SchemaPresence::hasTable('succession_critical_positions')) {
             DB::table('succession_readiness_assessments as assessments')
                 ->join('succession_candidates as candidates', 'candidates.id', '=', 'assessments.succession_candidate_id')
                 ->join('succession_critical_positions as positions', 'positions.id', '=', 'candidates.critical_position_id')
@@ -532,7 +547,7 @@ class DashboardController extends Controller
     /** @return Collection<int, object> */
     private function finalizedPerformanceRows(): Collection
     {
-        if (! Schema::hasTable('performance_reviews') || ! Schema::hasTable('performance_review_assignments')) {
+        if (! SchemaPresence::hasTable('performance_reviews') || ! SchemaPresence::hasTable('performance_review_assignments')) {
             return collect();
         }
 
@@ -586,7 +601,7 @@ class DashboardController extends Controller
     /** @return array<int, array{id:string,date:string,status:string}> */
     private function trainingEnrollmentRows(): array
     {
-        if (! Schema::hasTable('training_enrollments')) {
+        if (! SchemaPresence::hasTable('training_enrollments')) {
             return [];
         }
 
@@ -625,7 +640,7 @@ class DashboardController extends Controller
                 ]);
             });
 
-        if (Schema::hasTable('learning_completions') && Schema::hasTable('learning_course_versions')) {
+        if (SchemaPresence::hasTable('learning_completions') && SchemaPresence::hasTable('learning_course_versions')) {
             DB::table('learning_completions as completions')
                 ->join('users as people', 'people.id', '=', 'completions.learner_id')
                 ->join('learning_course_versions as versions', 'versions.id', '=', 'completions.course_version_id')
@@ -644,7 +659,7 @@ class DashboardController extends Controller
                 });
         }
 
-        if (Schema::hasTable('training_completions') && Schema::hasTable('training_enrollments') && Schema::hasTable('training_programs')) {
+        if (SchemaPresence::hasTable('training_completions') && SchemaPresence::hasTable('training_enrollments') && SchemaPresence::hasTable('training_programs')) {
             DB::table('training_completions as completions')
                 ->join('training_enrollments as enrollments', 'enrollments.id', '=', 'completions.enrollment_id')
                 ->join('training_programs as programs', 'programs.id', '=', 'enrollments.program_id')
@@ -678,7 +693,7 @@ class DashboardController extends Controller
                 ]);
             });
 
-        if (Schema::hasTable('recognition_records')) {
+        if (SchemaPresence::hasTable('recognition_records')) {
             DB::table('recognition_records as records')
                 ->leftJoin('users as people', 'people.id', '=', 'records.recipient_id')
                 ->where('records.status', 'Recognized')
@@ -708,45 +723,52 @@ class DashboardController extends Controller
 
 
     /** @return array<string, mixed> */
-    private function hrDashboardState(): array
+    private function hrDashboardState(User $actor): array
     {
-        $activePersonnel = User::query()->activePersonnel()->where('role', '!=', UserRole::Admin->value)->count();
+        // HR uses the same persisted operational command-center metrics as Admin,
+        // but all drill-down links stay inside the HR-owned routes and security-only
+        // administration is excluded from the HR workload.
+        $state = $this->adminDashboardState($actor);
 
-        $openReviews = 0;
-        if (Schema::hasTable('performance_reviews')) {
-            $openReviews = DB::table('performance_reviews')->whereNull('finalized_at')->whereNotIn('status', ['Cancelled'])->count();
+        $state['stats']['activeWorkforce'] = User::query()
+            ->activePersonnel()
+            ->where('role', '!=', UserRole::Admin->value)
+            ->count();
+
+        $state['needsAttention'] = collect($state['needsAttention'])
+            ->reject(fn (array $item): bool => ($item['module'] ?? null) === 'Security')
+            ->map(fn (array $item): array => array_merge($item, [
+                'href' => $this->hrOwnedHref((string) ($item['href'] ?? '')),
+            ]))
+            ->values()
+            ->all();
+
+        $state['upcoming'] = collect($state['upcoming'])
+            ->map(fn (array $item): array => array_merge($item, [
+                'href' => $this->hrOwnedHref((string) ($item['href'] ?? '')),
+            ]))
+            ->values()
+            ->all();
+
+        $state['recentActivities'] = collect($state['recentActivities'])
+            ->map(fn (array $item): array => array_merge($item, [
+                'href' => $this->hrOwnedHref((string) ($item['href'] ?? '')),
+            ]))
+            ->values()
+            ->all();
+
+        $state['workforceByDepartment'] = $this->workforceByDepartment(excludeAdmins: true);
+
+        return $state;
+    }
+
+    private function hrOwnedHref(string $href): string
+    {
+        if ($href === '') {
+            return route('hr.dashboard');
         }
 
-        $overdueLearning = 0;
-        if (Schema::hasTable('learning_assignments')) {
-            $overdueLearning = DB::table('learning_assignments')
-                ->whereNotIn('status', ['Completed', 'Cancelled', 'Expired'])
-                ->whereNotNull('due_at')->where('due_at', '<', now())->count();
-        }
-
-        $upcomingTraining = 0;
-        if (Schema::hasTable('training_sessions')) {
-            $upcomingTraining = DB::table('training_sessions')
-                ->whereBetween('starts_at', [now(), now()->addDays(7)])
-                ->whereNotIn('status', ['Draft', 'Cancelled', 'Completed'])->count();
-        }
-
-        $pendingRecognition = 0;
-        if (Schema::hasTable('recognition_records')) {
-            $pendingRecognition = DB::table('recognition_records')->where('status', 'Pending Review')->count();
-        }
-
-        return [
-            'stats' => [
-                'activePersonnel' => $activePersonnel,
-                'openPerformanceReviews' => $openReviews,
-                'overdueLearning' => $overdueLearning,
-                'upcomingTraining' => $upcomingTraining,
-                'pendingRecognition' => $pendingRecognition,
-            ],
-            'upcomingTrainings' => $this->upcomingTrainingRows(),
-            'recentActivities' => $this->recentActivitiesForRouteRole('hr'),
-        ];
+        return str_replace('/admin/', '/hr/', $href);
     }
 
     /** @return array<string, mixed> */
@@ -755,7 +777,7 @@ class DashboardController extends Controller
         $activeLearning = 0;
         $completedLearning = 0;
         $learningDue = [];
-        if (Schema::hasTable('learning_assignments') && Schema::hasTable('learning_course_versions')) {
+        if (SchemaPresence::hasTable('learning_assignments') && SchemaPresence::hasTable('learning_course_versions')) {
             $assignmentBase = DB::table('learning_assignments as assignments')
                 ->join('learning_course_versions as versions', 'versions.id', '=', 'assignments.course_version_id')
                 ->where('assignments.learner_id', $user->id);
@@ -777,7 +799,7 @@ class DashboardController extends Controller
         }
 
         $upcomingTrainingRows = [];
-        if (Schema::hasTable('training_sessions') && Schema::hasTable('training_session_participants') && Schema::hasTable('training_enrollments') && Schema::hasTable('training_programs')) {
+        if (SchemaPresence::hasTable('training_sessions') && SchemaPresence::hasTable('training_session_participants') && SchemaPresence::hasTable('training_enrollments') && SchemaPresence::hasTable('training_programs')) {
             $upcomingTrainingRows = DB::table('training_sessions as sessions')
                 ->join('training_session_participants as participants', 'participants.session_id', '=', 'sessions.id')
                 ->join('training_enrollments as enrollments', 'enrollments.id', '=', 'participants.enrollment_id')
@@ -797,7 +819,7 @@ class DashboardController extends Controller
         }
 
         $latestPerformance = null;
-        if (Schema::hasTable('performance_reviews') && Schema::hasTable('performance_review_assignments')) {
+        if (SchemaPresence::hasTable('performance_reviews') && SchemaPresence::hasTable('performance_review_assignments')) {
             $latest = DB::table('performance_reviews as reviews')
                 ->join('performance_review_assignments as assignments', 'assignments.id', '=', 'reviews.performance_review_assignment_id')
                 ->where('assignments.subject_user_id', $user->id)
@@ -812,7 +834,7 @@ class DashboardController extends Controller
             }
         }
 
-        $recognitions = Schema::hasTable('recognition_records')
+        $recognitions = SchemaPresence::hasTable('recognition_records')
             ? DB::table('recognition_records')->where('recipient_id', $user->id)->where('status', 'Recognized')->count()
             : 0;
 
@@ -826,6 +848,33 @@ class DashboardController extends Controller
             ],
             'learningDue' => $learningDue,
             'upcomingTrainings' => $upcomingTrainingRows,
+        ];
+    }
+
+
+    /** @return array<string, mixed> */
+    private function userTeamState(User $user, UserPersona $persona): array
+    {
+        if (! in_array($persona, [UserPersona::Supervisor, UserPersona::Manager], true)) {
+            return [
+                'directReports' => 0,
+                'activeReviews' => 0,
+            ];
+        }
+
+        $directReports = User::query()->activePersonnel()->where('manager_id', $user->id)->count();
+
+        $activeReviews = 0;
+        if (SchemaPresence::hasTable('performance_review_assignments')) {
+            $activeReviews = DB::table('performance_review_assignments')
+                ->where('evaluator_user_id', $user->id)
+                ->where('active', true)
+                ->count();
+        }
+
+        return [
+            'directReports' => $directReports,
+            'activeReviews' => $activeReviews,
         ];
     }
 
@@ -846,9 +895,10 @@ class DashboardController extends Controller
     }
 
     /** @return array<int, array{department:string,count:int}> */
-    private function workforceByDepartment(): array
+    private function workforceByDepartment(bool $excludeAdmins = false): array
     {
         return User::query()->activePersonnel()
+            ->when($excludeAdmins, fn ($query) => $query->where('role', '!=', UserRole::Admin->value))
             ->whereNotNull('department')
             ->whereRaw("TRIM(department) <> ''")
             ->select('department', DB::raw('COUNT(*) as aggregate'))
@@ -876,7 +926,7 @@ class DashboardController extends Controller
         }
 
         $ratings = collect();
-        if (Schema::hasTable('performance_reviews') && Schema::hasTable('performance_review_assignments')) {
+        if (SchemaPresence::hasTable('performance_reviews') && SchemaPresence::hasTable('performance_review_assignments')) {
             $ratings = DB::table('performance_reviews as reviews')
                 ->join('performance_review_assignments as assignments', 'assignments.id', '=', 'reviews.performance_review_assignment_id')
                 ->whereIn('assignments.subject_user_id', $trainees->pluck('id'))
@@ -889,7 +939,7 @@ class DashboardController extends Controller
         }
 
         $lastLogins = collect();
-        if (Schema::hasTable('security_audit_events')) {
+        if (SchemaPresence::hasTable('security_audit_events')) {
             $lastLogins = DB::table('security_audit_events')
                 ->whereIn('user_id', $trainees->pluck('id'))
                 ->where('event_type', 'LOGIN_SUCCESS')
@@ -922,11 +972,11 @@ class DashboardController extends Controller
     /** @return array<int, array<string, mixed>> */
     private function upcomingTrainingRows(): array
     {
-        if (! Schema::hasTable('training_sessions') || ! Schema::hasTable('training_programs')) {
+        if (! SchemaPresence::hasTable('training_sessions') || ! SchemaPresence::hasTable('training_programs')) {
             return [];
         }
 
-        $participantCounts = Schema::hasTable('training_session_participants')
+        $participantCounts = SchemaPresence::hasTable('training_session_participants')
             ? DB::table('training_session_participants')
                 ->select('session_id', DB::raw('COUNT(*) as aggregate'))
                 ->groupBy('session_id')

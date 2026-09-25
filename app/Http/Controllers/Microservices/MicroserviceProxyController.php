@@ -14,8 +14,10 @@ class MicroserviceProxyController extends Controller
     {
     }
 
-    public function __invoke(Request $request, string $service, ?string $path = null): Response
+    public function __invoke(Request $request): Response
     {
+        $service = (string) $request->route('service');
+
         abort_unless(config('microservices.enabled'), 404);
         abort_unless(array_key_exists($service, (array) config('microservices.services', [])), 404);
 

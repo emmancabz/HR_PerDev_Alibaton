@@ -74,6 +74,9 @@ class LearningCourseService
                 $completion->certificate_download_url = $completion->certificate_id
                     ? URL::temporarySignedRoute('learning.api.certificates.download', now()->addMinutes(15), ['certificate' => $completion->certificate_id])
                     : null;
+                $rules = $completion->rules_satisfied;
+                if (is_string($rules)) $rules = json_decode($rules, true) ?? [];
+                $completion->certificate_eligible = (bool) ($rules['issueCertificate'] ?? false);
                 return $completion;
             });
 
@@ -216,7 +219,7 @@ class LearningCourseService
             && empty($payload['competencies']) && empty($payload['modules']) && empty($payload['assessments'])
             && ($completion['completeRequiredLessons'] ?? true) === true
             && ($completion['passRequiredKnowledgeChecks'] ?? true) === true
-            && ($completion['passFinalAssessment'] ?? true) === true
+            && ($completion['passFinalAssessment'] ?? false) === false
             && ($completion['issueCertificate'] ?? false) === false
             && empty($completion['certificateValidityMonths']) && empty($completion['renewalIntervalMonths'])
             && (int) ($payload['workingStage'] ?? 0) === 0;
@@ -465,13 +468,7 @@ class LearningCourseService
             if ($lesson->is_required && ! filled($lesson->text_content) && ! filled($lesson->external_url) && $lesson->materials->whereNull('revoked_at')->isEmpty()) $errors[] = "Required lesson '{$lesson->title}' has no valid content.";
             if ($lesson->external_url && ! preg_match('/^https:\/\//i', $lesson->external_url)) $errors[] = "External link for '{$lesson->title}' must use HTTPS.";
         }}
-        if ($version->assessments->where('assessment_type', 'Pre-Test')->count() > 1) $errors[] = 'Only one Pre-Test is allowed.';
-        if ($version->assessments->where('assessment_type', 'Post-Test')->count() > 1) $errors[] = 'Only one Post-Test is allowed.';
-        if ($version->assessments->where('assessment_type', 'Final Assessment')->count() > 1) $errors[] = 'Only one legacy Final Assessment is allowed.';
-        $hasPostTest = $version->assessments->where('assessment_type', 'Post-Test')->isNotEmpty();
-        $hasLegacyFinal = $version->assessments->where('assessment_type', 'Final Assessment')->isNotEmpty();
-        if (! $hasPostTest && ! $hasLegacyFinal) $errors[] = 'Add a required Post-Test before submission.';
-        if ($hasPostTest && $version->assessments->where('assessment_type', 'Pre-Test')->isEmpty()) $errors[] = 'Add a Pre-Test for the new course workflow.';
+        // Pre-Test and Post-Test are handled outside the LMS. Module-level Knowledge Checks are the LMS assessments.
         foreach ($version->assessments as $assessment) {
             if ($assessment->assessment_type === 'Knowledge Check' && ! $assessment->module_id) $errors[] = "Knowledge Check '{$assessment->title}' must be linked to a module.";
             if (in_array($assessment->assessment_type, ['Pre-Test', 'Post-Test', 'Final Assessment'], true) && $assessment->module_id) $errors[] = "{$assessment->assessment_type} must apply to the whole course.";

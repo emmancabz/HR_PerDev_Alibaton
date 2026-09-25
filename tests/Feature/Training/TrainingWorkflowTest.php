@@ -9,6 +9,7 @@ use App\Models\Training\TrainingProgram;
 use App\Models\Training\TrainingRecommendation;
 use App\Models\User;
 use App\Services\Training\TrainingService;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -293,6 +294,104 @@ class TrainingWorkflowTest extends TestCase
         $this->training->transitionEnrollment($this->participant, $enrollment->fresh(), 'Withdrawn', 'Schedule conflict.');
     }
 
+    public function test_quarterly_trainer_evaluation_opens_after_quarter_and_is_final_once(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-20 09:00:00', 'Asia/Manila'));
+
+        [, $session] = $this->scheduledEnrollment();
+        $attendance = TrainingAttendanceRecord::query()->firstOrFail();
+
+        $this->training->transitionSession($this->hr, $session, 'Ongoing');
+        $this->training->recordAttendance($this->facilitator, $attendance, 'Present', 'Verified at the Training venue.');
+        $this->training->finalizeAttendance($this->hr, $session->fresh());
+        $this->training->transitionSession($this->hr, $session->fresh(), 'Completed');
+
+        $beforeClose = $this->training->state($this->participant);
+        $this->assertCount(1, $beforeClose['trainerEvaluationTasks']);
+        $this->assertSame('2026-Q3', $beforeClose['trainerEvaluationTasks'][0]['quarterKey']);
+        $this->assertSame('Not Open', $beforeClose['trainerEvaluationTasks'][0]['status']);
+
+        try {
+            $this->training->submitQuarterlyTrainerEvaluation(
+                $this->participant,
+                '2026-Q3',
+                'user:'.$this->facilitator->id,
+                $this->trainerEvaluationPayload(),
+            );
+            $this->fail('Quarterly trainer evaluation must remain closed until the quarter ends.');
+        } catch (ValidationException) {
+            $this->assertDatabaseCount('training_trainer_evaluations', 0);
+        }
+
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 08:00:00', 'Asia/Manila'));
+
+        $open = $this->training->state($this->participant);
+        $this->assertSame('Pending', $open['trainerEvaluationTasks'][0]['status']);
+
+        $this->training->submitQuarterlyTrainerEvaluation(
+            $this->participant,
+            '2026-Q3',
+            'user:'.$this->facilitator->id,
+            $this->trainerEvaluationPayload(),
+        );
+
+        $this->assertDatabaseHas('training_trainer_evaluations', [
+            'participant_id' => $this->participant->id,
+            'quarter_key' => '2026-Q3',
+            'trainer_key' => 'user:'.$this->facilitator->id,
+            'trainer_user_id' => $this->facilitator->id,
+            'trainer_name' => $this->facilitator->name,
+            'knowledge_rating' => 4,
+            'clarity_rating' => 4,
+            'communication_rating' => 4,
+            'engagement_rating' => 4,
+            'professionalism_rating' => 4,
+            'practical_relevance_rating' => 4,
+            'time_management_rating' => 4,
+            'safety_emphasis_rating' => null,
+            'facilitator_rating' => 4,
+        ]);
+
+        $done = $this->training->state($this->participant);
+        $this->assertSame('Done', $done['trainerEvaluationTasks'][0]['status']);
+        $this->assertArrayNotHasKey('knowledgeRating', $done['trainerEvaluationTasks'][0]);
+        $this->assertArrayNotHasKey('comments', $done['trainerEvaluationTasks'][0]);
+
+        $this->expectException(ValidationException::class);
+        $this->training->submitQuarterlyTrainerEvaluation(
+            $this->participant,
+            '2026-Q3',
+            'user:'.$this->facilitator->id,
+            $this->trainerEvaluationPayload(),
+        );
+    }
+
+    public function test_trainee_without_verified_attendance_has_no_quarterly_trainer_evaluation_task(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-20 09:00:00', 'Asia/Manila'));
+
+        [, $session] = $this->scheduledEnrollment();
+        $attendance = TrainingAttendanceRecord::query()->firstOrFail();
+
+        $this->training->transitionSession($this->hr, $session, 'Ongoing');
+        $this->training->recordAttendance($this->hr, $attendance, 'Absent', 'Participant did not attend.');
+        $this->training->finalizeAttendance($this->hr, $session->fresh());
+        $this->training->transitionSession($this->hr, $session->fresh(), 'Completed');
+
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 08:00:00', 'Asia/Manila'));
+
+        $state = $this->training->state($this->participant);
+        $this->assertSame([], $state['trainerEvaluationTasks']);
+
+        $this->expectException(ValidationException::class);
+        $this->training->submitQuarterlyTrainerEvaluation(
+            $this->participant,
+            '2026-Q3',
+            'user:'.$this->facilitator->id,
+            $this->trainerEvaluationPayload(),
+        );
+    }
+
     public function test_admin_or_hr_governance_can_revoke_a_training_certificate(): void
     {
         [, $session, $enrollment] = $this->scheduledEnrollment();
@@ -359,6 +458,27 @@ class TrainingWorkflowTest extends TestCase
             'person_type' => $personType,
             'employment_status' => $personType,
         ]);
+    }
+
+    private function trainerEvaluationPayload(): array
+    {
+        return [
+            'knowledge_rating' => 4,
+            'clarity_rating' => 4,
+            'communication_rating' => 4,
+            'engagement_rating' => 4,
+            'professionalism_rating' => 4,
+            'practical_relevance_rating' => 4,
+            'time_management_rating' => 4,
+            'safety_emphasis_rating' => null,
+            'trainer_strengths' => 'Clear practical examples.',
+            'trainer_improvements' => 'Allow a little more time for questions.',
+            'content_rating' => 4,
+            'relevance_rating' => 5,
+            'organization_rating' => 4,
+            'overall_satisfaction' => 4,
+            'comments' => 'Useful session.',
+        ];
     }
 
     private function governProgram(TrainingProgram $program): void

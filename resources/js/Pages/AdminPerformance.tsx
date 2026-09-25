@@ -1499,7 +1499,7 @@ export default function PerformanceManagement({ performanceView = "workspace" }:
     (authUser.role === "admin" || authUser.role === "hr");
   const canConfigurePerformance =
     backend.actor?.capabilities.configurePerformance ??
-    authUser.role === "admin";
+    (authUser.role === "admin" || authUser.role === "hr");
 
 
   useEffect(() => {
@@ -1559,7 +1559,7 @@ export default function PerformanceManagement({ performanceView = "workspace" }:
   }
 
   function openEvaluatorManagementPage(target?: { evaluatorId?: string; personId?: string; cycleId?: string }) {
-    const routeName = "admin.performance.evaluators";
+    const routeName = authUser.role === "hr" ? "hr.performance.evaluators" : "admin.performance.evaluators";
     if (!route().has(routeName)) return;
     const params = new URLSearchParams();
     if (goalsCycleId) params.set("performance_cycle", goalsCycleId);

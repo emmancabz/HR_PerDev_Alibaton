@@ -148,7 +148,7 @@ class PerformanceService
                 'role' => $actor->role->value,
                 'capabilities' => [
                     'monitorOrganization' => $actor->isPerformanceOperator(),
-                    'configurePerformance' => $actor->role === UserRole::Admin,
+                    'configurePerformance' => $actor->isPerformanceOperator(),
                     'operatePerformance' => $actor->isPerformanceOperator(),
                     'evaluateAssignedPeople' => (bool) $actor->evaluator_capable,
                 ],
@@ -175,7 +175,7 @@ class PerformanceService
 
     public function syncConfiguration(User $actor, array $payload, bool $preserveGoalProgress = true): array
     {
-        $this->requireAdmin($actor);
+        $this->requireOperator($actor);
 
         DB::transaction(function () use ($actor, $payload, $preserveGoalProgress): void {
             foreach ($payload['cycles'] ?? [] as $cycle) {
@@ -3430,13 +3430,6 @@ class PerformanceService
             throw ValidationException::withMessages([
                 'version' => "{$label} changed on the server. Reload before saving again.",
             ]);
-        }
-    }
-
-    private function requireAdmin(User $actor): void
-    {
-        if ($actor->role !== UserRole::Admin) {
-            $this->deny('Only Admin may change Performance configuration.');
         }
     }
 
