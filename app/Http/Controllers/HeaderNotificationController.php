@@ -65,12 +65,14 @@ class HeaderNotificationController extends Controller
                     ->where('cycles.status', '!=', 'Closed')
                     ->whereIn('reviews.workflow_state', ['Calibration Pending', 'Calibration In Review']);
 
-                $awaitingCalibration = (clone $reviewActions)
-                    ->where('reviews.workflow_state', 'Calibration Pending')
-                    ->count();
-                $inCalibration = (clone $reviewActions)
-                    ->where('reviews.workflow_state', 'Calibration In Review')
-                    ->count();
+                $reviewCounts = (clone $reviewActions)
+                    ->selectRaw(<<<'SQL'
+                        SUM(CASE WHEN reviews.workflow_state = 'Calibration Pending' THEN 1 ELSE 0 END) AS awaiting_calibration,
+                        SUM(CASE WHEN reviews.workflow_state = 'Calibration In Review' THEN 1 ELSE 0 END) AS in_calibration
+                    SQL)
+                    ->first();
+                $awaitingCalibration = (int) ($reviewCounts->awaiting_calibration ?? 0);
+                $inCalibration = (int) ($reviewCounts->in_calibration ?? 0);
                 $count = $awaitingCalibration + $inCalibration;
 
                 $push(
@@ -117,8 +119,14 @@ class HeaderNotificationController extends Controller
                     : ($role === 'hr' ? 'hr.learning.index' : 'user.learning.index');
 
                 if ($operator && Schema::hasTable('learning_course_versions')) {
-                    $inReview = DB::table('learning_course_versions')->where('status', 'In Review')->count();
-                    $approved = DB::table('learning_course_versions')->where('status', 'Approved')->count();
+                    $governanceCounts = DB::table('learning_course_versions')
+                        ->selectRaw(<<<'SQL'
+                            SUM(CASE WHEN status = 'In Review' THEN 1 ELSE 0 END) AS in_review,
+                            SUM(CASE WHEN status = 'Approved' THEN 1 ELSE 0 END) AS approved
+                        SQL)
+                        ->first();
+                    $inReview = (int) ($governanceCounts->in_review ?? 0);
+                    $approved = (int) ($governanceCounts->approved ?? 0);
                     $count = $inReview + $approved;
                     $push(
                         'learning-governance-action',
@@ -136,6 +144,7 @@ class HeaderNotificationController extends Controller
                     return;
                 }
 
+                $now = now();
                 $base = DB::table('learning_assignments')
                     ->whereNotIn('status', ['Completed', 'Cancelled', 'Expired'])
                     ->whereNotNull('due_at');
@@ -143,7 +152,13 @@ class HeaderNotificationController extends Controller
                     $base->where('learner_id', $user->id);
                 }
 
-                $overdue = (clone $base)->where('due_at', '<', now())->count();
+                $learningCounts = $base
+                    ->selectRaw(<<<'SQL'
+                        SUM(CASE WHEN due_at < ? THEN 1 ELSE 0 END) AS overdue,
+                        SUM(CASE WHEN due_at BETWEEN ? AND ? THEN 1 ELSE 0 END) AS due_soon
+                    SQL, [$now, $now, $now->copy()->addDays(7)])
+                    ->first();
+                $overdue = (int) ($learningCounts->overdue ?? 0);
                 $push(
                     'learning-overdue',
                     'learning_actions',
@@ -156,9 +171,7 @@ class HeaderNotificationController extends Controller
                 );
 
                 if (! $operator) {
-                    $dueSoon = (clone $base)
-                        ->whereBetween('due_at', [now(), now()->addDays(7)])
-                        ->count();
+                    $dueSoon = (int) ($learningCounts->due_soon ?? 0);
                     $push(
                         'learning-due-soon',
                         'learning_actions',
@@ -200,10 +213,14 @@ class HeaderNotificationController extends Controller
                 }
 
                 if ($operator) {
-                    $needsFinalization = DB::table('training_sessions')
-                        ->where('ends_at', '<', now())
-                        ->whereIn('status', ['Scheduled', 'Ongoing'])
-                        ->count();
+                    $now = now();
+                    $sessionCounts = DB::table('training_sessions')
+                        ->selectRaw(<<<'SQL'
+                            SUM(CASE WHEN ends_at < ? AND status IN ('Scheduled', 'Ongoing') THEN 1 ELSE 0 END) AS needs_finalization,
+                            SUM(CASE WHEN starts_at BETWEEN ? AND ? AND status NOT IN ('Draft', 'Cancelled', 'Completed') THEN 1 ELSE 0 END) AS upcoming
+                        SQL, [$now, $now, $now->copy()->addDays(7)])
+                        ->first();
+                    $needsFinalization = (int) ($sessionCounts->needs_finalization ?? 0);
                     $push(
                         'training-finalization-action',
                         'training_actions',
@@ -215,10 +232,7 @@ class HeaderNotificationController extends Controller
                         $needsFinalization,
                     );
 
-                    $upcoming = DB::table('training_sessions')
-                        ->whereBetween('starts_at', [now(), now()->addDays(7)])
-                        ->whereNotIn('status', ['Draft', 'Cancelled', 'Completed'])
-                        ->count();
+                    $upcoming = (int) ($sessionCounts->upcoming ?? 0);
                     $push(
                         'training-upcoming',
                         'training_actions',
@@ -372,18 +386,15 @@ class HeaderNotificationController extends Controller
         $readState = collect();
         $activeIds = $ordered->pluck('id')->values()->all();
 
-        if (Schema::hasTable('header_notification_reads')) {
-            $readQuery = DB::table('header_notification_reads')
-                ->where('user_id', $user->id);
-
-            if ($activeIds === []) {
-                $readQuery->delete();
-            } else {
-                (clone $readQuery)->whereNotIn('notification_id', $activeIds)->delete();
-                $readState = (clone $readQuery)
-                    ->whereIn('notification_id', $activeIds)
-                    ->pluck('fingerprint', 'notification_id');
-            }
+        if ($activeIds !== [] && Schema::hasTable('header_notification_reads')) {
+            // Keep this GET endpoint read-only. Notification IDs are a small, fixed
+            // set and the read endpoint already upserts their latest fingerprints,
+            // so deleting inactive rows on every 60-second refresh only adds an
+            // unnecessary write/lock to the critical header path.
+            $readState = DB::table('header_notification_reads')
+                ->where('user_id', $user->id)
+                ->whereIn('notification_id', $activeIds)
+                ->pluck('fingerprint', 'notification_id');
         }
 
         $notifications = $ordered->map(function (array $item) use ($readState): array {

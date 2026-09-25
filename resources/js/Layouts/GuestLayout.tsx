@@ -1,4 +1,4 @@
-import loginBg from '@/assets/loginbg.png';
+import loginBg from '@/assets/loginbg.webp';
 import { PropsWithChildren, useLayoutEffect } from 'react';
 
 interface GuestLayoutProps extends PropsWithChildren {
@@ -46,6 +46,8 @@ export default function Guest({
                     <img
                         src={loginBg}
                         alt="Alibaton Construction workplace"
+                        decoding="async"
+                        fetchPriority="high"
                         className="h-[108%] w-[108%] max-w-none object-cover object-center [transform:rotateX(1.5deg)_rotateY(-7deg)_scale(1.06)_translate3d(-1.5%,0,0)]"
                     />
                 </div>

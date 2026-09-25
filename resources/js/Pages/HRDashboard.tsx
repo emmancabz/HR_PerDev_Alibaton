@@ -193,7 +193,7 @@ function KpiCard({ card }: { card: KpiDefinition }) {
     const hasAttention = card.attention && Number(card.value) > 0;
 
     return (
-        <Link
+        <Link prefetch
             href={card.href}
             className="app-kpi-card group block min-w-0 overflow-hidden px-3.5 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F4B400] focus-visible:ring-offset-2"
         >
@@ -222,7 +222,7 @@ function SectionHeader({ title, description, href, action = 'Open workspace' }: 
                 {description ? <p className="mt-0.5 text-[11px] text-slate-500">{description}</p> : null}
             </div>
             {href ? (
-                <Link href={href} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-amber-700 transition hover:text-amber-800">
+                <Link prefetch href={href} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-amber-700 transition hover:text-amber-800">
                     {action}<ChevronRight className="h-3.5 w-3.5" />
                 </Link>
             ) : null}
@@ -412,7 +412,7 @@ export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Pr
                                     value={performanceRange}
                                     onChange={setPerformanceRange}
                                 />
-                                <Link
+                                <Link prefetch
                                     href={`${route('hr.performance.index')}#Analytics`}
                                     className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
                                 >
@@ -511,7 +511,7 @@ export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Pr
                                 const Icon = moduleIcon[item.module] ?? AlertTriangle;
                                 const high = item.priority === 'High';
                                 return (
-                                    <Link
+                                    <Link prefetch
                                         key={item.id}
                                         href={item.href}
                                         className="group flex items-center gap-3 px-4 py-3.5 transition hover:bg-slate-50"
@@ -585,7 +585,7 @@ export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Pr
                                 ['Calibration', dashboard.performance.calibration],
                                 ['Finalized', dashboard.performance.finalized],
                             ].map(([label, value]) => (
-                                <Link
+                                <Link prefetch
                                     key={String(label)}
                                     href={`${route('hr.performance.index')}#Reviews`}
                                     className="group rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-amber-300 hover:bg-amber-50/40"
@@ -617,7 +617,7 @@ export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Pr
                             {dashboard.workforceByDepartment.length ? dashboard.workforceByDepartment.slice(0, 7).map((item) => {
                                 const percent = workforceTotal ? Math.round((item.count / workforceTotal) * 100) : 0;
                                 return (
-                                    <Link key={item.department} href={route('hr.users.index', { department: item.department })} className="group block rounded-lg p-1 -m-1 transition hover:bg-slate-50">
+                                    <Link prefetch key={item.department} href={route('hr.users.index', { department: item.department })} className="group block rounded-lg p-1 -m-1 transition hover:bg-slate-50">
                                         <div className="flex items-center justify-between gap-3 text-xs">
                                             <span className="min-w-0 truncate font-semibold text-slate-700 group-hover:text-amber-700">{item.department}</span>
                                             <span className="shrink-0 font-extrabold tabular-nums text-slate-900">{item.count}</span>
@@ -637,7 +637,7 @@ export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Pr
                         <SectionHeader title="Upcoming" description="Next 30 days" />
                         <div className="divide-y divide-slate-100">
                             {filteredUpcoming.length ? filteredUpcoming.slice(0, 6).map((item, index) => (
-                                <Link key={`${item.type}-${item.date}-${index}`} href={item.href} className="group flex items-center gap-3 px-4 py-3 transition hover:bg-slate-50">
+                                <Link prefetch key={`${item.type}-${item.date}-${index}`} href={item.href} className="group flex items-center gap-3 px-4 py-3 transition hover:bg-slate-50">
                                     <div className="flex w-12 shrink-0 flex-col items-center justify-center rounded-lg bg-amber-50 py-1.5 text-amber-800">
                                         <span className="text-[9px] font-bold uppercase">{new Intl.DateTimeFormat('en-PH', { month: 'short' }).format(new Date(item.date))}</span>
                                         <span className="text-base font-extrabold leading-5">{new Intl.DateTimeFormat('en-PH', { day: '2-digit' }).format(new Date(item.date))}</span>
@@ -663,7 +663,7 @@ export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Pr
                             {dashboard.recentActivities.length ? dashboard.recentActivities.slice(0, 6).map((activity, index) => {
                                 const Icon = activityIcon[activity.type] ?? BriefcaseBusiness;
                                 return (
-                                    <Link key={`${activity.type}-${activity.occurredAt}-${index}`} href={activity.href} className="group flex items-start gap-3 py-3">
+                                    <Link prefetch key={`${activity.type}-${activity.occurredAt}-${index}`} href={activity.href} className="group flex items-start gap-3 py-3">
                                         <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700">
                                             <Icon className="h-3.5 w-3.5" />
                                         </div>
@@ -687,7 +687,7 @@ export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Pr
                         {quickAccess.map((item) => {
                             const Icon = item.icon;
                             return (
-                                <Link
+                                <Link prefetch
                                     key={item.label}
                                     href={item.href()}
                                     className="group flex items-center gap-2.5 rounded-xl border border-slate-100 bg-white px-3 py-3 transition hover:border-amber-200 hover:bg-amber-50/40"

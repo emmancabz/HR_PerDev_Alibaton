@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Support\SchemaPresence;
-
 use App\Enums\UserRole;
 use App\Enums\UserPersona;
 use App\Services\UserWorkspace\UserPersonaResolver;
@@ -13,12 +12,13 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
+    private ?Collection $finalizedPerformanceRowsMemo = null;
+
     public function index(Request $request): RedirectResponse
     {
         return $this->redirectToOwnedDashboard($request->user());
@@ -73,16 +73,19 @@ class DashboardController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function adminDashboardState(User $actor): array
+    private function adminDashboardState(User $actor, bool $forHr = false): array
     {
-        $activeWorkforce = User::query()->activePersonnel()->count();
+        $activeWorkforce = User::query()
+            ->activePersonnel()
+            ->when($forHr, fn ($query) => $query->where('role', '!=', UserRole::Admin->value))
+            ->count();
         $performance = $this->adminPerformanceSnapshot();
         $competency = $this->adminCompetencySnapshot();
         $learning = $this->adminLearningSnapshot();
         $training = $this->adminTrainingSnapshot();
         $succession = $this->adminSuccessionSnapshot();
         $recognition = $this->adminRecognitionSnapshot();
-        $security = $this->adminSecuritySnapshot();
+        $security = $forHr ? ['flagged' => 0] : $this->adminSecuritySnapshot();
 
         return [
             'stats' => [
@@ -104,7 +107,7 @@ class DashboardController extends Controller
             ],
             'upcoming' => $this->adminUpcomingItems($performance),
             'recentActivities' => $this->adminRecentActivities(),
-            'workforceByDepartment' => $this->workforceByDepartment(),
+            'workforceByDepartment' => $this->workforceByDepartment(excludeAdmins: $forHr),
         ];
     }
 
@@ -162,36 +165,23 @@ class DashboardController extends Controller
                 ->where('assignments.active', true)
             : null;
 
-        $finalized = $reviewBase ? (clone $reviewBase)->whereNotNull('reviews.finalized_at')->count() : 0;
-        $calibration = $reviewBase ? (clone $reviewBase)
-            ->whereNull('reviews.finalized_at')
-            ->whereIn('reviews.workflow_state', ['Calibration Pending', 'Calibration In Review'])
-            ->count() : 0;
-        $inProgress = $reviewBase ? (clone $reviewBase)
-            ->whereNull('reviews.finalized_at')
-            ->where('reviews.status', 'In Progress')
-            ->whereNotIn('reviews.workflow_state', ['Calibration Pending', 'Calibration In Review'])
-            ->count() : 0;
-        $overdue = $reviewBase ? (clone $reviewBase)
-            ->whereNull('reviews.finalized_at')
-            ->whereNotNull('reviews.due_date')
-            ->whereDate('reviews.due_date', '<', $today->toDateString())
-            ->count() : 0;
-        $actions = $reviewBase ? (clone $reviewBase)
-            ->whereNull('reviews.finalized_at')
-            ->where(function ($query) use ($today): void {
-                $query->whereIn('reviews.workflow_state', ['Calibration Pending', 'Calibration In Review'])
-                    ->orWhere(function ($overdueQuery) use ($today): void {
-                        $overdueQuery->whereNotNull('reviews.due_date')
-                            ->whereDate('reviews.due_date', '<', $today->toDateString());
-                    });
-            })
-            ->distinct('reviews.id')
-            ->count('reviews.id') : 0;
-        $average = $reviewBase ? (clone $reviewBase)
-            ->whereNotNull('reviews.finalized_at')
-            ->whereNotNull('reviews.final_rating')
-            ->avg('reviews.final_rating') : null;
+        $reviewStats = $reviewBase ? (clone $reviewBase)
+            ->selectRaw(<<<'SQL'
+                SUM(CASE WHEN reviews.finalized_at IS NOT NULL THEN 1 ELSE 0 END) AS finalized,
+                SUM(CASE WHEN reviews.finalized_at IS NULL AND reviews.workflow_state IN ('Calibration Pending', 'Calibration In Review') THEN 1 ELSE 0 END) AS calibration,
+                SUM(CASE WHEN reviews.finalized_at IS NULL AND reviews.status = 'In Progress' AND reviews.workflow_state NOT IN ('Calibration Pending', 'Calibration In Review') THEN 1 ELSE 0 END) AS in_progress,
+                SUM(CASE WHEN reviews.finalized_at IS NULL AND reviews.due_date IS NOT NULL AND reviews.due_date < ? THEN 1 ELSE 0 END) AS overdue,
+                SUM(CASE WHEN reviews.finalized_at IS NULL AND (reviews.workflow_state IN ('Calibration Pending', 'Calibration In Review') OR (reviews.due_date IS NOT NULL AND reviews.due_date < ?)) THEN 1 ELSE 0 END) AS actions,
+                AVG(CASE WHEN reviews.finalized_at IS NOT NULL AND reviews.final_rating IS NOT NULL THEN reviews.final_rating END) AS average_finalized_rating
+            SQL, [$today->toDateString(), $today->toDateString()])
+            ->first() : null;
+
+        $finalized = (int) ($reviewStats->finalized ?? 0);
+        $calibration = (int) ($reviewStats->calibration ?? 0);
+        $inProgress = (int) ($reviewStats->in_progress ?? 0);
+        $overdue = (int) ($reviewStats->overdue ?? 0);
+        $actions = (int) ($reviewStats->actions ?? 0);
+        $average = $reviewStats?->average_finalized_rating;
 
         $known = min($total, $finalized + $calibration + $inProgress);
         $scheduled = max(0, $total - $known);
@@ -229,14 +219,18 @@ class DashboardController extends Controller
             return ['actions' => 0, 'pending' => 0, 'reassessmentDue' => 0];
         }
 
-        $actions = DB::table('competency_assessments')
-            ->whereIn('status', ['Submitted', 'Pending Validation'])
-            ->count();
-        $pending = DB::table('competency_assessments')
-            ->whereNotIn('status', ['Finalized', 'Cancelled'])
-            ->count();
+        $stats = DB::table('competency_assessments')
+            ->selectRaw(<<<'SQL'
+                SUM(CASE WHEN status IN ('Submitted', 'Pending Validation') THEN 1 ELSE 0 END) AS actions,
+                SUM(CASE WHEN status NOT IN ('Finalized', 'Cancelled') THEN 1 ELSE 0 END) AS pending
+            SQL)
+            ->first();
 
-        return ['actions' => $actions, 'pending' => $pending, 'reassessmentDue' => 0];
+        return [
+            'actions' => (int) ($stats->actions ?? 0),
+            'pending' => (int) ($stats->pending ?? 0),
+            'reassessmentDue' => 0,
+        ];
     }
 
     /** @return array{inProgress:int,overdue:int,governance:int} */
@@ -247,14 +241,14 @@ class DashboardController extends Controller
         $governance = 0;
 
         if (SchemaPresence::hasTable('learning_assignments')) {
-            $inProgress = DB::table('learning_assignments')
-                ->whereIn('status', ['Not Started', 'In Progress'])
-                ->count();
-            $overdue = DB::table('learning_assignments')
-                ->whereIn('status', ['Not Started', 'In Progress'])
-                ->whereNotNull('due_at')
-                ->where('due_at', '<', now())
-                ->count();
+            $assignmentStats = DB::table('learning_assignments')
+                ->selectRaw(<<<'SQL'
+                    SUM(CASE WHEN status IN ('Not Started', 'In Progress') THEN 1 ELSE 0 END) AS in_progress,
+                    SUM(CASE WHEN status IN ('Not Started', 'In Progress') AND due_at IS NOT NULL AND due_at < ? THEN 1 ELSE 0 END) AS overdue
+                SQL, [now()])
+                ->first();
+            $inProgress = (int) ($assignmentStats->in_progress ?? 0);
+            $overdue = (int) ($assignmentStats->overdue ?? 0);
         }
         if (SchemaPresence::hasTable('learning_course_versions')) {
             $governance = DB::table('learning_course_versions')
@@ -271,18 +265,19 @@ class DashboardController extends Controller
         $requirements = SchemaPresence::hasTable('training_recommendations')
             ? DB::table('training_recommendations')->whereIn('status', ['Pending', 'Under Review'])->count()
             : 0;
-        $pendingFinalization = SchemaPresence::hasTable('training_sessions')
-            ? DB::table('training_sessions')
-                ->where('ends_at', '<', now())
-                ->whereIn('status', ['Scheduled', 'Ongoing'])
-                ->count()
-            : 0;
-        $upcoming = SchemaPresence::hasTable('training_sessions')
-            ? DB::table('training_sessions')
-                ->whereBetween('starts_at', [now(), now()->addDays(7)])
-                ->whereNotIn('status', ['Draft', 'Cancelled', 'Completed'])
-                ->count()
-            : 0;
+        $pendingFinalization = 0;
+        $upcoming = 0;
+        if (SchemaPresence::hasTable('training_sessions')) {
+            $now = now();
+            $sessionStats = DB::table('training_sessions')
+                ->selectRaw(<<<'SQL'
+                    SUM(CASE WHEN ends_at < ? AND status IN ('Scheduled', 'Ongoing') THEN 1 ELSE 0 END) AS pending_finalization,
+                    SUM(CASE WHEN starts_at BETWEEN ? AND ? AND status NOT IN ('Draft', 'Cancelled', 'Completed') THEN 1 ELSE 0 END) AS upcoming
+                SQL, [$now, $now, $now->copy()->addDays(7)])
+                ->first();
+            $pendingFinalization = (int) ($sessionStats->pending_finalization ?? 0);
+            $upcoming = (int) ($sessionStats->upcoming ?? 0);
+        }
 
         return [
             'requirements' => $requirements,
@@ -547,11 +542,15 @@ class DashboardController extends Controller
     /** @return Collection<int, object> */
     private function finalizedPerformanceRows(): Collection
     {
-        if (! SchemaPresence::hasTable('performance_reviews') || ! SchemaPresence::hasTable('performance_review_assignments')) {
-            return collect();
+        if ($this->finalizedPerformanceRowsMemo !== null) {
+            return $this->finalizedPerformanceRowsMemo;
         }
 
-        return DB::table('performance_reviews as reviews')
+        if (! SchemaPresence::hasTable('performance_reviews') || ! SchemaPresence::hasTable('performance_review_assignments')) {
+            return $this->finalizedPerformanceRowsMemo = collect();
+        }
+
+        return $this->finalizedPerformanceRowsMemo = DB::table('performance_reviews as reviews')
             ->join('performance_review_assignments as assignments', 'assignments.id', '=', 'reviews.performance_review_assignment_id')
             ->join('users as people', 'people.id', '=', 'assignments.subject_user_id')
             ->whereNotNull('reviews.final_rating')
@@ -728,12 +727,7 @@ class DashboardController extends Controller
         // HR uses the same persisted operational command-center metrics as Admin,
         // but all drill-down links stay inside the HR-owned routes and security-only
         // administration is excluded from the HR workload.
-        $state = $this->adminDashboardState($actor);
-
-        $state['stats']['activeWorkforce'] = User::query()
-            ->activePersonnel()
-            ->where('role', '!=', UserRole::Admin->value)
-            ->count();
+        $state = $this->adminDashboardState($actor, forHr: true);
 
         $state['needsAttention'] = collect($state['needsAttention'])
             ->reject(fn (array $item): bool => ($item['module'] ?? null) === 'Security')
@@ -757,7 +751,6 @@ class DashboardController extends Controller
             ->values()
             ->all();
 
-        $state['workforceByDepartment'] = $this->workforceByDepartment(excludeAdmins: true);
 
         return $state;
     }
@@ -781,8 +774,14 @@ class DashboardController extends Controller
             $assignmentBase = DB::table('learning_assignments as assignments')
                 ->join('learning_course_versions as versions', 'versions.id', '=', 'assignments.course_version_id')
                 ->where('assignments.learner_id', $user->id);
-            $activeLearning = (clone $assignmentBase)->whereNotIn('assignments.status', ['Completed', 'Cancelled', 'Expired'])->count();
-            $completedLearning = (clone $assignmentBase)->where('assignments.status', 'Completed')->count();
+            $assignmentStats = (clone $assignmentBase)
+                ->selectRaw(<<<'SQL'
+                    SUM(CASE WHEN assignments.status NOT IN ('Completed', 'Cancelled', 'Expired') THEN 1 ELSE 0 END) AS active_learning,
+                    SUM(CASE WHEN assignments.status = 'Completed' THEN 1 ELSE 0 END) AS completed_learning
+                SQL)
+                ->first();
+            $activeLearning = (int) ($assignmentStats->active_learning ?? 0);
+            $completedLearning = (int) ($assignmentStats->completed_learning ?? 0);
             $learningDue = (clone $assignmentBase)
                 ->whereNotIn('assignments.status', ['Completed', 'Cancelled', 'Expired'])
                 ->orderByRaw('CASE WHEN assignments.due_at IS NULL THEN 1 ELSE 0 END')

@@ -2,7 +2,6 @@
 
 namespace App\Http\Middleware;
 
-use App\Services\Personnel\CanonicalPersonnelService;
 use App\Services\UserWorkspace\UserPersonaResolver;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -20,6 +19,7 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         $user = $request->user();
+        $persona = $user ? app(UserPersonaResolver::class)->resolve($user) : null;
 
         return [
             ...parent::share($request),
@@ -39,15 +39,12 @@ class HandleInertiaRequests extends Middleware
                     'employment_status' => $user->employment_status,
                     'evaluator_capable' => $user->evaluator_capable,
                     'manager_id' => $user->manager_id,
-                    'persona' => app(UserPersonaResolver::class)->resolve($user)->value,
-                    'persona_label' => app(UserPersonaResolver::class)->resolve($user)->label(),
+                    'persona' => $persona?->value,
+                    'persona_label' => $persona?->label(),
                     'email_verified_at' => $user->email_verified_at,
                 ] : null,
             ],
             'securitySessionTimeoutMinutes' => (int) config('governance.security.session_timeout_minutes', 5),
-            'canonicalPersonnel' => fn () => $user
-                ? app(CanonicalPersonnelService::class)->active()->values()->all()
-                : [],
         ];
     }
 }

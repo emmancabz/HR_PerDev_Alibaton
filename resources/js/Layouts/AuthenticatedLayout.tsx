@@ -94,6 +94,9 @@ type HeaderNotificationResponse = {
     generatedAt: string;
 };
 
+const HEADER_NOTIFICATION_CACHE_TTL_MS = 15_000;
+let headerNotificationCache: { fetchedAt: number; payload: HeaderNotificationResponse } | null = null;
+
 export type HeaderCrumb = {
     label: string;
     workspace?: string;
@@ -1027,6 +1030,59 @@ function formatScreenTime(totalSeconds: number): string {
     return `${String(seconds).padStart(2, '0')}s`;
 }
 
+function ScreenTimeIndicator({ collapsed }: { collapsed: boolean }) {
+    const [seconds, setSeconds] = useState(() => {
+        if (typeof window === 'undefined') return 0;
+        const stored = Number(window.sessionStorage.getItem('pd_screen_time_seconds') ?? '0');
+        return Number.isFinite(stored) && stored >= 0 ? Math.floor(stored) : 0;
+    });
+
+    useEffect(() => {
+        let lastTick = Date.now();
+
+        const tick = () => {
+            const current = Date.now();
+            const elapsed = Math.max(0, Math.floor((current - lastTick) / 1000));
+            lastTick = current;
+            if (document.visibilityState !== 'visible' || elapsed <= 0) return;
+
+            setSeconds((previous) => {
+                const next = previous + elapsed;
+                window.sessionStorage.setItem('pd_screen_time_seconds', String(next));
+                return next;
+            });
+        };
+
+        const resetTickOrigin = () => {
+            lastTick = Date.now();
+        };
+
+        const timer = window.setInterval(tick, 1000);
+        document.addEventListener('visibilitychange', resetTickOrigin);
+
+        return () => {
+            window.clearInterval(timer);
+            document.removeEventListener('visibilitychange', resetTickOrigin);
+        };
+    }, []);
+
+    const formatted = formatScreenTime(seconds);
+
+    return (
+        <div
+            className={`flex min-h-[2.25rem] items-center justify-center rounded-lg text-center text-white/50 ${collapsed ? 'gap-1 lg:px-1' : 'gap-1.5 px-2'}`}
+            title={`Screen time: ${formatted}`}
+        >
+            <Clock className="h-3.5 w-3.5 shrink-0 text-white/40" />
+            {!collapsed && <span className="text-[9px] font-semibold uppercase tracking-[0.09em] text-white/35">Screen Time</span>}
+            {!collapsed && <span className="text-white/20">·</span>}
+            <span className={`${collapsed ? 'text-[9px]' : 'text-[11px]'} whitespace-nowrap font-semibold tabular-nums text-white/65`}>
+                {formatted}
+            </span>
+        </div>
+    );
+}
+
 function browserTimeZone(): string {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Manila';
 }
@@ -1690,13 +1746,16 @@ export default function Authenticated({
     const [accountOpen, setAccountOpen] = useState(false);
     const [notificationOpen, setNotificationOpen] = useState(false);
     const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
-    const [notificationSelectedId, setNotificationSelectedId] = useState<string | null>(null);
-    const [notifications, setNotifications] = useState<HeaderNotificationItem[]>([]);
-    const [notificationTotal, setNotificationTotal] = useState(0);
-    const [notificationActiveCount, setNotificationActiveCount] = useState(0);
+    const [notificationSelectedId, setNotificationSelectedId] = useState<string | null>(() => {
+        const items = headerNotificationCache?.payload.data ?? [];
+        return items.find((item) => !item.isRead)?.id ?? items[0]?.id ?? null;
+    });
+    const [notifications, setNotifications] = useState<HeaderNotificationItem[]>(() => headerNotificationCache?.payload.data ?? []);
+    const [notificationTotal, setNotificationTotal] = useState(() => Number(headerNotificationCache?.payload.unreadCount ?? headerNotificationCache?.payload.totalCount ?? 0));
+    const [notificationActiveCount, setNotificationActiveCount] = useState(() => Number(headerNotificationCache?.payload.activeCount ?? headerNotificationCache?.payload.data?.length ?? 0));
     const [notificationLoading, setNotificationLoading] = useState(false);
     const [notificationError, setNotificationError] = useState('');
-    const [notificationGeneratedAt, setNotificationGeneratedAt] = useState<string | null>(null);
+    const [notificationGeneratedAt, setNotificationGeneratedAt] = useState<string | null>(() => headerNotificationCache?.payload.generatedAt ?? null);
     const [now, setNow] = useState(() => new Date());
     const [timeZone] = useState(() => {
         if (typeof window === 'undefined') return 'Asia/Manila';
@@ -1705,11 +1764,6 @@ export default function Authenticated({
     const [headerFilterGroups, setHeaderFilterGroups] = useState<Record<string, HeaderFilterGroup>>({});
     const [sidebarHasMore, setSidebarHasMore] = useState(false);
     const [dashboardMessageIndex, setDashboardMessageIndex] = useState(0);
-    const [screenTimeSeconds, setScreenTimeSeconds] = useState(() => {
-        if (typeof window === 'undefined') return 0;
-        const stored = Number(window.sessionStorage.getItem('pd_screen_time_seconds') ?? '0');
-        return Number.isFinite(stored) && stored >= 0 ? Math.floor(stored) : 0;
-    });
 
     const sidebarNavRef = useRef<HTMLElement>(null);
     const sidebarScrollStorageKey = `pd_sidebar_scroll_${user.role}`;
@@ -1958,7 +2012,9 @@ export default function Authenticated({
     }, [collapsedFlyout]);
 
     useEffect(() => {
-        const timer = window.setInterval(() => setNow(new Date()), 1000);
+        // The greeting only changes at broad day-part boundaries. Updating once per
+        // minute avoids forcing the entire application shell to re-render every second.
+        const timer = window.setInterval(() => setNow(new Date()), 60_000);
         return () => window.clearInterval(timer);
     }, []);
 
@@ -1978,53 +2034,38 @@ export default function Authenticated({
     }, [dashboardMessageIndex, isDashboardRoute, page.url]);
 
 
-    useEffect(() => {
-        let lastTick = Date.now();
-
-        const tick = () => {
-            const current = Date.now();
-            const elapsed = Math.max(0, Math.floor((current - lastTick) / 1000));
-            lastTick = current;
-
-            if (document.visibilityState !== 'visible' || elapsed <= 0) return;
-
-            setScreenTimeSeconds((previous) => {
-                const next = previous + elapsed;
-                window.sessionStorage.setItem('pd_screen_time_seconds', String(next));
-                return next;
-            });
-        };
-
-        const resetTickOrigin = () => {
-            lastTick = Date.now();
-        };
-
-        const timer = window.setInterval(tick, 1000);
-        document.addEventListener('visibilitychange', resetTickOrigin);
-
-        return () => {
-            window.clearInterval(timer);
-            document.removeEventListener('visibilitychange', resetTickOrigin);
-        };
-    }, []);
 
     const fetchNotifications = useCallback(async () => {
+        const applyPayload = (payload: HeaderNotificationResponse) => {
+            const nextItems = payload.data ?? [];
+            setNotifications(nextItems);
+            setNotificationTotal(Number(payload.unreadCount ?? payload.totalCount ?? 0));
+            setNotificationActiveCount(Number(payload.activeCount ?? nextItems.length));
+            setNotificationGeneratedAt(payload.generatedAt ?? null);
+            setNotificationSelectedId((current) =>
+                current && nextItems.some((item) => item.id === current)
+                    ? current
+                    : nextItems.find((item) => !item.isRead)?.id ?? nextItems[0]?.id ?? null,
+            );
+        };
+
+        const cached = headerNotificationCache;
+        if (cached && Date.now() - cached.fetchedAt < HEADER_NOTIFICATION_CACHE_TTL_MS) {
+            // State is initialized from this cache on layout remounts, so a fresh
+            // cache hit needs no state churn and no network request.
+            setNotificationLoading(false);
+            setNotificationError('');
+            return;
+        }
+
         setNotificationLoading(true);
         setNotificationError('');
         try {
             const response = await axios.get<HeaderNotificationResponse>('/api/header-notifications', {
                 headers: { Accept: 'application/json' },
             });
-            const nextItems = response.data.data ?? [];
-            setNotifications(nextItems);
-            setNotificationTotal(Number(response.data.unreadCount ?? response.data.totalCount ?? 0));
-            setNotificationActiveCount(Number(response.data.activeCount ?? nextItems.length));
-            setNotificationGeneratedAt(response.data.generatedAt ?? null);
-            setNotificationSelectedId((current) =>
-                current && nextItems.some((item) => item.id === current)
-                    ? current
-                    : nextItems.find((item) => !item.isRead)?.id ?? nextItems[0]?.id ?? null,
-            );
+            headerNotificationCache = { fetchedAt: Date.now(), payload: response.data };
+            applyPayload(response.data);
         } catch {
             setNotificationError('Notifications could not be refreshed right now.');
         } finally {
@@ -2049,6 +2090,7 @@ export default function Authenticated({
             }, {
                 headers: { Accept: 'application/json' },
             });
+            headerNotificationCache = null;
         } catch {
             setNotificationError('Notification read status could not be saved. Refresh to retry.');
             void fetchNotifications();
@@ -2602,18 +2644,7 @@ export default function Authenticated({
                         data-pd-sidebar-footer="true"
                         className="relative z-20 shrink-0 border-t border-white/10 bg-[#121212] px-3 py-2.5"
                     >
-                        <div
-                            className={`flex min-h-[2.25rem] items-center justify-center rounded-lg text-center text-white/50 ${collapsed ? 'gap-1 lg:px-1' : 'gap-1.5 px-2'
-                                }`}
-                            title={`Screen time: ${formatScreenTime(screenTimeSeconds)}`}
-                        >
-                            <Clock className="h-3.5 w-3.5 shrink-0 text-white/40" />
-                            {!collapsed && <span className="text-[9px] font-semibold uppercase tracking-[0.09em] text-white/35">Screen Time</span>}
-                            {!collapsed && <span className="text-white/20">·</span>}
-                            <span className={`${collapsed ? 'text-[9px]' : 'text-[11px]'} whitespace-nowrap font-semibold tabular-nums text-white/65`}>
-                                {formatScreenTime(screenTimeSeconds)}
-                            </span>
-                        </div>
+                        <ScreenTimeIndicator collapsed={collapsed} />
                     </div>
                 </aside>
 
