@@ -22,8 +22,6 @@ class AuthenticatedSessionController extends Controller
         return Inertia::render('Auth/Login', [
             'canResetPassword' => Route::has('password.request'),
             'status' => session('status'),
-            'sessionTimedOut' => $request->boolean('timeout') || (bool) session('session_timeout', false),
-            'sessionTimeoutMinutes' => (int) config('governance.security.session_timeout_minutes', 5),
         ]);
     }
 
@@ -100,10 +98,6 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
-
-        if ($timedOut) {
-            return redirect()->route('login', ['timeout' => 1]);
-        }
 
         return redirect()->route('login');
     }

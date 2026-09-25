@@ -491,7 +491,7 @@ class MfaAuthenticationTest extends TestCase
         $this->assertTrue(Hash::check('NewSecurePassword456', $user->fresh()->password));
     }
 
-    public function test_idle_timeout_logout_redirects_to_login_with_timeout_notice(): void
+    public function test_idle_timeout_logout_redirects_to_login_silently(): void
     {
         $user = User::factory()->create([
             'role' => UserRole::User,
@@ -503,7 +503,7 @@ class MfaAuthenticationTest extends TestCase
             ->post(route('logout'), ['reason' => 'timeout']);
 
         $response
-            ->assertRedirect(route('login', ['timeout' => 1]));
+            ->assertRedirect(route('login'));
 
         $this->assertGuest();
         $this->assertDatabaseHas('security_audit_events', [

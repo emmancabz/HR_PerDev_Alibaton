@@ -6,19 +6,15 @@ import TextInput from '@/Components/TextInput';
 import GuestLayout from '@/Layouts/GuestLayout';
 import { Head, Link, useForm } from '@inertiajs/react';
 import { Passkeys } from '@laravel/passkeys';
-import { Clock3, Eye, EyeOff, Fingerprint, LoaderCircle, Lock, Mail } from 'lucide-react';
+import { Eye, EyeOff, Fingerprint, LoaderCircle, Lock, Mail } from 'lucide-react';
 import { FormEventHandler, useEffect, useLayoutEffect, useState } from 'react';
 
 export default function Login({
     status,
     canResetPassword,
-    sessionTimedOut = false,
-    sessionTimeoutMinutes = 5,
 }: {
     status?: string;
     canResetPassword: boolean;
-    sessionTimedOut?: boolean;
-    sessionTimeoutMinutes?: number;
 }) {
     const { data, setData, post, processing, errors, reset } = useForm({
         email: '',
@@ -30,7 +26,6 @@ export default function Login({
     const [passkeySupported, setPasskeySupported] = useState(false);
     const [passkeyProcessing, setPasskeyProcessing] = useState(false);
     const [passkeyError, setPasskeyError] = useState<string | null>(null);
-    const [timeoutDialogOpen, setTimeoutDialogOpen] = useState(sessionTimedOut);
 
     useLayoutEffect(() => {
         const root = document.documentElement;
@@ -49,10 +44,6 @@ export default function Login({
             }
         }
     }, []);
-
-    useEffect(() => {
-        setTimeoutDialogOpen(sessionTimedOut);
-    }, [sessionTimedOut]);
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
@@ -81,7 +72,7 @@ export default function Login({
     };
 
     return (
-        <GuestLayout surface={false}>
+        <GuestLayout surface={false} mobileBottomSheet>
             <Head title="Sign in" />
 
             <style>{`
@@ -126,45 +117,16 @@ export default function Login({
                 }
             `}</style>
 
-            {timeoutDialogOpen && (
-                <div
-                    className="fixed inset-0 z-[2147483640] flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-[3px]"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="session-timeout-title"
-                >
-                    <div className="w-full max-w-sm rounded-[26px] border border-white/75 bg-white p-6 text-center shadow-2xl">
-                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-700">
-                            <Clock3 className="h-6 w-6" />
-                        </div>
-                        <h2 id="session-timeout-title" className="mt-4 text-xl font-bold text-slate-900">
-                            Session Timeout
-                        </h2>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">
-                            Your session ended after {sessionTimeoutMinutes} minutes of inactivity. Please sign in again to continue.
-                        </p>
-                        <button
-                            type="button"
-                            autoFocus
-                            onClick={() => setTimeoutDialogOpen(false)}
-                            className="mt-5 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-2"
-                        >
-                            OK
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            <div className="mx-auto w-full max-w-[460px] auth-page-enter">
+            <div className="w-full auth-page-enter md:mx-auto md:max-w-[460px]">
                 {status && (
-                    <div className="mb-4 rounded-2xl border border-white/70 bg-white/92 px-4 py-3 text-sm font-medium text-slate-600 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.4)] backdrop-blur-xl">
+                    <div className="mx-5 mb-3 rounded-2xl border border-white/70 bg-white/95 px-4 py-3 text-sm font-medium text-slate-600 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.4)] backdrop-blur-xl md:mx-0 md:mb-4 md:bg-white/92">
                         {status}
                     </div>
                 )}
 
-                <div className="rounded-[30px] border border-white/70 bg-white/88 p-6 shadow-[0_28px_90px_-40px_rgba(15,23,42,0.45)] backdrop-blur-xl sm:p-8">
-                    <div className="mb-7 text-center">
-                        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center">
+                <div className="min-h-[66dvh] w-full rounded-t-[30px] border-x-0 border-b-0 border-t border-white/80 bg-white px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-5 shadow-[0_-16px_50px_-22px_rgba(15,23,42,0.28)] sm:min-h-[62dvh] sm:rounded-t-[34px] sm:px-7 sm:pt-6 md:min-h-0 md:rounded-[30px] md:border md:border-white/75 md:bg-white/88 md:p-8 md:shadow-[0_30px_90px_-38px_rgba(15,23,42,0.48)] md:backdrop-blur-xl">
+                    <div className="mb-5 text-center sm:mb-6 md:mb-7">
+                        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center sm:mb-3 sm:h-14 sm:w-14 md:mb-4 md:h-16 md:w-16">
                             <img
                                 src={alibatonLogo}
                                 alt="Alibaton Construction Incorporated"
@@ -179,7 +141,7 @@ export default function Login({
                             Crane &amp; Trucking Management System
                         </p>
 
-                        <div className="mx-auto mt-4 flex max-w-[300px] items-center gap-3">
+                        <div className="mx-auto mt-3 flex max-w-[300px] items-center gap-3 md:mt-4">
                             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-200 to-transparent" />
                             <p className="whitespace-nowrap text-[11px] font-semibold tracking-[0.05em] text-amber-700">
                                 HR — Performance &amp; Development
@@ -187,15 +149,15 @@ export default function Login({
                             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-200 to-transparent" />
                         </div>
 
-                        <h1 className="mt-5 text-2xl font-bold tracking-tight text-slate-900 sm:text-[29px]">
+                        <h1 className="mt-3 text-[24px] font-bold tracking-tight text-slate-900 sm:mt-4 sm:text-[27px] md:mt-5 md:text-[29px]">
                             Welcome back
                         </h1>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                        <p className="mt-1.5 text-sm leading-5 text-slate-600 md:mt-2 md:leading-6">
                             Sign in to access your assigned workspace.
                         </p>
                     </div>
 
-                    <form onSubmit={submit} className="space-y-5">
+                    <form onSubmit={submit} className="space-y-4 md:space-y-5">
                         <div>
                             <InputLabel htmlFor="email" value="Email address" className="text-sm font-semibold text-slate-700" />
                             <div className="relative mt-1.5">
@@ -216,7 +178,7 @@ export default function Login({
                                         colorScheme: 'light',
                                     }}
                                     isFocused
-                                    placeholder="name@alibaton-ph.com"
+                                    placeholder=""
                                     onChange={(event) => setData('email', event.target.value)}
                                 />
                             </div>
@@ -293,7 +255,7 @@ export default function Login({
                         </button>
                     </form>
 
-                    <div className="my-5 flex items-center gap-3" aria-hidden="true">
+                    <div className="my-4 flex items-center gap-3 md:my-5" aria-hidden="true">
                         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-300/80 to-transparent" />
                         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">or</span>
                         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-300/80 to-transparent" />
