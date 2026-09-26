@@ -4,7 +4,9 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
-        <title inertia>{{ config('app.name', 'Laravel') }}</title>
+        <title inertia>Alibaton</title>
+        <link rel="icon" type="image/png" href="{{ asset('favicon.png') }}">
+        <meta name="theme-color" content="#111827">
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">

@@ -12,7 +12,6 @@ use App\Services\Notifications\NotificationPreferenceService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class SystemSettingsService
@@ -51,6 +50,14 @@ class SystemSettingsService
             && $lastMfaVerifiedAt > 0
             && now()->timestamp - $lastMfaVerifiedAt <= $stepUpMinutes * 60;
 
+        $settingAudits = $actor->role === UserRole::User
+            ? collect()
+            : SystemSettingAudit::query()->latest('occurred_at')->limit(30)->get();
+        $settingAuditActors = $settingAudits->isEmpty()
+            ? collect()
+            : User::query()->whereKey($settingAudits->pluck('actor_id')->filter()->unique()->values()->all())
+                ->pluck('name', 'id');
+
         return [
             'role' => $actor->role->value,
             'display_timezone' => $displayTimezone,
@@ -64,7 +71,7 @@ class SystemSettingsService
                 'department' => $actor->department ?: 'Administration',
                 'person_type' => $actor->person_type ?: 'Administrative account',
                 'employment_status' => $actor->employment_status ?: 'Active',
-                'profile_photo_url' => $actor->profile_photo_path ? Storage::disk('public')->url($actor->profile_photo_path) : null,
+                'profile_photo_url' => $actor->profile_photo_path ? route('account.profile-photo', ['v' => optional($actor->profile_photo_updated_at)->timestamp ?? 0]) : null,
                 'member_since' => $actor->created_at?->toIso8601String(),
             ],
             'can_manage_organization' => $actor->role === UserRole::Admin,
@@ -142,13 +149,13 @@ class SystemSettingsService
                 ['area' => 'Global security logs', 'admin' => 'Read-only after re-verification', 'hr' => 'No access', 'user' => 'No access'],
                 ['area' => 'Archive & retention', 'admin' => 'Govern', 'hr' => 'No access', 'user' => 'No access'],
             ],
-            'audits' => ($actor->role === UserRole::User ? collect() : SystemSettingAudit::query()->latest('occurred_at')->limit(30)->get())->map(fn (SystemSettingAudit $audit) => [
+            'audits' => $settingAudits->map(fn (SystemSettingAudit $audit) => [
                 'id' => $audit->id,
                 'setting_key' => $audit->setting_key,
                 'reason' => $audit->reason,
                 'old_value' => $audit->old_value['value'] ?? null,
                 'new_value' => $audit->new_value['value'] ?? null,
-                'actor' => User::query()->whereKey($audit->actor_id)->value('name') ?? 'Former account',
+                'actor' => $settingAuditActors->get($audit->actor_id) ?? 'Former account',
                 'occurred_at' => $audit->occurred_at?->toIso8601String(),
             ])->all(),
             'archive' => $actor->role === UserRole::Admin ? [

@@ -9,7 +9,9 @@ use App\Services\Governance\SystemSettingsService;
 use App\Services\Security\SecurityAuditService;
 use App\Services\Notifications\NotificationPreferenceService;
 use Illuminate\Http\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -122,7 +124,18 @@ class SettingsStateController extends Controller
         $user = $request->user();
         $previous = $user->profile_photo_path;
         $path = $validated['photo']->store("profile-photos/{$user->id}", 'public');
-        $user->forceFill(['profile_photo_path' => $path, 'profile_photo_updated_at' => now()])->save();
+        $bytes = file_get_contents($validated['photo']->getRealPath());
+        $mime = $validated['photo']->getMimeType() ?: $validated['photo']->getClientMimeType() ?: 'image/jpeg';
+        $user->forceFill([
+            'profile_photo_path' => $path,
+            'profile_photo_updated_at' => now(),
+        ])->save();
+        if ($bytes !== false) {
+            DB::table('user_profile_photos')->updateOrInsert(
+                ['user_id' => $user->id],
+                ['photo_data' => base64_encode($bytes), 'mime_type' => $mime, 'updated_at' => now(), 'created_at' => now()],
+            );
+        }
 
         if ($previous && $previous !== $path) {
             Storage::disk('public')->delete($previous);
@@ -135,6 +148,36 @@ class SettingsStateController extends Controller
         return response()->json(['data' => $this->settings->state($user, $request)]);
     }
 
+
+    public function profilePhotoImage(Request $request): Response
+    {
+        $user = $request->user();
+        $persisted = DB::table('user_profile_photos')->where('user_id', $user->id)->first();
+        $encoded = $persisted?->photo_data;
+        $mime = $persisted?->mime_type ?: 'image/jpeg';
+
+        if (is_string($encoded) && $encoded !== '') {
+            $bytes = base64_decode($encoded, true);
+            if ($bytes !== false) {
+                return response($bytes, 200, [
+                    'Content-Type' => $mime,
+                    'Cache-Control' => 'private, max-age=86400',
+                    'Content-Length' => (string) strlen($bytes),
+                ]);
+            }
+        }
+
+        $path = $user->profile_photo_path;
+        if ($path && Storage::disk('public')->exists($path)) {
+            return response(Storage::disk('public')->get($path), 200, [
+                'Content-Type' => Storage::disk('public')->mimeType($path) ?: $mime,
+                'Cache-Control' => 'private, max-age=3600',
+            ]);
+        }
+
+        abort(404);
+    }
+
     public function removeProfilePhoto(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -142,6 +185,7 @@ class SettingsStateController extends Controller
         if ($previous) {
             Storage::disk('public')->delete($previous);
             $user->forceFill(['profile_photo_path' => null, 'profile_photo_updated_at' => now()])->save();
+            DB::table('user_profile_photos')->where('user_id', $user->id)->delete();
             $this->audit->record($request, 'PROFILE_PHOTO_REMOVED', 'Success', $user, [
                 'previous_photo_reference' => hash('sha256', $previous),
             ]);

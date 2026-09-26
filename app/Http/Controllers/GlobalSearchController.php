@@ -10,45 +10,45 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class GlobalSearchController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'q' => ['required', 'string', 'min:2', 'max:80'],
+            'q' => ['required', 'string', 'min:3', 'max:80'],
         ]);
 
         /** @var User $actor */
         $actor = $request->user();
         $term = trim($validated['q']);
-        $pattern = '%'.mb_strtolower($term).'%';
-        $role = $actor->role->value;
-        $operator = in_array($role, ['admin', 'hr'], true);
+        $normalized = mb_strtolower($term);
+        $cacheKey = 'global-search:v2:'.$actor->id.':'.$actor->role->value.':'.sha1($normalized);
 
-        $results = collect();
+        $data = Cache::remember($cacheKey, now()->addSeconds(30), function () use ($actor, $term, $normalized): array {
+            $pattern = '%'.$normalized.'%';
+            $role = $actor->role->value;
+            $operator = in_array($role, ['admin', 'hr'], true);
+            $results = collect();
 
-        $results->push(...$this->systemPageResults($term, $role));
-        $results->push(...$this->tableNameResults($term, $role));
-        $results->push(...$this->peopleResults($actor, $pattern, $role));
-        $results->push(...$this->competencyResults($actor, $pattern, $role, $operator));
-        $results->push(...$this->learningResults($actor, $pattern, $role, $operator));
-        $results->push(...$this->performanceResults($actor, $pattern, $role, $operator));
+            $results->push(...$this->systemPageResults($term, $role));
+            $results->push(...$this->tableNameResults($term, $role));
+            $results->push(...$this->peopleResults($actor, $pattern, $role));
+            $results->push(...$this->competencyResults($actor, $pattern, $role, $operator));
+            $results->push(...$this->learningResults($actor, $pattern, $role, $operator));
+            $results->push(...$this->performanceResults($actor, $pattern, $role, $operator));
 
-        if ($operator) {
-            $results->push(...$this->trainingResults($pattern, $role));
-            $results->push(...$this->successionResults($pattern, $role));
-            $results->push(...$this->recognitionResults($pattern, $role));
-        }
+            if ($operator) {
+                $results->push(...$this->trainingResults($pattern, $role));
+                $results->push(...$this->successionResults($pattern, $role));
+                $results->push(...$this->recognitionResults($pattern, $role));
+            }
 
-        return response()->json([
-            'data' => $results
-                ->filter()
-                ->unique('key')
-                ->take(60)
-                ->values()
-                ->all(),
-        ]);
+            return $results->filter()->unique('key')->take(30)->values()->all();
+        });
+
+        return response()->json(['data' => $data]);
     }
 
 

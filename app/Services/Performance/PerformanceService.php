@@ -43,12 +43,10 @@ class PerformanceService
 
     public function state(User $actor): array
     {
-        if ($actor->isPerformanceOperator()) {
-            // Routine review coverage is system-derived. Loading the governed Performance
-            // state repairs any missing standard review assignments idempotently; Admin does
-            // not prepare or reassign routine evaluators by hand.
-            DB::transaction(fn () => $this->deriveReviewAssignments($actor), 3);
-        }
+        // Performance state is intentionally read-only. Routine assignment provisioning is
+        // handled by scheduled/governed mutation flows; doing a full reconciliation on every
+        // GET created N+1 queries and could exhaust a small production worker before the page
+        // finished loading.
 
         $reviewRows = $this->visibleReviewQuery($actor)
             ->whereDate('cycles.review_open_date', '<=', $this->performanceToday()->toDateString())
@@ -2829,6 +2827,7 @@ class PerformanceService
 
         return $query
             ->orderByDesc('events.created_at')
+            ->limit($actor->isPerformanceOperator() ? 500 : 250)
             ->get([
                 'events.*',
                 'goals.external_key as goal_key',

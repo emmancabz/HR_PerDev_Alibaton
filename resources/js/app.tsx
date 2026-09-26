@@ -5,7 +5,10 @@ import { createInertiaApp } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createRoot } from 'react-dom/client';
 
-const appName = import.meta.env.VITE_APP_NAME || 'Alibaton Workforce Portal';
+const configuredAppName = String(import.meta.env.VITE_APP_NAME || '').trim();
+const appName = configuredAppName && configuredAppName.toLowerCase() !== 'laravel'
+    ? configuredAppName
+    : 'Alibaton';
 
 const persistedTheme = typeof window !== 'undefined'
     ? window.localStorage.getItem('pd_theme_preference')
@@ -19,7 +22,7 @@ if (typeof document !== 'undefined') {
 }
 
 createInertiaApp({
-    title: (title) => `${title} - ${appName}`,
+    title: (title) => title ? `${title} | ${appName}` : appName,
     resolve: (name) =>
         resolvePageComponent(
             `./Pages/${name}.tsx`,

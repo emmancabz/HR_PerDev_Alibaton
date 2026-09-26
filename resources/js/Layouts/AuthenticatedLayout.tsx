@@ -48,7 +48,6 @@ type UserPersona = 'trainee' | 'employee' | 'supervisor' | 'manager';
 // Module-scoped warm caches survive Inertia page swaps for the life of the tab.
 // Nothing sensitive is persisted to browser storage.
 const warmedNavigationHrefs = new Set<string>();
-const warmedRoleChunks = new Set<AppUserRole>();
 
 
 type NavChild = {
@@ -100,7 +99,7 @@ type HeaderNotificationResponse = {
     generatedAt: string;
 };
 
-const HEADER_NOTIFICATION_CACHE_TTL_MS = 15_000;
+const HEADER_NOTIFICATION_CACHE_TTL_MS = 60_000;
 let headerNotificationCache: { fetchedAt: number; payload: HeaderNotificationResponse } | null = null;
 
 export type HeaderCrumb = {
@@ -2129,13 +2128,16 @@ export default function Authenticated({
             if (document.visibilityState === 'visible') refresh();
         };
 
-        refresh();
+        // Let the requested page finish painting before secondary header data competes
+        // for a constrained production worker. Cached notification data remains visible.
+        const initialTimer = window.setTimeout(refresh, 1500);
         const timer = window.setInterval(refresh, 60000);
         window.addEventListener('focus', refresh);
         window.addEventListener('header-notifications:refresh', refresh);
         document.addEventListener('visibilitychange', refreshWhenVisible);
 
         return () => {
+            window.clearTimeout(initialTimer);
             window.clearInterval(timer);
             window.removeEventListener('focus', refresh);
             window.removeEventListener('header-notifications:refresh', refresh);
@@ -2145,7 +2147,7 @@ export default function Authenticated({
 
     useEffect(() => {
         const query = searchQuery.trim();
-        if (query.length < 2) {
+        if (query.length < 3) {
             setRemoteSearchResults([]);
             setSearchLoading(false);
             setSearchError('');
@@ -2171,7 +2173,7 @@ export default function Authenticated({
             } finally {
                 if (!abortController.signal.aborted) setSearchLoading(false);
             }
-        }, 240);
+        }, 400);
 
         return () => {
             window.clearTimeout(timer);
@@ -2290,54 +2292,10 @@ export default function Authenticated({
         }
     };
 
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
+    // Heavy module chunks are warmed only from explicit hover/focus prefetch on the
+    // corresponding sidebar link. Avoid downloading every Admin/HR/LMS module after
+    // login because that competes with the request the user is actually trying to open.
 
-        const timers: number[] = [];
-
-        // Only preload static JavaScript chunks in the background. Do not issue
-        // automatic Inertia page requests or API state requests here: on a
-        // resource-constrained production worker, those requests can overlap and
-        // starve the request the user actually clicked, producing gateway timeouts.
-        if (!warmedRoleChunks.has(user.role)) {
-            const chunkTimer = window.setTimeout(() => {
-                if (document.visibilityState !== 'visible' || warmedRoleChunks.has(user.role)) return;
-                warmedRoleChunks.add(user.role);
-
-                const tasks: Array<() => Promise<unknown>> = user.role === 'user'
-                    ? [
-                        () => import('@/Pages/UserPerformance'),
-                        () => import('@/Pages/LearnerLearning'),
-                        () => import('@/Pages/LearnerTraining'),
-                        () => import('@/Pages/UserSkillsWallet'),
-                        () => import('@/Pages/UserRecognition'),
-                        () => import('@/Pages/UserNotifications'),
-                    ]
-                    : [
-                        () => import('@/Pages/AdminPerformance'),
-                        () => import('@/Pages/AdminCompetency'),
-                        () => import('@/Pages/AdminLearning'),
-                        () => import('@/Pages/AdminTraining'),
-                        () => import('@/Pages/AdminSuccession'),
-                        () => import('@/Pages/AdminRecognition'),
-                        () => import('@/Pages/UserManagement'),
-                        () => import('@/Pages/Reports'),
-                        () => import('@/Pages/Settings'),
-                    ];
-
-                tasks.forEach((task, index) => {
-                    const timer = window.setTimeout(() => {
-                        if (document.visibilityState !== 'visible') return;
-                        void task().catch(() => undefined);
-                    }, index * 350);
-                    timers.push(timer);
-                });
-            }, 900);
-            timers.push(chunkTimer);
-        }
-
-        return () => timers.forEach((timer) => window.clearTimeout(timer));
-    }, [user.role]);
 
     const navigateSidebarHref = (href: string) => {
         // Keep module switches inside the Inertia SPA. Do not preserve the previous

@@ -144,7 +144,7 @@ export default function Reports({ initialReportsState }: { initialReportsState: 
         }));
     }, [state.report.rows]);
 
-    const exportUrl = (format: 'csv' | 'print') => route('governance.api.reports.export', {
+    const exportUrl = (format: 'csv' | 'excel' | 'json' | 'print') => route('governance.api.reports.export', {
         report: state.report.key,
         format,
         department: department || undefined,
@@ -275,6 +275,32 @@ export default function Reports({ initialReportsState }: { initialReportsState: 
                             <div>
                                 <p className="text-sm font-bold text-slate-900">CSV</p>
                                 <p className="mt-1 text-xs leading-5 text-slate-500">Structured rows for spreadsheet analysis and official data handoff.</p>
+                            </div>
+                        </div>
+                    </a>
+                    <a
+                        href={exportUrl('excel')}
+                        onClick={() => setExportOpen(false)}
+                        className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-amber-300 hover:bg-amber-50/30"
+                    >
+                        <div className="flex items-start gap-3">
+                            <span className="rounded-lg bg-amber-50 p-2 text-amber-600"><FileSpreadsheet className="h-5 w-5" /></span>
+                            <div>
+                                <p className="text-sm font-bold text-slate-900">Excel</p>
+                                <p className="mt-1 text-xs leading-5 text-slate-500">Excel-compatible workbook for review, filtering, and spreadsheet handoff.</p>
+                            </div>
+                        </div>
+                    </a>
+                    <a
+                        href={exportUrl('json')}
+                        onClick={() => setExportOpen(false)}
+                        className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-amber-300 hover:bg-amber-50/30"
+                    >
+                        <div className="flex items-start gap-3">
+                            <span className="rounded-lg bg-amber-50 p-2 text-amber-600"><FileText className="h-5 w-5" /></span>
+                            <div>
+                                <p className="text-sm font-bold text-slate-900">JSON</p>
+                                <p className="mt-1 text-xs leading-5 text-slate-500">Structured machine-readable data for integrations and technical review.</p>
                             </div>
                         </div>
                     </a>

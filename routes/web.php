@@ -56,6 +56,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/header-notifications', HeaderNotificationController::class)
         ->middleware('throttle:90,1')
         ->name('header-notifications');
+    Route::get('/account/profile-photo', [SettingsStateController::class, 'profilePhotoImage'])
+        ->middleware('throttle:120,1')
+        ->name('account.profile-photo');
     Route::post('/api/header-notifications/read', HeaderNotificationReadController::class)
         ->middleware('throttle:120,1')
         ->name('header-notifications.read');

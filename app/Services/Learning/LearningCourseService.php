@@ -59,15 +59,20 @@ class LearningCourseService
             ->when(! $operator, fn ($q) => $q->where('a.learner_id', $actor->id))
             ->orderByDesc('a.assigned_at')->get()->map(fn ($row) => $this->assignmentArray($row))->values();
 
+        $evidenceCounts = DB::table('learning_competency_evidence')
+            ->selectRaw('completion_id, COUNT(*) as evidence_count')
+            ->groupBy('completion_id');
+
         $completions = DB::table('learning_completions as x')
             ->join('users as u', 'u.id', '=', 'x.learner_id')
             ->join('learning_course_versions as v', 'v.id', '=', 'x.course_version_id')
             ->leftJoin('learning_certificates as cert', 'cert.completion_id', '=', 'x.id')
             ->leftJoin('learning_transcript_entries as t', 't.completion_id', '=', 'x.id')
-            ->select('x.*', 'u.name as learner_name', 'v.title', 'v.version_number', 'v.status as course_version_status', 'cert.id as certificate_id', 'cert.certificate_number', 'cert.issued_on', 'cert.expires_on', 'cert.status as certificate_status', 't.id as transcript_id')
+            ->leftJoinSub($evidenceCounts, 'evidence_counts', fn ($join) => $join->on('evidence_counts.completion_id', '=', 'x.id'))
+            ->select('x.*', 'u.name as learner_name', 'v.title', 'v.version_number', 'v.status as course_version_status', 'cert.id as certificate_id', 'cert.certificate_number', 'cert.issued_on', 'cert.expires_on', 'cert.status as certificate_status', 't.id as transcript_id', DB::raw('COALESCE(evidence_counts.evidence_count, 0) as competency_evidence_count'))
             ->when(! $operator, fn ($q) => $q->where('x.learner_id', $actor->id))
             ->orderByDesc('x.completed_at')->get()->map(function ($completion) {
-                $completion->competency_evidence_count = DB::table('learning_competency_evidence')->where('completion_id', $completion->id)->count();
+                $completion->competency_evidence_count = (int) $completion->competency_evidence_count;
                 if ($completion->certificate_status === 'Valid' && $completion->expires_on && Carbon::parse($completion->expires_on)->isBefore(today())) {
                     $completion->certificate_status = 'Expired';
                 }
@@ -128,6 +133,55 @@ class LearningCourseService
             })
             ->values() : collect();
 
+        $recommendations = collect();
+        if (! $operator && filled($actor->personnel_key)) {
+            $recommendations = DB::table('learning_requests as request')
+                ->leftJoin('learning_courses as course', 'course.id', '=', 'request.linked_course_id')
+                ->leftJoin('learning_course_versions as version', 'version.id', '=', 'request.linked_course_version_id')
+                ->where('request.personnel_key', $actor->personnel_key)
+                ->where('request.status', 'Ready for Assignment')
+                ->where('version.status', 'Published')
+                ->orderByDesc('request.requested_at')
+                ->get([
+                    'request.id',
+                    'request.status',
+                    'request.recommendation_title',
+                    'request.recommendation_note',
+                    'request.competency_name',
+                    'request.required_level',
+                    'request.validated_level',
+                    'request.recommended_by_name',
+                    'request.requested_at',
+                    'request.linked_course_id',
+                    'request.linked_course_version_id',
+                    'course.code as course_code',
+                    'version.title as course_title',
+                    'version.category as course_category',
+                    'version.estimated_duration_minutes',
+                    'version.status as course_version_status',
+                ])
+                ->map(fn ($row) => [
+                    'id' => (string) $row->id,
+                    'title' => $row->course_title ?: $row->recommendation_title,
+                    'recommendation_title' => $row->recommendation_title,
+                    'description' => $row->recommendation_note,
+                    'related_competency' => $row->competency_name,
+                    'required_level' => (int) $row->required_level,
+                    'validated_level' => (int) $row->validated_level,
+                    'source' => $row->recommended_by_name,
+                    'recommended_by' => $row->recommended_by_name,
+                    'status' => $row->status,
+                    'requested_at' => $row->requested_at,
+                    'linked_course_id' => $row->linked_course_id,
+                    'linked_course_version_id' => $row->linked_course_version_id,
+                    'course_code' => $row->course_code,
+                    'category' => $row->course_category,
+                    'duration_minutes' => $row->estimated_duration_minutes === null ? null : (int) $row->estimated_duration_minutes,
+                    'course_version_status' => $row->course_version_status,
+                ])
+                ->values();
+        }
+
         $requests = $operator ? DB::table('learning_requests')->orderByDesc('requested_at')->get() : collect();
         if ($operator && $requests->isNotEmpty()) {
             $requestActions = DB::table('learning_request_actions as action')->join('users as actor', 'actor.id', '=', 'action.actor_id')
@@ -153,6 +207,7 @@ class LearningCourseService
             'actor' => ['id' => $actor->id, 'name' => $actor->name, 'role' => $actor->role->value],
             'courses' => $courses,
             'catalog' => $catalog,
+            'recommendations' => $recommendations,
             'assignments' => $assignments,
             'completions' => $completions,
             'requests' => $requests,

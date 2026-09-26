@@ -5,7 +5,6 @@ namespace App\Http\Middleware;
 use App\Services\UserWorkspace\UserPersonaResolver;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
-use Illuminate\Support\Facades\Storage;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -28,7 +27,7 @@ class HandleInertiaRequests extends Middleware
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
-                    'profile_photo_url' => $user->profile_photo_path ? Storage::disk('public')->url($user->profile_photo_path) : null,
+                    'profile_photo_url' => $user->profile_photo_path ? route('account.profile-photo', ['v' => optional($user->profile_photo_updated_at)->timestamp ?? 0]) : null,
                     'role' => $user->role->value,
                     'personnel_key' => $user->personnel_key,
                     'core_person_id' => $user->core_person_id,
