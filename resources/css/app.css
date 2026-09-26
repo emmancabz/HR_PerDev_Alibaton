@@ -244,7 +244,8 @@ a.app-kpi-card {
 }
 
 .app-page-enter {
-    animation: app-page-enter 220ms ease-out;
+    /* Navigation is prewarmed; avoid an artificial transition delay. */
+    animation: none;
 }
 
 /*

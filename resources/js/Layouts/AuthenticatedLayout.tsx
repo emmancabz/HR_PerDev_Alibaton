@@ -45,6 +45,12 @@ import { createPortal } from 'react-dom';
 type AppUserRole = 'admin' | 'hr' | 'user';
 type UserPersona = 'trainee' | 'employee' | 'supervisor' | 'manager';
 
+// Module-scoped warm caches survive Inertia page swaps for the life of the tab.
+// Nothing sensitive is persisted to browser storage.
+const warmedNavigationHrefs = new Set<string>();
+const warmedRoleChunks = new Set<AppUserRole>();
+
+
 type NavChild = {
     label: string;
     workspace: string;
@@ -2266,17 +2272,94 @@ export default function Authenticated({
     };
 
     const warmSidebarHref = (href: string) => {
-        // Inertia v2 can cache a prefetched GET response. Keep this optional so the
-        // sidebar still works if a future router build omits the prefetch API.
-        const prefetch = (router as typeof router & { prefetch?: (url: string) => void }).prefetch;
+        // Cache the full Inertia GET response briefly. Hover/focus still refreshes this
+        // warm entry, while the idle warmup below makes the first module switch fast.
+        const prefetch = (router as typeof router & {
+            prefetch?: (
+                url: string,
+                visitOptions?: Record<string, unknown>,
+                prefetchOptions?: { cacheFor?: string | number },
+            ) => void;
+        }).prefetch;
         if (typeof prefetch === 'function') {
             try {
-                prefetch.call(router, href);
+                prefetch.call(router, href, {}, { cacheFor: '20s' });
             } catch {
-                // Prefetch is only a latency optimization; navigation must never depend on it.
+                // Prefetch is a latency optimization only; navigation never depends on it.
             }
         }
     };
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const hrefs: string[] = Array.from(new Set(
+            navItems
+                .filter((item) => route().has(item.routeName))
+                .map((item) => resolveNavHref(item.routeName, item.children?.[0]?.workspace))
+                .filter((href): href is string => href !== '#'),
+        ));
+
+        const timers: number[] = [];
+
+        // Warm each role-visible module gradually so HostForge never receives a burst.
+        hrefs.forEach((href, index) => {
+            if (warmedNavigationHrefs.has(href)) return;
+            const timer = window.setTimeout(() => {
+                if (document.visibilityState !== 'visible' || warmedNavigationHrefs.has(href)) return;
+                warmedNavigationHrefs.add(href);
+                warmSidebarHref(href);
+            }, 350 + (index * 260));
+            timers.push(timer);
+        });
+
+        if (!warmedRoleChunks.has(user.role)) {
+            const chunkTimer = window.setTimeout(() => {
+                if (warmedRoleChunks.has(user.role)) return;
+                warmedRoleChunks.add(user.role);
+
+                const tasks: Array<() => Promise<unknown>> = user.role === 'user'
+                    ? [
+                        () => import('@/Pages/UserPerformance'),
+                        () => import('@/Pages/LearnerLearning'),
+                        () => import('@/Pages/LearnerTraining'),
+                        () => import('@/Pages/UserSkillsWallet'),
+                        () => import('@/Pages/UserRecognition'),
+                        () => import('@/Pages/UserNotifications'),
+                    ]
+                    : [
+                        () => import('@/Pages/AdminPerformance'),
+                        () => import('@/Pages/AdminCompetency'),
+                        () => import('@/Pages/AdminLearning'),
+                        () => import('@/Pages/AdminTraining'),
+                        () => import('@/Pages/AdminSuccession'),
+                        () => import('@/Pages/AdminRecognition'),
+                        () => import('@/Pages/UserManagement'),
+                        () => import('@/Pages/Reports'),
+                        () => import('@/Pages/Settings'),
+                    ];
+
+                tasks.forEach((task, index) => {
+                    const timer = window.setTimeout(() => {
+                        void task().catch(() => undefined);
+                    }, index * 180);
+                    timers.push(timer);
+                });
+
+                // Performance currently loads its authoritative state through its API
+                // after the page chunk mounts. Prime that API state in the background so
+                // opening Performance can paint from memory immediately.
+                if (user.role === 'admin' || user.role === 'hr') {
+                    void import('@/data/performanceBackend')
+                        .then(({ primePerformanceStateCache }) => primePerformanceStateCache())
+                        .catch(() => undefined);
+                }
+            }, 650);
+            timers.push(chunkTimer);
+        }
+
+        return () => timers.forEach((timer) => window.clearTimeout(timer));
+    }, [navItems, user.role]);
 
     const navigateSidebarHref = (href: string) => {
         // Keep module switches inside the Inertia SPA. Do not preserve the previous

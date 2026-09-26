@@ -16,6 +16,7 @@ import axios, { AxiosError } from "axios";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -158,6 +159,28 @@ export type PerformanceServerState = {
 
 type StateResponse = { data: PerformanceServerState };
 
+let performanceStateCache: PerformanceServerState | null = null;
+let performanceStatePrimePromise: Promise<PerformanceServerState> | null = null;
+
+function rememberPerformanceState(state: PerformanceServerState): PerformanceServerState {
+  performanceStateCache = state;
+  return state;
+}
+
+export function primePerformanceStateCache(): Promise<PerformanceServerState> {
+  if (performanceStateCache) return Promise.resolve(performanceStateCache);
+  if (performanceStatePrimePromise) return performanceStatePrimePromise;
+
+  performanceStatePrimePromise = axios.get<StateResponse>(ENDPOINTS.state, {
+    headers: { Accept: "application/json" },
+  }).then((response) => rememberPerformanceState(response.data.data))
+    .finally(() => {
+      performanceStatePrimePromise = null;
+    });
+
+  return performanceStatePrimePromise;
+}
+
 export type PerformanceReviewBoardTarget =
   | "Manager Review"
   | "Submitted"
@@ -269,10 +292,11 @@ function apiErrorMessage(error: unknown): string {
 }
 
 async function getState(): Promise<PerformanceServerState> {
+  if (performanceStatePrimePromise) return performanceStatePrimePromise;
   const response = await axios.get<StateResponse>(ENDPOINTS.state, {
     headers: { Accept: "application/json" },
   });
-  return response.data.data;
+  return rememberPerformanceState(response.data.data);
 }
 
 async function putState(
@@ -282,15 +306,16 @@ async function putState(
   const response = await axios.put<StateResponse>(endpoint, payload, {
     headers: { Accept: "application/json" },
   });
-  return response.data.data;
+  return rememberPerformanceState(response.data.data);
 }
 
 export function usePerformanceBackendBridge(
   options: BridgeOptions,
 ): PerformanceBackendStatus {
-  const [loading, setLoading] = useState(true);
+  const cachedAtMountRef = useRef<PerformanceServerState | null>(performanceStateCache);
+  const [loading, setLoading] = useState(() => cachedAtMountRef.current === null);
   const [saving, setSaving] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => cachedAtMountRef.current !== null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [actor, setActor] = useState<PerformanceActor | null>(null);
@@ -326,6 +351,7 @@ export function usePerformanceBackendBridge(
 
   const applyState = useCallback(
     (state: PerformanceServerState) => {
+      rememberPerformanceState(state);
       const configuration = {
         assignments: state.assignments,
         goalTemplates: state.goalTemplates,
@@ -374,8 +400,8 @@ export function usePerformanceBackendBridge(
     ],
   );
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reloadState = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError("");
     try {
       const state = await getState();
@@ -385,16 +411,28 @@ export function usePerformanceBackendBridge(
       setMessage("Performance data loaded from the server.");
     } catch (loadError) {
       if (!mountedRef.current) return;
-      setReady(false);
+      if (!cachedAtMountRef.current) setReady(false);
       setError(apiErrorMessage(loadError));
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (mountedRef.current && !silent) setLoading(false);
     }
   }, [applyState]);
 
+  const reload = useCallback(() => reloadState(false), [reloadState]);
+
+  useLayoutEffect(() => {
+    const cached = cachedAtMountRef.current;
+    if (!cached) return;
+    applyState(cached);
+    setReady(true);
+    setLoading(false);
+  }, [applyState]);
+
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    // Warm state paints immediately, then revalidates silently in the background.
+    // A cold first visit keeps the normal authoritative loading behavior.
+    void reloadState(Boolean(cachedAtMountRef.current));
+  }, [reloadState]);
 
   useEffect(() => {
     if (!ready) return;
