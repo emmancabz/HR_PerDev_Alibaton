@@ -2293,29 +2293,15 @@ export default function Authenticated({
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
-        const hrefs: string[] = Array.from(new Set(
-            navItems
-                .filter((item) => route().has(item.routeName))
-                .map((item) => resolveNavHref(item.routeName, item.children?.[0]?.workspace))
-                .filter((href): href is string => href !== '#'),
-        ));
-
         const timers: number[] = [];
 
-        // Warm each role-visible module gradually so HostForge never receives a burst.
-        hrefs.forEach((href, index) => {
-            if (warmedNavigationHrefs.has(href)) return;
-            const timer = window.setTimeout(() => {
-                if (document.visibilityState !== 'visible' || warmedNavigationHrefs.has(href)) return;
-                warmedNavigationHrefs.add(href);
-                warmSidebarHref(href);
-            }, 350 + (index * 260));
-            timers.push(timer);
-        });
-
+        // Only preload static JavaScript chunks in the background. Do not issue
+        // automatic Inertia page requests or API state requests here: on a
+        // resource-constrained production worker, those requests can overlap and
+        // starve the request the user actually clicked, producing gateway timeouts.
         if (!warmedRoleChunks.has(user.role)) {
             const chunkTimer = window.setTimeout(() => {
-                if (warmedRoleChunks.has(user.role)) return;
+                if (document.visibilityState !== 'visible' || warmedRoleChunks.has(user.role)) return;
                 warmedRoleChunks.add(user.role);
 
                 const tasks: Array<() => Promise<unknown>> = user.role === 'user'
@@ -2341,25 +2327,17 @@ export default function Authenticated({
 
                 tasks.forEach((task, index) => {
                     const timer = window.setTimeout(() => {
+                        if (document.visibilityState !== 'visible') return;
                         void task().catch(() => undefined);
-                    }, index * 180);
+                    }, index * 350);
                     timers.push(timer);
                 });
-
-                // Performance currently loads its authoritative state through its API
-                // after the page chunk mounts. Prime that API state in the background so
-                // opening Performance can paint from memory immediately.
-                if (user.role === 'admin' || user.role === 'hr') {
-                    void import('@/data/performanceBackend')
-                        .then(({ primePerformanceStateCache }) => primePerformanceStateCache())
-                        .catch(() => undefined);
-                }
-            }, 650);
+            }, 900);
             timers.push(chunkTimer);
         }
 
         return () => timers.forEach((timer) => window.clearTimeout(timer));
-    }, [navItems, user.role]);
+    }, [user.role]);
 
     const navigateSidebarHref = (href: string) => {
         // Keep module switches inside the Inertia SPA. Do not preserve the previous
