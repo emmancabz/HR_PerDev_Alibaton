@@ -162,10 +162,50 @@ type StateResponse = { data: PerformanceServerState };
 
 let performanceStateCache: PerformanceServerState | null = null;
 let performanceStatePrimePromise: Promise<PerformanceServerState> | null = null;
+const PERFORMANCE_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const performanceStorageKey = (actorId: number) => `pd:performance-state:v1:${actorId}`;
+
+function readPersistedPerformanceState(actorId: number): PerformanceServerState | null {
+  if (typeof window === "undefined" || !Number.isFinite(actorId) || actorId < 1) return null;
+  try {
+    const raw = window.sessionStorage.getItem(performanceStorageKey(actorId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt?: number; state?: PerformanceServerState };
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > PERFORMANCE_CACHE_MAX_AGE_MS || !parsed.state) {
+      window.sessionStorage.removeItem(performanceStorageKey(actorId));
+      return null;
+    }
+    return Number(parsed.state.actor.userId) === actorId ? parsed.state : null;
+  } catch {
+    window.sessionStorage.removeItem(performanceStorageKey(actorId));
+    return null;
+  }
+}
 
 function rememberPerformanceState(state: PerformanceServerState): PerformanceServerState {
   performanceStateCache = state;
+  const actorId = Number(state.actor.userId);
+  if (typeof window !== "undefined" && actorId > 0) {
+    try {
+      window.sessionStorage.setItem(
+        performanceStorageKey(actorId),
+        JSON.stringify({ savedAt: Date.now(), state }),
+      );
+    } catch {}
+  }
   return state;
+}
+
+export function seedPerformanceState(state?: PerformanceServerState | null): void {
+  if (state) rememberPerformanceState(state);
+}
+
+export function hydratePerformanceState(actorId: number): PerformanceServerState | null {
+  if (performanceStateCache && Number(performanceStateCache.actor.userId) === actorId) return performanceStateCache;
+  const persisted = readPersistedPerformanceState(actorId);
+  if (persisted) performanceStateCache = persisted;
+  return persisted;
 }
 
 export function primePerformanceStateCache(): Promise<PerformanceServerState> {
@@ -174,6 +214,7 @@ export function primePerformanceStateCache(): Promise<PerformanceServerState> {
 
   performanceStatePrimePromise = axios.get<StateResponse>(ENDPOINTS.state, {
     headers: { Accept: "application/json" },
+    timeout: 20_000,
   }).then((response) => rememberPerformanceState(response.data.data))
     .finally(() => {
       performanceStatePrimePromise = null;
@@ -296,6 +337,7 @@ async function getState(): Promise<PerformanceServerState> {
   if (performanceStatePrimePromise) return performanceStatePrimePromise;
   const response = await axios.get<StateResponse>(ENDPOINTS.state, {
     headers: { Accept: "application/json" },
+    timeout: 20_000,
   });
   return rememberPerformanceState(response.data.data);
 }
