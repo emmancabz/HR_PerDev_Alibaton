@@ -68,6 +68,13 @@ class LearningStateController extends Controller
     public function retryPublication(Request $request, LearningCourseVersion $version): JsonResponse { $this->publication->retry($request->user(), $version); return $this->show($request); }
     public function workingDraft(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('createWorkingDraft', $version); $draft = $this->courses->workingDraft($request->user(), $version); return response()->json(['data' => ['versionId' => $draft->id, 'courseId' => $draft->course_id]]); }
     public function archive(Request $request, LearningCourse $course): JsonResponse { Gate::authorize('archive', $course); $this->courses->archive($request->user(), $course); return $this->show($request); }
+    public function deleteDraft(Request $request, LearningCourseVersion $version): Response
+    {
+        Gate::authorize('edit', $version);
+        $this->courses->deleteDraft($request->user(), $version);
+
+        return response()->noContent();
+    }
 
     public function assignmentPreview(Request $request, LearningCourseVersion $version): JsonResponse { $data = $request->validate(['learnerIds' => ['required', 'array', 'min:1', 'max:2000'], 'learnerIds.*' => ['integer', 'distinct']]); return response()->json(['data' => $this->assignments->preview($request->user(), $version, $data['learnerIds'])]); }
     public function assign(Request $request, LearningCourseVersion $version): JsonResponse { $data = $request->validate(['learnerIds' => ['required', 'array', 'min:1', 'max:2000'], 'learnerIds.*' => ['integer', 'distinct'], 'source' => ['required', 'string'], 'availableFrom' => ['nullable', 'date'], 'dueAt' => ['nullable', 'date', 'after_or_equal:availableFrom'], 'mandatory' => ['sometimes', 'boolean'], 'priority' => ['required', 'in:Low,Normal,High,Critical'], 'reason' => ['nullable', 'string', 'max:5000'], 'sourceCompletionId' => ['nullable', 'uuid', 'exists:learning_completions,id'], 'sourceCertificateId' => ['nullable', 'uuid', 'exists:learning_certificates,id']]); $ids = $this->assignments->assign($request->user(), $version, $data); return response()->json(['data' => ['assignmentIds' => $ids]], 201); }

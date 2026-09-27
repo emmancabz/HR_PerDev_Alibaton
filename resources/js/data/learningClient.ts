@@ -77,6 +77,10 @@ export const learningClient = {
         stateResponse(
             await axios.post(`/learning/api/courses/${courseId}/archive`),
         ),
+    deleteDraft: async (versionId: string) => {
+        await axios.delete(`/learning/api/versions/${versionId}/draft`);
+        return learningClient.state();
+    },
     assignmentPreview: async (versionId: string, learnerIds: number[]) =>
         unwrap<any[]>(
             await axios.post(

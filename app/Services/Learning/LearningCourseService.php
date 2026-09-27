@@ -240,6 +240,83 @@ class LearningCourseService
         ];
     }
 
+    public function deleteDraft(User $actor, LearningCourseVersion $version): void
+    {
+        $this->requireHrAuthor($actor);
+
+        DB::transaction(function () use ($actor, $version): void {
+            $lockedVersion = LearningCourseVersion::query()->lockForUpdate()->findOrFail($version->id);
+            $course = LearningCourse::query()->lockForUpdate()->findOrFail($lockedVersion->course_id);
+
+            if (! in_array($lockedVersion->status, ['Draft', 'Changes Requested'], true)
+                || $lockedVersion->version_number !== null
+                || $lockedVersion->published_at !== null) {
+                throw ValidationException::withMessages([
+                    'course' => 'Only an unpublished Draft or Changes Requested course can be deleted.',
+                ]);
+            }
+
+            $authorized = (int) $course->owner_id === (int) $actor->id
+                || DB::table('learning_course_collaborators')
+                    ->where('course_id', $course->id)
+                    ->where('user_id', $actor->id)
+                    ->whereIn('permission', ['Owner', 'Author'])
+                    ->exists();
+            if (! $authorized) {
+                throw new AuthorizationException('Only the authorized HR owner/author may delete this Draft.');
+            }
+
+            $hasPublishedHistory = filled($course->current_published_version_id)
+                || LearningCourseVersion::query()
+                    ->where('course_id', $course->id)
+                    ->where(function ($query) use ($lockedVersion): void {
+                        $query->where('id', '!=', $lockedVersion->id)
+                            ->orWhereNotNull('version_number')
+                            ->orWhereNotNull('published_at')
+                            ->orWhere('status', 'Published');
+                    })
+                    ->exists();
+            if ($hasPublishedHistory) {
+                throw ValidationException::withMessages([
+                    'course' => 'This course already has version history. Archive or keep the lineage instead of deleting it.',
+                ]);
+            }
+
+            $hasDependentRecords = DB::table('learning_assignments')
+                ->where('course_id', $course->id)
+                ->exists()
+                || DB::table('learning_completions')->where('course_id', $course->id)->exists()
+                || DB::table('learning_requests')->where(function ($query) use ($course, $lockedVersion): void {
+                    $query->where('linked_course_id', $course->id)
+                        ->orWhere('linked_course_version_id', $lockedVersion->id);
+                })->exists();
+            if ($hasDependentRecords) {
+                throw ValidationException::withMessages([
+                    'course' => 'This Draft is already referenced by learning activity and cannot be hard-deleted.',
+                ]);
+            }
+
+            $lessonIds = DB::table('learning_course_lessons as lesson')
+                ->join('learning_course_modules as module', 'module.id', '=', 'lesson.module_id')
+                ->where('module.course_version_id', $lockedVersion->id)
+                ->pluck('lesson.id')
+                ->all();
+            $this->materials->prepareLessonRemoval($actor, $lessonIds, 'Draft course deletion');
+
+            DB::table('learning_ai_generation_events')
+                ->where('course_version_id', $lockedVersion->id)
+                ->update(['course_version_id' => null, 'updated_at' => now()]);
+
+            $this->audit->record($actor, 'Draft course deleted', 'LearningCourseVersion', $lockedVersion->id, [
+                'courseId' => $course->id,
+                'courseCode' => $course->code,
+                'title' => $lockedVersion->title,
+            ]);
+
+            $course->delete();
+        }, 3);
+    }
+
     public function createDraft(User $actor, array $payload): LearningCourseVersion
     {
         $this->requireHrAuthor($actor);

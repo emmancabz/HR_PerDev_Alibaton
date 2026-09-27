@@ -172,7 +172,7 @@ export default function Reports({ initialReportsState, initialReportFilters = {}
         );
     }
 
-    const exportUrl = (format: 'csv' | 'excel' | 'json' | 'print') => route('governance.api.reports.export', {
+    const exportUrl = (format: 'csv' | 'xlsx' | 'json' | 'pdf' | 'print') => route('governance.api.reports.export', {
         report: state.report.key,
         format,
         department: department || undefined,
@@ -307,15 +307,15 @@ export default function Reports({ initialReportsState, initialReportFilters = {}
                         </div>
                     </a>
                     <a
-                        href={exportUrl('excel')}
+                        href={exportUrl('xlsx')}
                         onClick={() => setExportOpen(false)}
                         className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-amber-300 hover:bg-amber-50/30"
                     >
                         <div className="flex items-start gap-3">
                             <span className="rounded-lg bg-amber-50 p-2 text-amber-600"><FileSpreadsheet className="h-5 w-5" /></span>
                             <div>
-                                <p className="text-sm font-bold text-slate-900">Excel</p>
-                                <p className="mt-1 text-xs leading-5 text-slate-500">Excel-compatible workbook for review, filtering, and spreadsheet handoff.</p>
+                                <p className="text-sm font-bold text-slate-900">Excel (.xlsx)</p>
+                                <p className="mt-1 text-xs leading-5 text-slate-500">Native XLSX workbook with the same governed report rows and active filters.</p>
                             </div>
                         </div>
                     </a>
@@ -333,15 +333,30 @@ export default function Reports({ initialReportsState, initialReportFilters = {}
                         </div>
                     </a>
                     <a
+                        href={exportUrl('pdf')}
+                        onClick={() => setExportOpen(false)}
+                        className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-amber-300 hover:bg-amber-50/30"
+                    >
+                        <div className="flex items-start gap-3">
+                            <span className="rounded-lg bg-amber-50 p-2 text-amber-600"><FileText className="h-5 w-5" /></span>
+                            <div>
+                                <p className="text-sm font-bold text-slate-900">PDF</p>
+                                <p className="mt-1 text-xs leading-5 text-slate-500">Download a real PDF report using the current governed rows and filters.</p>
+                            </div>
+                        </div>
+                    </a>
+                    <a
                         href={exportUrl('print')}
+                        target="_blank"
+                        rel="noreferrer"
                         onClick={() => setExportOpen(false)}
                         className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-amber-300 hover:bg-amber-50/30"
                     >
                         <div className="flex items-start gap-3">
                             <span className="rounded-lg bg-amber-50 p-2 text-amber-600"><Printer className="h-5 w-5" /></span>
                             <div>
-                                <p className="text-sm font-bold text-slate-900">Print / Save PDF</p>
-                                <p className="mt-1 text-xs leading-5 text-slate-500">Open the governed printable report for browser printing or PDF save.</p>
+                                <p className="text-sm font-bold text-slate-900">Print View</p>
+                                <p className="mt-1 text-xs leading-5 text-slate-500">Open the browser-printable HTML view separately; this is not the PDF download.</p>
                             </div>
                         </div>
                     </a>

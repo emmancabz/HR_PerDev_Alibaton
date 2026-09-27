@@ -4,14 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Models\SystemSetting;
 use App\Services\Reporting\CrossModuleReportService;
+use App\Services\Reporting\ReportFileExporter;
 use App\Support\ReadModelCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\Response;
 
 class ReportsStateController extends Controller
 {
-    public function __construct(private readonly CrossModuleReportService $reports) {}
+    public function __construct(
+        private readonly CrossModuleReportService $reports,
+        private readonly ReportFileExporter $files,
+    ) {}
 
     public function show(Request $request): JsonResponse
     {
@@ -27,63 +31,74 @@ class ReportsStateController extends Controller
         return response()->json(['data' => $data]);
     }
 
-    public function export(Request $request, string $report, string $format): StreamedResponse
+    public function export(Request $request, string $report, string $format): Response
     {
-        abort_unless(in_array($format, ['csv', 'excel', 'json', 'print'], true), 404);
+        abort_unless(in_array($format, ['csv', 'xlsx', 'excel', 'json', 'pdf', 'print'], true), 404);
+        $format = $format === 'excel' ? 'xlsx' : $format;
         $filters = $this->filters($request);
         $rows = $this->reports->rows($request->user(), $report, $filters);
         $this->reports->recordExport($request->user(), $report, $format, $filters, $rows->count());
+
         $defaults = config('governance.settings');
-        $storedPrefix = SystemSetting::query()->where('setting_key', 'reporting.filename_prefix')->first()?->value;
-        $prefixValue = is_array($storedPrefix) ? ($storedPrefix['value'] ?? null) : null;
-        $prefix = preg_replace('/[^a-z0-9-]+/i', '-', (string) ($prefixValue ?: ($defaults['reporting.filename_prefix'] ?? 'alibaton-pd')));
+        $stored = SystemSetting::query()->get()->mapWithKeys(fn (SystemSetting $setting) => [
+            $setting->setting_key => $setting->value['value'] ?? null,
+        ]);
+        $prefix = preg_replace('/[^a-z0-9-]+/i', '-', (string) ($stored->get('reporting.filename_prefix') ?: ($defaults['reporting.filename_prefix'] ?? 'alibaton-pd')));
+        $timestamp = now('Asia/Manila')->format('Ymd-His');
+        $basename = trim($prefix ?: 'alibaton-pd', '-').'-'.$report.'-'.$timestamp;
+        $title = CrossModuleReportService::REPORTS[$report];
+        $timezone = (string) ($stored->get('organization.timezone') ?: ($defaults['organization.timezone'] ?? 'Asia/Manila'));
+        $organizationName = $stored->get('organization.name') ?: ($defaults['organization.name'] ?? 'Alibaton Construction Incorporated');
 
         if ($format === 'json') {
             return response()->streamDownload(
-                fn () => print json_encode($rows->values()->all(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
-                "{$prefix}-{$report}.json",
-                ['Content-Type' => 'application/json; charset=UTF-8'],
+                fn () => print json_encode($rows->values()->all(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                $basename.'.json',
+                ['Content-Type' => 'application/json; charset=UTF-8', 'X-Content-Type-Options' => 'nosniff'],
             );
         }
 
-        if ($format === 'excel') {
-            return response()->streamDownload(function () use ($rows): void {
-                $escape = static fn ($value): string => htmlspecialchars(
-                    is_scalar($value) || $value === null ? (string) $value : json_encode($value),
-                    ENT_QUOTES | ENT_XML1,
-                    'UTF-8',
-                );
-                $first = $rows->first();
-                echo '<html><head><meta charset="UTF-8"></head><body><table border="1">';
-                if ($first !== null) {
-                    echo '<thead><tr>';
-                    foreach (array_keys($first) as $heading) echo '<th>'.$escape($heading).'</th>';
-                    echo '</tr></thead><tbody>';
-                    foreach ($rows as $row) {
-                        echo '<tr>';
-                        foreach ($row as $value) echo '<td>'.$escape($value).'</td>';
-                        echo '</tr>';
-                    }
-                    echo '</tbody>';
-                }
-                echo '</table></body></html>';
-            }, "{$prefix}-{$report}.xls", [
-                'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+        if ($format === 'xlsx') {
+            return response($this->files->xlsx($rows, $title), 200, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'Content-Disposition' => 'attachment; filename="'.$basename.'.xlsx"',
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'no-store, private',
+            ]);
+        }
+
+        if ($format === 'pdf') {
+            return response($this->files->pdf($rows, $title, [
+                'Organization' => $organizationName,
+                'Generated by' => $request->user()->name,
+                'Generated at' => now()->timezone($timezone)->format('Y-m-d H:i:s T'),
+                'Department' => $filters['department'] ?? '',
+                'Date from' => $filters['date_from'] ?? '',
+                'Date to' => $filters['date_to'] ?? '',
+            ]), 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'attachment; filename="'.$basename.'.pdf"',
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'no-store, private',
             ]);
         }
 
         if ($format === 'print') {
-            $stored = SystemSetting::query()->get()->mapWithKeys(fn (SystemSetting $setting) => [
-                $setting->setting_key => $setting->value['value'] ?? null,
-            ]);
-            $timezone = (string) ($stored->get('organization.timezone') ?: ($defaults['organization.timezone'] ?? 'Asia/Manila'));
             $html = view('reports.print', [
-                'title' => CrossModuleReportService::REPORTS[$report], 'rows' => $rows,
-                'organizationName' => $stored->get('organization.name') ?: ($defaults['organization.name'] ?? 'Alibaton Construction Incorporated'),
+                'title' => $title,
+                'rows' => $rows,
+                'organizationName' => $organizationName,
                 'dateFormat' => $stored->get('organization.date_format') ?: ($defaults['organization.date_format'] ?? 'M d, Y'),
-                'generatedAt' => now()->timezone($timezone), 'generatedBy' => $request->user()->name,
+                'generatedAt' => now()->timezone($timezone),
+                'generatedBy' => $request->user()->name,
             ])->render();
-            return response()->streamDownload(fn () => print $html, "{$prefix}-{$report}.html", ['Content-Type' => 'text/html']);
+
+            return response($html, 200, [
+                'Content-Type' => 'text/html; charset=UTF-8',
+                'Content-Disposition' => 'inline; filename="'.$basename.'.html"',
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'no-store, private',
+            ]);
         }
 
         return response()->streamDownload(function () use ($rows): void {
@@ -91,10 +106,18 @@ class ReportsStateController extends Controller
             $first = $rows->first();
             if ($first !== null) {
                 fputcsv($output, array_keys($first), ',', '"', '');
-                foreach ($rows as $row) fputcsv($output, array_map(fn ($value) => is_scalar($value) || $value === null ? $value : json_encode($value), $row), ',', '"', '');
+                foreach ($rows as $row) {
+                    fputcsv($output, array_map(
+                        fn ($value) => is_scalar($value) || $value === null ? $value : json_encode($value, JSON_UNESCAPED_UNICODE),
+                        $row,
+                    ), ',', '"', '');
+                }
             }
             fclose($output);
-        }, "{$prefix}-{$report}.csv", ['Content-Type' => 'text/csv']);
+        }, $basename.'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     private function filters(Request $request): array

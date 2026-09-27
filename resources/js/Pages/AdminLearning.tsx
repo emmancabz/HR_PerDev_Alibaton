@@ -39,6 +39,7 @@ import {
     RefreshCcw,
     Search,
     Send,
+    Trash2,
     Users,
 } from "lucide-react";
 import {
@@ -162,6 +163,9 @@ export default function AdminLearning({ initialLearningState }: Props) {
     );
     const [renewal, setRenewal] = useState<any>(null);
     const [archiveCourse, setArchiveCourse] = useState<CourseSummary | null>(
+        null,
+    );
+    const [deleteDraftCourse, setDeleteDraftCourse] = useState<CourseSummary | null>(
         null,
     );
     const [notice, setNotice] = useState("");
@@ -477,6 +481,11 @@ export default function AdminLearning({ initialLearningState }: Props) {
                         setArchiveCourse(selected);
                         setSelected(null);
                     }}
+                    deleteDraft={() => {
+                        if (!isHr || !selected?.draftDetail || selected.publishedVersionId) return;
+                        setDeleteDraftCourse(selected);
+                        setSelected(null);
+                    }}
                 />
                 <AssignModal
                     course={assignCourse}
@@ -490,6 +499,43 @@ export default function AdminLearning({ initialLearningState }: Props) {
                         setWorkspace("Assignments");
                     }}
                 />
+                <AppModal
+                    show={Boolean(deleteDraftCourse)}
+                    title="Delete unpublished Draft?"
+                    description="This permanently removes only a never-published Draft. Published history and any course with learner activity cannot be deleted."
+                    onClose={() => setDeleteDraftCourse(null)}
+                    footer={
+                        <>
+                            <button
+                                className={btn}
+                                onClick={() => setDeleteDraftCourse(null)}
+                            >
+                                Keep Draft
+                            </button>
+                            <button
+                                className={btn}
+                                onClick={async () => {
+                                    const versionId = deleteDraftCourse?.draftDetail?.id;
+                                    if (!versionId) return;
+                                    try {
+                                        setState(await learningClient.deleteDraft(versionId));
+                                        setDeleteDraftCourse(null);
+                                        setNotice("Unpublished Draft deleted.");
+                                    } catch (error) {
+                                        setNotice(learningError(error));
+                                    }
+                                }}
+                            >
+                                <Trash2 className="h-4 w-4" />
+                                Delete Draft
+                            </button>
+                        </>
+                    }
+                >
+                    <p className="text-sm text-slate-600">
+                        Draft deletion is available immediately; old Drafts are not auto-deleted just because several days have passed.
+                    </p>
+                </AppModal>
                 <AppModal
                     show={Boolean(archiveCourse)}
                     title="Archive course lineage?"
@@ -1135,6 +1181,7 @@ function CourseDrawer({
     updateState,
     notice,
     archive,
+    deleteDraft,
 }: any) {
     const [busyAction, setBusyAction] = useState<"scan" | "publish" | "changes" | "retry" | null>(null);
     const [requestChanges, setRequestChanges] = useState(false);
@@ -1249,6 +1296,12 @@ function CourseDrawer({
                 <button className={primary} onClick={edit}>
                     <Pencil className="h-4 w-4" />
                     Continue Draft
+                </button>
+            )}
+            {isHr && draft && !course?.publishedVersionId && ["Draft", "Changes Requested"].includes(draft.status ?? "") && (
+                <button className={btn} onClick={deleteDraft} disabled={busyAction !== null}>
+                    <Trash2 className="h-4 w-4" />
+                    Delete Draft
                 </button>
             )}
             {isHr &&

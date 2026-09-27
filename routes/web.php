@@ -246,6 +246,7 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
         Route::post('/versions/{version}/publication-retry', [LearningStateController::class, 'retryPublication'])->name('versions.publication-retry');
         Route::post('/versions/{version}/working-draft', [LearningStateController::class, 'workingDraft'])->name('versions.working-draft');
         Route::post('/courses/{course}/archive', [LearningStateController::class, 'archive'])->name('courses.archive');
+        Route::delete('/versions/{version}/draft', [LearningStateController::class, 'deleteDraft'])->name('versions.delete-draft');
         Route::post('/versions/{version}/assignment-preview', [LearningStateController::class, 'assignmentPreview'])->name('assignments.preview');
         Route::post('/versions/{version}/assign', [LearningStateController::class, 'assign'])->name('assignments.create');
         Route::post('/versions/{version}/self-enroll', [LearningStateController::class, 'selfEnroll'])->name('assignments.self-enroll');
