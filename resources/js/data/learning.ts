@@ -632,10 +632,29 @@ function collection<T>(
 ): T[] {
     const value = source[key];
     if (value === undefined || value === null) return [];
-    if (!Array.isArray(value)) {
-        throw new Error(`Invalid Learning state: ${key} must be an array.`);
+    if (Array.isArray(value)) return value as T[];
+
+    // Older cached Laravel Collection payloads can arrive as JSON objects when
+    // their numeric keys were not re-indexed before serialization. Accept only
+    // that list-shaped legacy form; arbitrary objects remain contract errors.
+    if (typeof value === "object") {
+        const entries = Object.entries(value as Record<string, unknown>);
+        if (
+            entries.every(([entryKey]) => /^\d+$/.test(entryKey)) &&
+            entries
+                .map(([entryKey]) => Number(entryKey))
+                .sort((left, right) => left - right)
+                .every((entryKey, index) => entryKey === index)
+        ) {
+            return entries
+                .sort(
+                    ([left], [right]) => Number(left) - Number(right),
+                )
+                .map(([, item]) => item) as T[];
+        }
     }
-    return value as T[];
+
+    throw new Error(`Invalid Learning state: ${key} must be an array.`);
 }
 
 /**

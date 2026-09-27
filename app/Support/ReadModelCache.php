@@ -44,7 +44,7 @@ final class ReadModelCache
         $role = strtolower((string) ($actor->role?->value ?? $actor->role ?? 'user'));
         $variant = $vary === [] ? 'base' : sha1(json_encode($vary, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         $key = sprintf(
-            'read-model:v2:%s:g%d:user:%s:role:%s:v:%s',
+            'read-model:v3:%s:g%d:user:%s:role:%s:v:%s',
             $domain,
             max(1, $generation),
             (string) $actor->id,
@@ -107,6 +107,6 @@ final class ReadModelCache
 
     private static function generationKey(string $domain): string
     {
-        return 'read-model:v2:'.$domain.':generation';
+        return 'read-model:v3:'.$domain.':generation';
     }
 }
