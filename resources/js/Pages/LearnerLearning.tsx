@@ -68,7 +68,7 @@ export default function LearnerLearning({
         : route().current("user.certificates.index")
           ? "Review certificates and achievements issued from completed learning."
           : "Version-pinned online courses, saved progress, assessments, results, certificates, and transcript records.";
-    const [state, setState] = useState<LearningState | null>(() => initialLearningState ?? learningClient.peekState());
+    const [state, setState] = useState<LearningState | null>(() => initialLearningState ?? learningClient.peekState(Number(auth.user.id)));
     const canonicalAssignments = useMemo(
         () => canonicalizeLearningAssignments(state?.assignments ?? []),
         [state?.assignments],
