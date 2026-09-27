@@ -12,14 +12,18 @@ class CompetencyController extends Controller
 {
     public function __construct(private readonly CompetencyService $competency) {}
 
-    public function page(): Response
+    public function page(Request $request): Response
     {
-        return Inertia::render('AdminCompetency');
+        return Inertia::render('AdminCompetency', [
+            'competency' => ReadModelCache::peek('competency', $request->user()),
+        ]);
     }
 
-    public function wallet(): Response
+    public function wallet(Request $request): Response
     {
-        return Inertia::render('UserSkillsWallet');
+        return Inertia::render('UserSkillsWallet', [
+            'competency' => ReadModelCache::peek('competency', $request->user()),
+        ]);
     }
 
     public function show(Request $request): JsonResponse
