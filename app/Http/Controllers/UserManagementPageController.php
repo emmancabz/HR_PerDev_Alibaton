@@ -27,8 +27,10 @@ class UserManagementPageController extends Controller
         $actor = $request->user();
         abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
 
+        $warm = ReadModelCache::peek('users', $actor);
+
         return Inertia::render('UserManagement', [
-            'directoryPayload' => Inertia::defer(
+            'directoryPayload' => $warm ?? Inertia::defer(
                 fn (): array => ReadModelCache::remember('users', $actor, fn (): array => $this->directoryPayload($actor)),
             ),
         ]);
