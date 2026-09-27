@@ -33,22 +33,40 @@ class LearningCourseService
             ? DB::table('learning_courses')->pluck('id')
             : DB::table('learning_course_collaborators')->where('user_id', $actor->id)->pluck('course_id');
 
+        $courseAssignmentStats = $this->assignmentStatsFor($courseIds);
         $courses = LearningCourse::query()
             ->whereIn('id', $courseIds)
             ->with(['owner:id,name,email', 'versions' => fn ($query) => $query->orderByDesc('published_at')->orderByDesc('updated_at')])
             ->orderByDesc('updated_at')
             ->get()
-            ->map(fn (LearningCourse $course) => $this->courseSummary($course))
+            ->map(fn (LearningCourse $course) => $this->courseSummary(
+                $course,
+                $courseAssignmentStats->get($course->id),
+            ))
             ->values();
 
         $catalog = collect();
         if (! $operator) {
-            $catalog = LearningCourse::query()->whereNull('archived_at')->whereNotNull('current_published_version_id')
-                ->with(['owner:id,name,email', 'versions'])->get()->filter(function (LearningCourse $course) use ($actor) {
+            $catalogCourses = LearningCourse::query()
+                ->whereNull('archived_at')
+                ->whereNotNull('current_published_version_id')
+                ->with(['owner:id,name,email', 'versions'])
+                ->get()
+                ->filter(function (LearningCourse $course) use ($actor) {
                     $version = $course->versions->firstWhere('id', $course->current_published_version_id);
                     if (! $version || ($version->audience_rules['catalogVisibility'] ?? '') !== 'Eligible users may self-enroll' || ! $this->available($version)) return false;
                     return $this->eligibility->matchesAudience($actor, $version);
-                })->map(function (LearningCourse $course) { $summary = $this->courseSummary($course); unset($summary['publishedDetail'], $summary['draftDetail']); return $summary; })->values();
+                })
+                ->values();
+
+            $catalogAssignmentStats = $this->assignmentStatsFor($catalogCourses->pluck('id'));
+            $catalog = $catalogCourses
+                ->map(fn (LearningCourse $course) => $this->courseSummary(
+                    $course,
+                    $catalogAssignmentStats->get($course->id),
+                    false,
+                ))
+                ->values();
         }
 
         $assignments = DB::table('learning_assignments as a')
@@ -741,14 +759,14 @@ class LearningCourseService
         $this->sources->cloneLinks($from, $to, $actor);
     }
 
-    private function courseSummary(LearningCourse $course): array
+    private function courseSummary(LearningCourse $course, ?object $assignmentStats = null, bool $includeDetails = true): array
     {
         $published = $course->versions->firstWhere('id', $course->current_published_version_id);
         $official = $published ?? $course->versions->whereNotNull('version_number')->sortByDesc('version_number')->first();
         $draft = $course->versions->first(fn ($v) => $v->version_number === null && in_array($v->status, ['Draft', 'In Review', 'Changes Requested', 'Approved'], true));
-        $active = DB::table('learning_assignments')->where('course_id', $course->id)->whereNotIn('status', ['Cancelled', 'Completed', 'Expired', 'Failed/Attempts Exhausted'])->count();
-        $denom = DB::table('learning_assignments')->where('course_id', $course->id)->where('status', '!=', 'Cancelled')->count();
-        $completed = DB::table('learning_assignments')->where('course_id', $course->id)->where('status', 'Completed')->count();
+        $active = (int) ($assignmentStats->active_count ?? 0);
+        $denom = (int) ($assignmentStats->denominator_count ?? 0);
+        $completed = (int) ($assignmentStats->completed_count ?? 0);
         $visibleVersionId = $draft?->id ?? $official?->id;
         $competencies = $visibleVersionId ? DB::table('learning_course_competencies')->where('course_version_id', $visibleVersionId)->orderByDesc('is_primary')->pluck('competency_name')->values()->all() : [];
         $audienceRules = $published?->audience_rules ?? $draft?->audience_rules ?? $official?->audience_rules ?? [];
@@ -759,7 +777,7 @@ class LearningCourseService
             : (collect($audienceRules['departments'] ?? [])->implode(', ') ?: 'Not set');
         $sourceReview = $draft ? $this->sourceReview->latest($draft) : null;
         $delivery = $official ? $this->publication->statusFor($official->id) : null;
-        return ['id' => $course->id, 'code' => $course->code, 'owner' => $course->owner?->name, 'ownerId' => $course->owner_id,
+        $summary = ['id' => $course->id, 'code' => $course->code, 'owner' => $course->owner?->name, 'ownerId' => $course->owner_id,
             'publishedVersionId' => $official?->id, 'publishedVersion' => $official?->version_number, 'title' => $published?->title ?? $draft?->title ?? $official?->title,
             'category' => $published?->category ?? $draft?->category ?? $official?->category, 'status' => $course->archived_at ? 'Archived' : ($draft?->status ?? $published?->status ?? 'Draft'),
             'draftVersionId' => $draft?->id, 'audience' => $audience, 'targetDepartment' => $target, 'competencies' => $competencies,
@@ -770,8 +788,32 @@ class LearningCourseService
                 'basedOnVersionId' => $version->based_on_version_id, 'submittedAt' => $version->submitted_at?->toIso8601String(),
                 'approvedAt' => $version->approved_at?->toIso8601String(), 'publishedAt' => $version->published_at?->toIso8601String(),
                 'updatedAt' => $version->updated_at?->toIso8601String(),
-            ])->values()->all(),
-            'publishedDetail' => $official ? $this->versionDetail($official) : null, 'draftDetail' => $draft ? $this->versionDetail($draft) : null];
+            ])->values()->all()];
+
+        if ($includeDetails) {
+            $summary['publishedDetail'] = $official ? $this->versionDetail($official) : null;
+            $summary['draftDetail'] = $draft ? $this->versionDetail($draft) : null;
+        }
+
+        return $summary;
+    }
+
+    private function assignmentStatsFor($courseIds)
+    {
+        $ids = collect($courseIds)->filter()->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return DB::table('learning_assignments')
+            ->whereIn('course_id', $ids)
+            ->selectRaw("course_id,
+                SUM(CASE WHEN status NOT IN ('Cancelled', 'Completed', 'Expired', 'Failed/Attempts Exhausted') THEN 1 ELSE 0 END) AS active_count,
+                SUM(CASE WHEN status != 'Cancelled' THEN 1 ELSE 0 END) AS denominator_count,
+                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed_count")
+            ->groupBy('course_id')
+            ->get()
+            ->keyBy('course_id');
     }
 
     private function versionDetail(LearningCourseVersion $version): array

@@ -18,9 +18,14 @@ class InvalidateReadModelCache
             && $response->getStatusCode() < 400) {
             ReadModelCache::bump($domain);
 
-            // Cross-module summaries can depend on any successful operational write.
-            // Bump these lightweight generations instead of forcing users to press F5.
-            foreach (['dashboard', 'reports', 'users'] as $dependent) {
+            // Most operational writes only affect cross-module summaries. Personnel
+            // changes are different: role/audience/manager changes can affect every
+            // domain, so only the users domain fans out broadly.
+            $dependents = $domain === 'users'
+                ? array_values(array_diff(ReadModelCache::LIVE_DOMAINS, ['users']))
+                : ['dashboard', 'reports'];
+
+            foreach ($dependents as $dependent) {
                 if ($dependent !== $domain) {
                     ReadModelCache::bump($dependent);
                 }

@@ -121,22 +121,26 @@ class LearningPublicationService
     {
         $url = trim((string) config('services.learning_lms.url'));
         $token = trim((string) config('services.learning_lms.token'));
-        $attempts = (int) DB::table('learning_publication_deliveries')->where('id', $deliveryId)->value('attempts') + 1;
 
+        // The learner LMS is part of this P&D deployment. The published version
+        // in PostgreSQL is already authoritative for catalog/audience visibility.
+        // External delivery is optional and must not block internal learner access.
         if ($url === '') {
             DB::table('learning_publication_deliveries')->where('id', $deliveryId)->update([
-                'status' => 'Queued',
-                'attempts' => $attempts,
-                'last_error' => 'Learner LMS endpoint is not configured.',
-                'last_attempt_at' => now(),
+                'status' => 'Delivered',
+                'last_error' => null,
+                'last_attempt_at' => null,
+                'delivered_at' => now(),
                 'updated_at' => now(),
             ]);
-            $this->audit->record($actor, 'LMS publication queued', 'LearningCourseVersion', $version->id, [
+            $this->audit->record($actor, 'Course available in internal learner LMS', 'LearningCourseVersion', $version->id, [
                 'deliveryId' => $deliveryId,
                 'targetCount' => $payload['audience']['targetCount'] ?? 0,
             ]);
             return $this->statusFor($version->id) ?? [];
         }
+
+        $attempts = (int) DB::table('learning_publication_deliveries')->where('id', $deliveryId)->value('attempts') + 1;
 
         try {
             $request = Http::acceptJson()

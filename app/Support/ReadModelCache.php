@@ -94,8 +94,14 @@ final class ReadModelCache
     {
         $domains ??= self::LIVE_DOMAINS;
 
-        return collect($domains)
-            ->mapWithKeys(fn (string $domain): array => [$domain => self::generation($domain)])
+        $keys = collect($domains)
+            ->mapWithKeys(fn (string $domain): array => [$domain => self::generationKey($domain)]);
+        $values = Cache::many($keys->values()->all());
+
+        return $keys
+            ->mapWithKeys(fn (string $key, string $domain): array => [
+                $domain => max(1, (int) ($values[$key] ?? 1)),
+            ])
             ->all();
     }
 
