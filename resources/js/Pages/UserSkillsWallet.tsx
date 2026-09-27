@@ -34,12 +34,15 @@ export default function UserSkillsWallet() {
         return true;
     });
 
-    const { state, storageError } = useCompetencyServerStore((page.props as unknown as { competency: CompetencyPayload }).competency);
     const authUser = page.props.auth.user;
+    const { state, storageError } = useCompetencyServerStore(
+        (page.props as unknown as { competency?: CompetencyPayload }).competency,
+        Number(authUser.id),
+    );
     const isTrainee = authUser.persona === 'trainee';
     const profile = buildCompetencyProfiles(state).find((row) => row.person.id === authUser.personnel_key);
     const [activeTab, setActiveTab] = useState<DevelopmentTab>(() => tabFromHash());
-    const [learningState, setLearningState] = useState<LearningState | null>(null);
+    const [learningState, setLearningState] = useState<LearningState | null>(() => learningClient.peekState(Number(authUser.id)));
     const [learningHistoryLoading, setLearningHistoryLoading] = useState(false);
     const [learningHistoryError, setLearningHistoryError] = useState('');
 
