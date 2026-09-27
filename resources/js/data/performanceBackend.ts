@@ -203,6 +203,9 @@ export function seedPerformanceState(state?: PerformanceServerState | null): voi
 
 export function hydratePerformanceState(actorId: number): PerformanceServerState | null {
   if (performanceStateCache && Number(performanceStateCache.actor.userId) === actorId) return performanceStateCache;
+  if (performanceStateCache && Number(performanceStateCache.actor.userId) !== actorId) {
+    performanceStateCache = null;
+  }
   const persisted = readPersistedPerformanceState(actorId);
   if (persisted) performanceStateCache = persisted;
   return persisted;
