@@ -73,6 +73,25 @@ final class ReadModelCache
         return self::remember($domain, $actor, $build, $vary);
     }
 
+    public static function peek(string $domain, User $actor, array $vary = []): mixed
+    {
+        if (! app()->environment('production')) return null;
+
+        $generation = self::generation($domain);
+        $role = strtolower((string) ($actor->role?->value ?? $actor->role ?? 'user'));
+        $variant = $vary === [] ? 'base' : sha1(json_encode($vary, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $key = sprintf(
+            'read-model:v3:%s:g%d:user:%s:role:%s:v:%s',
+            $domain,
+            max(1, $generation),
+            (string) $actor->id,
+            $role,
+            $variant,
+        );
+
+        return Cache::get($key);
+    }
+
     public static function bump(string $domain): void
     {
         if (! app()->environment('production')) {
