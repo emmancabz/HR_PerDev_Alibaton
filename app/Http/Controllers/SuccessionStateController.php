@@ -9,6 +9,7 @@ use App\Models\Succession\DevelopmentPlan;
 use App\Models\Succession\ReadinessAssessment;
 use App\Models\Succession\SuccessionCandidate;
 use App\Services\Succession\SuccessionService;
+use App\Support\ReadModelCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -16,7 +17,17 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class SuccessionStateController extends Controller
 {
     public function __construct(private readonly SuccessionService $succession) {}
-    public function show(Request $request): JsonResponse { return response()->json(['data' => $this->succession->state($request->user())]); }
+    public function show(Request $request): JsonResponse
+    {
+        $data = ReadModelCache::rememberRequest(
+            'succession',
+            $request->user(),
+            $request,
+            fn (): array => $this->succession->state($request->user()),
+        );
+
+        return response()->json(['data' => $data]);
+    }
 
     public function createPosition(SuccessionPositionRequest $request): JsonResponse
     {

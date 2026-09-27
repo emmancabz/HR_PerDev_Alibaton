@@ -6,6 +6,7 @@ use App\Http\Requests\RecognitionRecordRequest;
 use App\Models\Recognition\RecognitionCategory;
 use App\Models\Recognition\RecognitionRecord;
 use App\Services\Recognition\RecognitionService;
+use App\Support\ReadModelCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,7 +16,14 @@ class RecognitionStateController extends Controller
 
     public function show(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->recognition->state($request->user())]);
+        $data = ReadModelCache::rememberRequest(
+            'recognition',
+            $request->user(),
+            $request,
+            fn (): array => $this->recognition->state($request->user()),
+        );
+
+        return response()->json(['data' => $data]);
     }
 
     public function create(RecognitionRecordRequest $request): JsonResponse

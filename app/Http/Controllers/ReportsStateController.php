@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\SystemSetting;
 use App\Services\Reporting\CrossModuleReportService;
+use App\Support\ReadModelCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -15,7 +16,15 @@ class ReportsStateController extends Controller
     public function show(Request $request): JsonResponse
     {
         $filters = $this->filters($request);
-        return response()->json(['data' => $this->reports->state($request->user(), $filters)]);
+        $data = ReadModelCache::rememberRequest(
+            'reports',
+            $request->user(),
+            $request,
+            fn (): array => $this->reports->state($request->user(), $filters),
+            $filters,
+        );
+
+        return response()->json(['data' => $data]);
     }
 
     public function export(Request $request, string $report, string $format): StreamedResponse

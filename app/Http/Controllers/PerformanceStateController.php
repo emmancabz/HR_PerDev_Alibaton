@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\Performance\PerformanceService;
+use App\Support\ReadModelCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -13,7 +14,14 @@ class PerformanceStateController extends Controller
 
     public function show(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->performance->state($request->user())]);
+        $data = ReadModelCache::rememberRequest(
+            'performance',
+            $request->user(),
+            $request,
+            fn (): array => $this->performance->state($request->user()),
+        );
+
+        return response()->json(['data' => $data]);
     }
 
     public function reviews(Request $request): JsonResponse

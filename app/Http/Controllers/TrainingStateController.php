@@ -11,6 +11,7 @@ use App\Models\Training\TrainingProgram;
 use App\Models\Training\TrainingRecommendation;
 use App\Models\Training\TrainingSession;
 use App\Services\Training\TrainingService;
+use App\Support\ReadModelCache;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,7 +24,14 @@ class TrainingStateController extends Controller
 
     public function show(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->training->state($request->user())]);
+        $data = ReadModelCache::rememberRequest(
+            'training',
+            $request->user(),
+            $request,
+            fn (): array => $this->training->state($request->user()),
+        );
+
+        return response()->json(['data' => $data]);
     }
 
     public function createProgram(TrainingProgramRequest $request): JsonResponse

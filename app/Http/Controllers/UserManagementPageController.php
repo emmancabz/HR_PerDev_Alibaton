@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Models\User;
 use App\Support\CanonicalLearningReference;
 use App\Support\CanonicalWorkforceReference;
+use App\Support\ReadModelCache;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -26,50 +27,54 @@ class UserManagementPageController extends Controller
         $actor = $request->user();
         abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
 
-        // User Management is a P&D personnel/account directory. Governance-only accounts,
-        // anonymized identities, and archived records are intentionally excluded here.
-        // Archived personnel are governed in Settings > Archive.
-        $personnel = User::query()
-            ->canonicalPersonnel()
-            ->when($actor->role === UserRole::HR, fn ($query) => $query->where('role', '!=', UserRole::Admin->value))
-            ->with('manager:id,personnel_key,name,position,department')
-            ->whereNull('anonymized_at')
-            ->whereNull('archived_at')
-            ->orderBy('name')
-            ->get();
+        $props = ReadModelCache::remember('users', $actor, function () use ($actor): array {
+            // User Management is a P&D personnel/account directory. Governance-only accounts,
+            // anonymized identities, and archived records are intentionally excluded here.
+            // Archived personnel are governed in Settings > Archive.
+            $personnel = User::query()
+                ->canonicalPersonnel()
+                ->when($actor->role === UserRole::HR, fn ($query) => $query->where('role', '!=', UserRole::Admin->value))
+                ->with('manager:id,personnel_key,name,position,department')
+                ->whereNull('anonymized_at')
+                ->whereNull('archived_at')
+                ->orderBy('name')
+                ->get();
 
-        $directoryUsers = $personnel
-            ->reject(fn (User $user): bool => $user->employment_status === 'Incoming')
-            ->values();
+            $directoryUsers = $personnel
+                ->reject(fn (User $user): bool => $user->employment_status === 'Incoming')
+                ->values();
 
-        $lastLogins = $this->lastLoginMap();
-        $failedSignIns = $this->failedSignInMap();
-        $activity = $this->activityMap();
-        $development = $this->developmentMap($directoryUsers);
+            $lastLogins = $this->lastLoginMap();
+            $failedSignIns = $this->failedSignInMap();
+            $activity = $this->activityMap();
+            $development = $this->developmentMap($directoryUsers);
 
-        return Inertia::render('UserManagement', [
-            'initialUserDirectoryState' => [
-                'users' => $directoryUsers->map(fn (User $user): array => $this->userRow(
-                    $user,
-                    $lastLogins->get($user->id),
-                    (int) ($failedSignIns->get($user->id) ?? 0),
-                    $activity->get($user->id, collect()),
-                    $development->get($user->id, $this->emptyDevelopment($user)),
-                    $this->workforceReference->person($user->personnel_key),
-                ))->values()->all(),
-                'incomingRecords' => $this->incomingRows($personnel),
-                'issues' => $this->issueRows(),
-                'pendingVerifications' => [],
-            ],
-            // Until Core HR / HR1 is actually integrated, User Management must not invent
-            // invite candidates or claim a successful external sync.
-            'availablePersonnel' => [],
-            'userDirectorySource' => [
-                'label' => 'Persistent P&D personnel directory',
-                'personnelSource' => 'Canonical users table + approved workforce reference',
-                'incomingSourceConnected' => false,
-            ],
-        ]);
+            return [
+                'initialUserDirectoryState' => [
+                    'users' => $directoryUsers->map(fn (User $user): array => $this->userRow(
+                        $user,
+                        $lastLogins->get($user->id),
+                        (int) ($failedSignIns->get($user->id) ?? 0),
+                        $activity->get($user->id, collect()),
+                        $development->get($user->id, $this->emptyDevelopment($user)),
+                        $this->workforceReference->person($user->personnel_key),
+                    ))->values()->all(),
+                    'incomingRecords' => $this->incomingRows($personnel),
+                    'issues' => $this->issueRows(),
+                    'pendingVerifications' => [],
+                ],
+                // Until Core HR / HR1 is actually integrated, User Management must not invent
+                // invite candidates or claim a successful external sync.
+                'availablePersonnel' => [],
+                'userDirectorySource' => [
+                    'label' => 'Persistent P&D personnel directory',
+                    'personnelSource' => 'Canonical users table + approved workforce reference',
+                    'incomingSourceConnected' => false,
+                ],
+            ];
+        });
+
+        return Inertia::render('UserManagement', $props);
     }
 
     private function userRow(

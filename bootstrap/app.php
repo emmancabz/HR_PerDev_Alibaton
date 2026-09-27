@@ -41,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'recent-auth' => \App\Http\Middleware\EnsureRecentAuthentication::class,
             'internal.service' => \App\Http\Middleware\VerifyInternalServiceRequest::class,
             'persona' => \App\Http\Middleware\EnsureUserPersona::class,
+            'invalidate.read' => \App\Http\Middleware\InvalidateReadModelCache::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) use ($isGateway): void {

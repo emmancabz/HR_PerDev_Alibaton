@@ -19,6 +19,7 @@ use App\Services\Learning\LearningMaterialService;
 use App\Services\Learning\LearningRequestService;
 use App\Services\Learning\LearningSourceReviewService;
 use App\Services\Learning\LearningPublicationService;
+use App\Support\ReadModelCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -35,7 +36,17 @@ class LearningStateController extends Controller
         private readonly LearningPublicationService $publication,
     ) {}
 
-    public function show(Request $request): JsonResponse { return response()->json(['data' => $this->courses->state($request->user())]); }
+    public function show(Request $request): JsonResponse
+    {
+        $data = ReadModelCache::rememberRequest(
+            'learning',
+            $request->user(),
+            $request,
+            fn (): array => $this->courses->state($request->user()),
+        );
+
+        return response()->json(['data' => $data]);
+    }
     public function create(LearningCourseRequest $request): JsonResponse { $version = $this->courses->createDraft($request->user(), $request->validated()); return response()->json(['data' => ['versionId' => $version->id, 'courseId' => $version->course_id, 'code' => $version->course->code]], 201); }
     public function save(LearningCourseRequest $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('edit', $version); $this->courses->saveDraft($request->user(), $version, $request->validated()); return response()->json(['data' => $this->courses->state($request->user())]); }
     public function submitReview(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('submitReview', $version); $this->courses->submitForReview($request->user(), $version); return $this->show($request); }

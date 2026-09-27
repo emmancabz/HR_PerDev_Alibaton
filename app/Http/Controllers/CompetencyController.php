@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\Competency\{CompetencyService, CompetencyViolation};
+use App\Support\ReadModelCache;
 use Illuminate\Http\{JsonResponse, Request};
 use Inertia\Inertia;
 use Inertia\Response;
@@ -12,15 +13,25 @@ class CompetencyController extends Controller
     public function __construct(private readonly CompetencyService $competency) {}
     public function page(Request $request): Response
     {
-        $payload = $this->competency->payload($request->user());
+        $payload = ReadModelCache::remember('competency', $request->user(), fn (): array => $this->competency->payload($request->user()));
         return Inertia::render('AdminCompetency',['competency'=>$payload,'canonicalPersonnel'=>$payload['personnel']]);
     }
     public function wallet(Request $request): Response
     {
-        $payload = $this->competency->payload($request->user());
+        $payload = ReadModelCache::remember('competency', $request->user(), fn (): array => $this->competency->payload($request->user()));
         return Inertia::render('UserSkillsWallet',['competency'=>$payload,'canonicalPersonnel'=>$payload['personnel']]);
     }
-    public function show(Request $request): JsonResponse { return response()->json($this->competency->payload($request->user())); }
+    public function show(Request $request): JsonResponse
+    {
+        $payload = ReadModelCache::rememberRequest(
+            'competency',
+            $request->user(),
+            $request,
+            fn (): array => $this->competency->payload($request->user()),
+        );
+
+        return response()->json($payload);
+    }
     public function update(Request $request): JsonResponse
     {
         $data = $request->validate(['revision'=>['required','integer','min:0'],'changes'=>['required','array','min:1','max:200'],'changes.*.collection'=>['required','string','in:competencies,roleProfiles,cycles,assessorAuthorizations,assessments,recommendations,acknowledgmentEvents'],'changes.*.record'=>['required','array'],'changes.*.record.id'=>['required','string','max:160']]);
