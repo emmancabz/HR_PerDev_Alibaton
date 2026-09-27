@@ -2,7 +2,7 @@ import SystemSelect from '@/Components/SystemSelect';
 import { AlertCircle, AlertTriangle, Briefcase, Building2, CalendarDays, Check, CheckCircle2, ClipboardList, Clock3, ExternalLink, FileText, GraduationCap, Lock, Mail, MapPin, MessageSquare, MoreVertical, Phone, RefreshCw, ShieldAlert, ShieldCheck, Sparkles, UserCircle2, UserPlus, Users, X, type LucideIcon
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { router, usePage } from '@inertiajs/react';
+import { usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { createPortal } from 'react-dom';
 
@@ -11,6 +11,7 @@ import { ChartDateRangeControl, DEFAULT_CHART_DATE_RANGE, dateFallsInChartRange,
 import AuthenticatedLayout, { HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { useHashWorkspace } from '@/workspaceNavigation';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
+import { fetchUserDirectoryState, peekUserDirectoryState, rememberUserDirectoryState } from '@/data/userDirectoryClient';
 
 type AccessRole = 'Admin' | 'HR' | 'User';
 type AccessRoleFilter = 'All' | 'Admin & HR' | AccessRole;
@@ -516,7 +517,6 @@ type UserManagementPageProps = {
     userDirectorySource?: UserDirectoryPayload['userDirectorySource'];
 };
 
-let userDirectoryPayloadCache: UserDirectoryPayload | null = null;
 
 function normalizeDirectoryState(value?: DirectoryState): DirectoryState {
     if (!value) return initialState;
@@ -2138,17 +2138,36 @@ function InviteUserModal({
 function UserManagement() {
     const inertiaPage = usePage();
     const props = inertiaPage.props as typeof inertiaPage.props & UserManagementPageProps;
-    const resolvedPayload = props.directoryPayload ?? userDirectoryPayloadCache;
-    const availablePersonnel = resolvedPayload?.availablePersonnel ?? props.availablePersonnel ?? [];
+    const resolvedPayload = props.directoryPayload ?? peekUserDirectoryState<UserDirectoryPayload>();
+    const [directoryPayload, setDirectoryPayload] = useState<UserDirectoryPayload | null>(() => resolvedPayload ?? null);
+    const availablePersonnel = directoryPayload?.availablePersonnel ?? props.availablePersonnel ?? [];
     const currentOperatorName = (inertiaPage.props.auth.user as { name?: string }).name ?? 'Current P&D Operator';
     const [state, setState] = useState<DirectoryState>(() => normalizeDirectoryState(
-        resolvedPayload?.initialUserDirectoryState ?? props.initialUserDirectoryState,
+        directoryPayload?.initialUserDirectoryState ?? props.initialUserDirectoryState,
     ));
+
     useEffect(() => {
-        if (!props.directoryPayload) return;
-        userDirectoryPayloadCache = props.directoryPayload;
-        setState(normalizeDirectoryState(props.directoryPayload.initialUserDirectoryState));
+        if (props.directoryPayload) {
+            rememberUserDirectoryState(props.directoryPayload);
+            setDirectoryPayload(props.directoryPayload);
+            setState(normalizeDirectoryState(props.directoryPayload.initialUserDirectoryState));
+        }
     }, [props.directoryPayload]);
+
+    useEffect(() => {
+        let active = true;
+        void fetchUserDirectoryState<UserDirectoryPayload>(Boolean(directoryPayload))
+            .then((payload) => {
+                if (!active) return;
+                setDirectoryPayload(payload);
+                setState(normalizeDirectoryState(payload.initialUserDirectoryState));
+            })
+            .catch(() => {});
+        return () => { active = false; };
+        // The module-level client cache survives Inertia page swaps; one authoritative
+        // background revalidation is enough when this page mounts.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     const [activeMajorTab, setActiveMajorTab] = useHashWorkspace<MajorTab>(USER_MANAGEMENT_WORKSPACES, 'All Users');
     
     // Filters
@@ -2350,8 +2369,15 @@ function UserManagement() {
         return 'The account change could not be saved.';
     }
 
-    function reloadDirectory(): void {
-        router.reload({ only: ['directoryPayload'] });
+    async function reloadDirectory(): Promise<void> {
+        try {
+            const payload = await fetchUserDirectoryState<UserDirectoryPayload>(true);
+            setDirectoryPayload(payload);
+            setState(normalizeDirectoryState(payload.initialUserDirectoryState));
+        } catch {
+            // Keep the last usable client state. The next revision/focus/navigation
+            // revalidation will retry without forcing a full Inertia page reload.
+        }
     }
 
     useReadModelRefresh('users', reloadDirectory);

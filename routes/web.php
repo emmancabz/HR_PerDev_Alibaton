@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\CurrentUserStateController;
 use App\Http\Controllers\CompetencyController;
 use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\HeaderNotificationController;
@@ -60,6 +61,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/read-model-revisions', ReadModelRevisionController::class)
         ->middleware('throttle:60,1')
         ->name('read-model-revisions');
+    Route::get('/api/dashboard-state', [DashboardController::class, 'state'])
+        ->middleware('throttle:90,1')
+        ->name('dashboard.state');
+    Route::get('/api/current-user', CurrentUserStateController::class)
+        ->middleware('throttle:90,1')
+        ->name('current-user.state');
     Route::get('/account/profile-photo', [SettingsStateController::class, 'profilePhotoImage'])
         ->middleware('throttle:120,1')
         ->name('account.profile-photo');
@@ -158,6 +165,7 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
     });
 
     Route::prefix('governance/api')->name('governance.api.')->middleware('throttle:90,1,mfa-status')->group(function () {
+        Route::get('/users', [UserManagementPageController::class, 'state'])->name('users.state');
         Route::get('/reports', [ReportsStateController::class, 'show'])->name('reports.state');
         Route::get('/reports/{report}/{format}', [ReportsStateController::class, 'export'])->name('reports.export');
         Route::get('/settings', [SettingsStateController::class, 'show'])->name('settings.state');

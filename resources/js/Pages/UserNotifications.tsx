@@ -1,4 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { instantNavigate } from '@/data/instantNavigation';
+import { useReadModelRefresh } from '@/data/readModelRefresh';
 import { Head, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { Bell, CheckCircle2, ChevronRight, LoaderCircle } from 'lucide-react';
@@ -57,6 +59,8 @@ export default function UserNotifications() {
         return () => window.clearInterval(timer);
     }, [load]);
 
+    useReadModelRefresh('notifications', load);
+
     const openNotification = async (item: NotificationItem) => {
         if (!item.isRead && item.fingerprint) {
             setState((current) => current
@@ -78,7 +82,7 @@ export default function UserNotifications() {
             }
         }
 
-        router.visit(item.href);
+        if (!instantNavigate(item.href)) router.visit(item.href);
     };
 
     const items = state?.data ?? [];

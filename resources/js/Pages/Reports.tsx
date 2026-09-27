@@ -5,7 +5,7 @@ import SystemSelect from '@/Components/SystemSelect';
 import AuthenticatedLayout, { HeaderActions, HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
-import axios from 'axios';
+import { fetchReportsState, peekReportsState } from '@/data/reportsClient';
 import {
     Archive,
     Award,
@@ -39,7 +39,6 @@ type ReportsState = {
 
 
 type ReportFilters = { report?: string; department?: string; date_from?: string; date_to?: string };
-let reportsStateCache: ReportsState | null = null;
 
 const metricIcons: Record<string, LucideIcon[]> = {
     'workforce-development': [Users, ClipboardCheck, ShieldCheck, GraduationCap],
@@ -91,7 +90,13 @@ function statusTone(value: unknown) {
 }
 
 export default function Reports({ initialReportsState, initialReportFilters = {} }: { initialReportsState?: ReportsState; initialReportFilters?: ReportFilters }) {
-    const cached = initialReportsState ?? reportsStateCache;
+    const initialParams = {
+        report: initialReportFilters.report ?? '',
+        department: initialReportFilters.department ?? '',
+        date_from: initialReportFilters.date_from ?? '',
+        date_to: initialReportFilters.date_to ?? '',
+    };
+    const cached = initialReportsState ?? peekReportsState<ReportsState>(initialParams);
     const [state, setState] = useState<ReportsState | null>(cached);
     const [reportType, setReportType] = useState(cached?.selected_report ?? initialReportFilters.report ?? '');
     const [department, setDepartment] = useState(cached?.filters.department ?? initialReportFilters.department ?? '');
@@ -102,23 +107,20 @@ export default function Reports({ initialReportsState, initialReportFilters = {}
     const [exportOpen, setExportOpen] = useState(false);
     const [historyOpen, setHistoryOpen] = useState(false);
 
-    async function loadReport(report: string, nextDepartment = department, nextDateFrom = dateFrom, nextDateTo = dateTo) {
-        setLoading(true);
+    async function loadReport(report: string, nextDepartment = department, nextDateFrom = dateFrom, nextDateTo = dateTo, force = true) {
+        if (!state) setLoading(true);
         try {
-            const response = await axios.get(route('governance.api.reports.state'), {
-                params: {
-                    report,
-                    department: nextDepartment,
-                    date_from: nextDateFrom,
-                    date_to: nextDateTo,
-                },
-            });
-            reportsStateCache = response.data.data;
-            setState(response.data.data);
-            setReportType(response.data.data.selected_report);
-            setDepartment(response.data.data.filters.department);
-            setDateFrom(response.data.data.filters.date_from);
-            setDateTo(response.data.data.filters.date_to);
+            const next = await fetchReportsState<ReportsState>({
+                report,
+                department: nextDepartment,
+                date_from: nextDateFrom,
+                date_to: nextDateTo,
+            }, force);
+            setState(next);
+            setReportType(next.selected_report);
+            setDepartment(next.filters.department);
+            setDateFrom(next.filters.date_from);
+            setDateTo(next.filters.date_to);
             setSelected(null);
         } finally {
             setLoading(false);
@@ -126,7 +128,7 @@ export default function Reports({ initialReportsState, initialReportFilters = {}
     }
 
     useEffect(() => {
-        void loadReport(reportType, department, dateFrom, dateTo);
+        void loadReport(reportType, department, dateFrom, dateTo, Boolean(cached));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 

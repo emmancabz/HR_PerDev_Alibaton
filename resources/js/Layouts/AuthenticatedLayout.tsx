@@ -3,6 +3,7 @@ import SystemSelect from '@/Components/SystemSelect';
 import alibatonLogo from '@/assets/AlibatonLogonobg.png';
 import { encodeWorkspaceHash } from '@/workspaceNavigation';
 import { READ_MODEL_REFRESH_EVENT } from '@/data/readModelRefresh';
+import { installGlobalLinkWarmup, instantNavigate, queueAuthenticatedRouteWarmup, registerInstantRoutes, warmAuthenticatedHref, warmAuthenticatedPageBundles, type InstantRouteEntry } from '@/data/instantNavigation';
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import {
@@ -45,10 +46,6 @@ import { createPortal } from 'react-dom';
 
 type AppUserRole = 'admin' | 'hr' | 'user';
 type UserPersona = 'trainee' | 'employee' | 'supervisor' | 'manager';
-
-// Module-scoped warm caches survive Inertia page swaps for the life of the tab.
-// Nothing sensitive is persisted to browser storage.
-const warmedNavigationHrefs = new Set<string>();
 
 
 type NavChild = {
@@ -1539,6 +1536,83 @@ export default function Authenticated({
     const user = page.props.auth.user;
     const sessionTimeoutMinutes = Math.max(1, Number(page.props.securitySessionTimeoutMinutes ?? 5));
     const navItems = useMemo(() => resolveNavItems(user.role, user.persona), [user.role, user.persona]);
+    const warmRole: AppUserRole = user.role === 'admin' || user.role === 'hr' ? user.role : 'user';
+    const warmPersona: UserPersona = user.persona === 'trainee' || user.persona === 'supervisor' || user.persona === 'manager'
+        ? user.persona
+        : 'employee';
+    const instantRouteEntries = useMemo<InstantRouteEntry[]>(() => {
+        const entries: InstantRouteEntry[] = [];
+        const add = (name: string, component: string, props?: Record<string, unknown>) => {
+            if (!route().has(name)) return;
+            entries.push({ href: route(name), component, props });
+        };
+
+        if (warmRole === 'admin') {
+            add('admin.dashboard', 'AdminDashboard');
+            add('admin.users.index', 'UserManagement');
+            add('admin.performance.index', 'AdminPerformance');
+            add('admin.performance.evaluators', 'AdminPerformance', { performanceView: 'manage-evaluators' });
+            add('admin.competency.index', 'AdminCompetency');
+            add('admin.learning.index', 'AdminLearning');
+            add('admin.training.index', 'AdminTraining');
+            add('admin.succession.index', 'AdminSuccession');
+            add('admin.recognition.index', 'AdminRecognition');
+            add('admin.reports.index', 'Reports');
+            add('admin.settings.index', 'Settings');
+            add('admin.audit.index', 'Settings');
+            add('admin.integrations.index', 'Settings');
+        } else if (warmRole === 'hr') {
+            add('hr.dashboard', 'HRDashboard');
+            add('hr.users.index', 'UserManagement');
+            add('hr.performance.index', 'AdminPerformance');
+            add('hr.performance.evaluators', 'AdminPerformance', { performanceView: 'manage-evaluators' });
+            add('hr.competency.index', 'AdminCompetency');
+            add('hr.learning.index', 'AdminLearning');
+            add('hr.training.index', 'AdminTraining');
+            add('hr.succession.index', 'AdminSuccession');
+            add('hr.recognition.index', 'AdminRecognition');
+            add('hr.reports.index', 'Reports');
+            add('hr.settings.index', 'Settings');
+        } else {
+            const dashboardComponent = warmPersona === 'trainee'
+                ? 'TraineeDashboard'
+                : warmPersona === 'supervisor'
+                    ? 'SupervisorDashboard'
+                    : warmPersona === 'manager'
+                        ? 'ManagerDashboard'
+                        : 'EmployeeDashboard';
+
+            add('user.dashboard', dashboardComponent, { persona: warmPersona });
+            add('user.learning.index', 'LearnerLearning');
+            add('user.assessments.index', 'LearnerLearning');
+            add('user.certificates.index', 'LearnerLearning');
+            add('user.training.index', 'LearnerTraining');
+            add('user.development.index', 'UserSkillsWallet');
+            add('user.skills.index', 'UserSkillsWallet');
+            add('user.profile.index', 'UserProfile');
+            add('user.notifications.index', 'UserNotifications');
+            add('user.settings.index', 'Settings');
+
+            if (warmPersona !== 'trainee') {
+                add('user.performance.index', 'UserPerformance');
+                add('user.leaderboard.index', 'UserRecognition');
+            }
+        }
+
+        return entries;
+    }, [warmPersona, warmRole]);
+
+    const navigationWarmHrefs = useMemo(() => instantRouteEntries.map((entry) => entry.href), [instantRouteEntries]);
+
+    useEffect(() => {
+        // V5 persistent navigation: authenticated route changes swap React page
+        // components locally. Laravel remains authoritative for APIs, permissions,
+        // writes and full browser loads, but it no longer blocks routine module clicks.
+        registerInstantRoutes(instantRouteEntries);
+        warmAuthenticatedPageBundles();
+        queueAuthenticatedRouteWarmup(navigationWarmHrefs);
+        return installGlobalLinkWarmup();
+    }, [instantRouteEntries, navigationWarmHrefs]);
 
     const [collapsed, setCollapsed] = useState<boolean>(() => {
         if (typeof window === 'undefined') return false;
@@ -2119,7 +2193,7 @@ export default function Authenticated({
         await markNotificationsRead([item]);
         setNotificationOpen(false);
         setNotificationCenterOpen(false);
-        router.visit(item.href);
+        if (!instantNavigate(item.href)) router.visit(item.href);
     }, [markNotificationsRead]);
 
     const openNotificationCenter = useCallback(() => {
@@ -2143,7 +2217,7 @@ export default function Authenticated({
 
         // Let the requested page finish painting before secondary header data competes
         // for a constrained production worker. Cached notification data remains visible.
-        const initialTimer = window.setTimeout(refresh, 1500);
+        const initialTimer = window.setTimeout(refresh, 4000);
         const timer = window.setInterval(refresh, 120000);
         window.addEventListener('focus', refresh);
         window.addEventListener('header-notifications:refresh', refresh);
@@ -2198,6 +2272,9 @@ export default function Authenticated({
                 // in-memory copy, but let its own delayed/polling path refresh it so
                 // it never competes with the affected module's authoritative reload.
                 headerNotificationCache = null;
+                if (changed.includes('notifications')) {
+                    window.setTimeout(() => void fetchNotifications(), 900);
+                }
             } catch {
                 // The revision channel is an enhancement only. A temporary failure
                 // must never block navigation or the module's direct data requests.
@@ -2206,13 +2283,13 @@ export default function Authenticated({
 
         const schedule = () => {
             if (timer !== null) window.clearInterval(timer);
-            timer = window.setInterval(() => void poll(), 5_000);
+            timer = window.setInterval(() => void poll(), 8_000);
         };
 
         const initial = window.setTimeout(() => {
             void poll();
             schedule();
-        }, 2_500);
+        }, 6_000);
         const onFocus = () => void poll();
         const onVisible = () => {
             if (document.visibilityState === 'visible') void poll();
@@ -2228,7 +2305,7 @@ export default function Authenticated({
             window.removeEventListener('focus', onFocus);
             document.removeEventListener('visibilitychange', onVisible);
         };
-    }, []);
+    }, [fetchNotifications]);
 
     useEffect(() => {
         const query = searchQuery.trim();
@@ -2359,31 +2436,8 @@ export default function Authenticated({
     };
 
     const warmSidebarHref = (href: string) => {
-        // V4 page routes render lightweight shells, so explicit hover/focus prefetch is
-        // safe in production again. Cache each URL once per tab to make the eventual
-        // click feel immediate without spraying speculative requests at HostForge.
-        if (warmedNavigationHrefs.has(href)) return;
-
-        const prefetch = (router as typeof router & {
-            prefetch?: (
-                url: string,
-                visitOptions?: Record<string, unknown>,
-                prefetchOptions?: { cacheFor?: string | number },
-            ) => void;
-        }).prefetch;
-        if (typeof prefetch === 'function') {
-            try {
-                warmedNavigationHrefs.add(href);
-                prefetch.call(router, href, {}, { cacheFor: '60s' });
-            } catch {
-                warmedNavigationHrefs.delete(href);
-            }
-        }
+        warmAuthenticatedHref(href);
     };
-
-    // Only explicit hover/focus warms a route. Data itself is fetched after the shell
-    // paints and refreshed through the lightweight read-model revision channel.
-
 
     const navigateSidebarHref = (href: string) => {
         // Keep module switches inside the Inertia SPA. Do not preserve the previous
@@ -2391,11 +2445,13 @@ export default function Authenticated({
         // forward makes sidebar navigation feel slower and can retain stale filters.
         persistSidebarScroll();
 
-        router.visit(href, {
-            method: 'get',
-            preserveState: false,
-            preserveScroll: false,
-        });
+        if (!instantNavigate(href)) {
+            router.visit(href, {
+                method: 'get',
+                preserveState: false,
+                preserveScroll: false,
+            });
+        }
 
         setCollapsedFlyout(null);
         closeMobileSidebar();
@@ -2462,15 +2518,20 @@ export default function Authenticated({
             if (isDeepSearchTarget && isSameOrigin) {
                 const targetPath = `${target.pathname}${target.search}`;
 
+                const deepHref = `${target.pathname}${target.search}${target.hash}`;
+                if (instantNavigate(deepHref)) {
+                    window.requestAnimationFrame(() => {
+                        window.dispatchEvent(new HashChangeEvent('hashchange'));
+                        window.dispatchEvent(new CustomEvent('global-search:navigate'));
+                    });
+                    return;
+                }
+
                 router.visit(targetPath, {
                     method: 'get',
                     preserveState: false,
                     preserveScroll: false,
                     onSuccess: () => {
-                        // Inertia does not reliably notify hash-driven workspaces when a
-                        // search result changes route + query + hash together. Apply the
-                        // workspace hash after the page swap and explicitly notify both
-                        // the workspace hook and URL-driven record locators.
                         window.requestAnimationFrame(() => {
                             const nextUrl = `${target.pathname}${target.search}${target.hash}`;
                             window.history.replaceState(window.history.state, '', nextUrl);
@@ -2487,7 +2548,12 @@ export default function Authenticated({
                 return;
             }
 
-            router.visit(`${target.pathname}${target.search}${target.hash}`);
+            const targetHref = `${target.pathname}${target.search}${target.hash}`;
+            if (!instantNavigate(targetHref)) router.visit(targetHref);
+            window.requestAnimationFrame(() => {
+                window.dispatchEvent(new HashChangeEvent('hashchange'));
+                window.dispatchEvent(new CustomEvent('global-search:navigate'));
+            });
             return;
         }
 
@@ -2501,7 +2567,8 @@ export default function Authenticated({
         }
 
         if (result.routeName) {
-            router.visit(resolveNavHref(result.routeName));
+            const href = resolveNavHref(result.routeName);
+            if (!instantNavigate(href)) router.visit(href);
         }
     };
 
@@ -3050,7 +3117,7 @@ export default function Authenticated({
                                                     onClick={() => {
                                                         if (user.role === 'user' && route().has('user.notifications.index')) {
                                                             setNotificationOpen(false);
-                                                            router.visit(route('user.notifications.index'));
+                                                            if (!instantNavigate(route('user.notifications.index'))) router.visit(route('user.notifications.index'));
                                                             return;
                                                         }
                                                         openNotificationCenter();
@@ -3118,7 +3185,7 @@ export default function Authenticated({
                                                             : user.role === 'hr'
                                                                 ? 'hr.settings.index'
                                                                 : 'user.settings.index';
-                                                        router.visit(`${route(settingsRoute)}?section=notifications`);
+                                                        { const href = `${route(settingsRoute)}?section=notifications`; if (!instantNavigate(href)) router.visit(href); }
                                                     }}
                                                     className="h-7 rounded-lg px-2 text-[10px] font-bold text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
                                                 >

@@ -87,6 +87,7 @@ import {
     type PersonnelIdentity,
 } from "@/data/personnel";
 import AuthenticatedLayout, { HeaderActions, HeaderFilters } from "@/Layouts/AuthenticatedLayout";
+import { instantNavigate } from '@/data/instantNavigation';
 import { Head, router, usePage } from "@inertiajs/react";
 import { encodeWorkspaceHash, useHashWorkspace } from "@/workspaceNavigation";
 import {
@@ -1567,7 +1568,8 @@ export default function PerformanceManagement({ performanceView = "workspace" }:
     if (target?.personId) params.set("person", target.personId);
     if (target?.cycleId) params.set("cycle", target.cycleId);
     const query = params.toString();
-    router.visit(`${route(routeName)}${query ? `?${query}` : ""}${encodeWorkspaceHash(workspaceTab)}`);
+    const href = `${route(routeName)}${query ? `?${query}` : ""}${encodeWorkspaceHash(workspaceTab)}`;
+    if (!instantNavigate(href)) router.visit(href);
   }
 
   // Departments come from the shared personnel source, not from Performance's own records.
@@ -3604,7 +3606,7 @@ export default function PerformanceManagement({ performanceView = "workspace" }:
           {performanceView === "manage-evaluators" && (
             <button
               type="button"
-              onClick={() => router.visit(performanceWorkspaceHref())}
+              onClick={() => { const href = performanceWorkspaceHref(); if (!instantNavigate(href)) router.visit(href); }}
               className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               Back to {workspaceTab}
