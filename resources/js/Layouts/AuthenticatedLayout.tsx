@@ -101,6 +101,7 @@ type HeaderNotificationResponse = {
 
 const HEADER_NOTIFICATION_CACHE_TTL_MS = 60_000;
 let headerNotificationCache: { fetchedAt: number; payload: HeaderNotificationResponse } | null = null;
+let headerNotificationRequest: Promise<HeaderNotificationResponse> | null = null;
 
 export type HeaderCrumb = {
     label: string;
@@ -2066,11 +2067,20 @@ export default function Authenticated({
         setNotificationLoading(true);
         setNotificationError('');
         try {
-            const response = await axios.get<HeaderNotificationResponse>('/api/header-notifications', {
-                headers: { Accept: 'application/json' },
-            });
-            headerNotificationCache = { fetchedAt: Date.now(), payload: response.data };
-            applyPayload(response.data);
+            if (!headerNotificationRequest) {
+                headerNotificationRequest = axios
+                    .get<HeaderNotificationResponse>('/api/header-notifications', {
+                        headers: { Accept: 'application/json' },
+                    })
+                    .then((response) => response.data)
+                    .finally(() => {
+                        headerNotificationRequest = null;
+                    });
+            }
+
+            const payload = await headerNotificationRequest;
+            headerNotificationCache = { fetchedAt: Date.now(), payload };
+            applyPayload(payload);
         } catch {
             setNotificationError('Notifications could not be refreshed right now.');
         } finally {
@@ -2131,7 +2141,7 @@ export default function Authenticated({
         // Let the requested page finish painting before secondary header data competes
         // for a constrained production worker. Cached notification data remains visible.
         const initialTimer = window.setTimeout(refresh, 1500);
-        const timer = window.setInterval(refresh, 60000);
+        const timer = window.setInterval(refresh, 120000);
         window.addEventListener('focus', refresh);
         window.addEventListener('header-notifications:refresh', refresh);
         document.addEventListener('visibilitychange', refreshWhenVisible);
@@ -2274,6 +2284,11 @@ export default function Authenticated({
     };
 
     const warmSidebarHref = (href: string) => {
+        // HostForge production workers are intentionally protected from speculative
+        // module requests. A hover must never compete with the navigation the user
+        // actually clicked. Local development keeps prefetching for fast iteration.
+        if (import.meta.env.PROD) return;
+
         // Cache the full Inertia GET response briefly. Hover/focus still refreshes this
         // warm entry, while the idle warmup below makes the first module switch fast.
         const prefetch = (router as typeof router & {

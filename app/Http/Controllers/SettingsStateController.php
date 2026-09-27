@@ -11,6 +11,7 @@ use App\Services\Notifications\NotificationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -213,6 +214,7 @@ class SettingsStateController extends Controller
         $preferences = $this->notificationPreferences->normalize($user, $validated['preferences']);
 
         $user->forceFill(['notification_preferences' => $preferences])->save();
+        Cache::forget(HeaderNotificationController::cacheKeyFor($user->id));
 
         if ($before !== $preferences) {
             $this->audit->record($request, 'NOTIFICATION_PREFERENCES_UPDATED', 'Success', $user, [

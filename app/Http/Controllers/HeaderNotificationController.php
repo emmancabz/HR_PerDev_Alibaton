@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Notifications\NotificationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use App\Support\SchemaPresence as Schema;
 use Throwable;
@@ -14,6 +15,24 @@ class HeaderNotificationController extends Controller
     public function __construct(private readonly NotificationPreferenceService $preferences) {}
 
     public function __invoke(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user, 401);
+
+        $payload = app()->environment('production')
+            ? Cache::remember(self::cacheKeyFor($user->id), now()->addSeconds(30), fn (): array => $this->buildPayload($request))
+            : $this->buildPayload($request);
+
+        return response()->json($payload);
+    }
+
+    public static function cacheKeyFor(int|string $userId): string
+    {
+        return 'header-notifications:v3:user:'.$userId;
+    }
+
+    /** @return array<string, mixed> */
+    private function buildPayload(Request $request): array
     {
         $user = $request->user();
         abort_unless($user, 401);
@@ -405,7 +424,7 @@ class HeaderNotificationController extends Controller
             return $item;
         })->values();
 
-        return response()->json([
+        return [
             'data' => $notifications->all(),
             // totalCount is the number of active alert groups shown in the center.
             'totalCount' => $notifications->count(),
@@ -414,7 +433,7 @@ class HeaderNotificationController extends Controller
             // aggregateCount retains the total number of underlying records/actions.
             'aggregateCount' => (int) $notifications->sum('count'),
             'generatedAt' => now()->toIso8601String(),
-        ]);
+        ];
     }
 
     /**

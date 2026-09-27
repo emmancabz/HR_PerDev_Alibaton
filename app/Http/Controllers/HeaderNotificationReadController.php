@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -46,6 +47,7 @@ class HeaderNotificationReadController extends Controller
                 ['user_id', 'notification_id'],
                 ['fingerprint', 'read_at', 'updated_at'],
             );
+            Cache::forget(HeaderNotificationController::cacheKeyFor($user->id));
         }
 
         return response()->json([
