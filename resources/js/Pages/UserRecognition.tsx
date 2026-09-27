@@ -7,7 +7,7 @@ import { recognitionClient, recognitionError } from '@/data/recognitionClient';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
 import { RECOGNITION_USER_WORKSPACES, denseRank, leaderboardForPeriod, normalizeRecognitionState, ownRecognitions, ownSubmissions, publicFeed, type RecognitionPeriod, type RecognitionRecord, type RecognitionState } from '@/data/recognition';
 import { useHashWorkspace } from '@/workspaceNavigation';
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import { Award, Eye, Medal, Plus, Send, Trophy, UserRoundCheck, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -27,8 +27,9 @@ function Feed({ records, onSelect }: { records: RecognitionRecord[]; onSelect: (
 }
 
 export default function UserRecognition({ initialRecognitionState }: Props) {
+    const { auth } = usePage().props;
     const [workspace, setWorkspace] = useHashWorkspace(RECOGNITION_USER_WORKSPACES, 'Recognition Feed');
-    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState) ?? recognitionClient.peekState());
+    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState) ?? recognitionClient.peekState(Number(auth.user.id)));
     const [loading, setLoading] = useState(!state); const [error, setError] = useState(''); const [selected, setSelected] = useState<RecognitionRecord | null>(null); const [busyId, setBusyId] = useState<string | null>(null);
     const [leaderboardPeriod, setLeaderboardPeriod] = useState<RecognitionPeriod>('All Time');
     const periodLeaderboard = useMemo(() => leaderboardForPeriod(state?.records ?? [], leaderboardPeriod), [state, leaderboardPeriod]);
