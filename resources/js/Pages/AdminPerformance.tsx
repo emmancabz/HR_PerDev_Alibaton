@@ -41,7 +41,10 @@ import {
 } from "@/data/performanceAnalytics";
 import {
     requestPerformanceGroqDraft,
+    hydratePerformanceState,
+    seedPerformanceState,
     usePerformanceBackendBridge,
+    type PerformanceServerState,
 } from "@/data/performanceBackend";
 import {
     type PerformanceDevelopmentStore,
@@ -1351,7 +1354,22 @@ type ReviewSelection = { evaluation: Evaluation; person: PersonnelIdentity };
 /* Main Component                                                         */
 /* ---------------------------------------------------------------------- */
 
-export default function PerformanceManagement({ performanceView = "workspace" }: { performanceView?: "workspace" | "manage-evaluators" }) {
+export default function PerformanceManagement({
+  performanceView = "workspace",
+  initialPerformanceState,
+}: {
+  performanceView?: "workspace" | "manage-evaluators";
+  initialPerformanceState?: PerformanceServerState;
+}) {
+  const page = usePage();
+  const authUser = page.props.auth.user as {
+    id?: number | string;
+    name?: string;
+    role?: "admin" | "hr" | "user";
+    personnel_key?: string | null;
+  };
+  seedPerformanceState(initialPerformanceState);
+  hydratePerformanceState(Number(authUser.id));
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [developmentStore, setDevelopmentStore] =
     useState<PerformanceDevelopmentStore>(
@@ -1463,11 +1481,6 @@ export default function PerformanceManagement({ performanceView = "workspace" }:
   const [groqDraft, setGroqDraft] = useState("");
   const [groqDraftLoading, setGroqDraftLoading] = useState(false);
   const [groqDraftError, setGroqDraftError] = useState("");
-  const authUser = usePage().props.auth.user as {
-    name?: string;
-    role?: "admin" | "hr" | "user";
-    personnel_key?: string | null;
-  };
   const backend = usePerformanceBackendBridge({
     reviews: evaluations,
     setReviews: setEvaluations,
