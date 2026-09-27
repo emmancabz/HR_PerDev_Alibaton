@@ -4,23 +4,60 @@ import { normalizeTrainingState, type TrainingProgramDraft, type TrainingState }
 const unwrap = <T>(response: { data: { data: T } }) => response.data.data;
 let trainingStateCache: TrainingState | null = null;
 let trainingStateRequest: Promise<TrainingState> | null = null;
+const TRAINING_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const trainingStorageKey = (actorId: number) => `pd:training-state:v1:${actorId}`;
+
+const readPersistedTrainingState = (actorId: number): TrainingState | null => {
+    if (typeof window === "undefined" || !Number.isFinite(actorId) || actorId < 1) return null;
+    try {
+        const raw = window.sessionStorage.getItem(trainingStorageKey(actorId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { savedAt?: number; state?: unknown };
+        if (!parsed.savedAt || Date.now() - parsed.savedAt > TRAINING_CACHE_MAX_AGE_MS) {
+            window.sessionStorage.removeItem(trainingStorageKey(actorId));
+            return null;
+        }
+        const state = normalizeTrainingState(parsed.state);
+        return Number(state.actor.id) === actorId ? state : null;
+    } catch {
+        window.sessionStorage.removeItem(trainingStorageKey(actorId));
+        return null;
+    }
+};
 
 const rememberTrainingState = (state: TrainingState): TrainingState => {
     trainingStateCache = state;
+    if (typeof window !== "undefined" && Number(state.actor.id) > 0) {
+        try {
+            window.sessionStorage.setItem(
+                trainingStorageKey(Number(state.actor.id)),
+                JSON.stringify({ savedAt: Date.now(), state }),
+            );
+        } catch {
+            // Browser storage is only a speed-up; API state remains authoritative.
+        }
+    }
     return state;
 };
 const stateResponse = (response: { data: { data: unknown } }): TrainingState => rememberTrainingState(normalizeTrainingState(unwrap(response)));
 
 async function fetchTrainingState(): Promise<TrainingState> {
     if (trainingStateRequest) return trainingStateRequest;
-    trainingStateRequest = axios.get("/training/api/state")
+    trainingStateRequest = axios.get("/training/api/state", { timeout: 20_000 })
         .then(stateResponse)
         .finally(() => { trainingStateRequest = null; });
     return trainingStateRequest;
 }
 
 export const trainingClient = {
-    peekState: () => trainingStateCache,
+    peekState: (actorId?: number) => {
+        if (trainingStateCache && (!actorId || Number(trainingStateCache.actor.id) === actorId)) return trainingStateCache;
+        if (!actorId) return null;
+        const persisted = readPersistedTrainingState(actorId);
+        if (persisted) trainingStateCache = persisted;
+        return persisted;
+    },
     state: fetchTrainingState,
     createProgram: async (payload: TrainingProgramDraft) => unwrap<{ programId: string; code: string }>(await axios.post("/training/api/programs", payload)),
     updateProgram: async (id: string, payload: TrainingProgramDraft) => stateResponse(await axios.put(`/training/api/programs/${id}`, payload)),
@@ -44,6 +81,9 @@ export const trainingClient = {
 
 export function trainingError(error: unknown): string {
     if (axios.isAxiosError(error)) {
+        if (error.code === "ECONNABORTED") {
+            return "Training data took too long to refresh. The last loaded records remain available.";
+        }
         const errors = error.response?.data?.errors as Record<string, string[]> | undefined;
         if (errors) return Object.values(errors).flat().join(" ");
         return error.response?.data?.message ?? "The Training request failed.";
