@@ -3,7 +3,7 @@ import { AppModal } from '@/Components/Competency/CompetencyUI';
 import StatCard from '@/Components/StatCard';
 import SystemSelect from '@/Components/SystemSelect';
 import AuthenticatedLayout, { HeaderActions, HeaderFilters } from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
 import axios from 'axios';
 import {
@@ -40,6 +40,39 @@ type ReportsState = {
 
 type ReportFilters = { report?: string; department?: string; date_from?: string; date_to?: string };
 let reportsStateCache: ReportsState | null = null;
+const REPORTS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const reportsStorageKey = (actorId: number) => `pd:reports-state:v1:${actorId}`;
+
+function readPersistedReportsState(actorId: number): ReportsState | null {
+    if (typeof window === 'undefined' || !Number.isFinite(actorId) || actorId < 1) return null;
+    try {
+        const raw = window.sessionStorage.getItem(reportsStorageKey(actorId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { savedAt?: number; state?: ReportsState };
+        if (!parsed.savedAt || Date.now() - parsed.savedAt > REPORTS_CACHE_MAX_AGE_MS || !parsed.state) {
+            window.sessionStorage.removeItem(reportsStorageKey(actorId));
+            return null;
+        }
+        return parsed.state;
+    } catch {
+        window.sessionStorage.removeItem(reportsStorageKey(actorId));
+        return null;
+    }
+}
+
+function rememberReportsState(actorId: number, state: ReportsState): ReportsState {
+    reportsStateCache = state;
+    if (typeof window !== 'undefined' && Number.isFinite(actorId) && actorId > 0) {
+        try {
+            window.sessionStorage.setItem(
+                reportsStorageKey(actorId),
+                JSON.stringify({ savedAt: Date.now(), state }),
+            );
+        } catch {}
+    }
+    return state;
+}
 
 const metricIcons: Record<string, LucideIcon[]> = {
     'workforce-development': [Users, ClipboardCheck, ShieldCheck, GraduationCap],
@@ -91,7 +124,9 @@ function statusTone(value: unknown) {
 }
 
 export default function Reports({ initialReportsState, initialReportFilters = {} }: { initialReportsState?: ReportsState; initialReportFilters?: ReportFilters }) {
-    const cached = initialReportsState ?? reportsStateCache;
+    const { auth } = usePage().props;
+    const actorId = Number(auth.user.id);
+    const cached = initialReportsState ?? reportsStateCache ?? readPersistedReportsState(actorId);
     const [state, setState] = useState<ReportsState | null>(cached);
     const [reportType, setReportType] = useState(cached?.selected_report ?? initialReportFilters.report ?? '');
     const [department, setDepartment] = useState(cached?.filters.department ?? initialReportFilters.department ?? '');
@@ -113,7 +148,7 @@ export default function Reports({ initialReportsState, initialReportFilters = {}
                     date_to: nextDateTo,
                 },
             });
-            reportsStateCache = response.data.data;
+            rememberReportsState(actorId, response.data.data);
             setState(response.data.data);
             setReportType(response.data.data.selected_report);
             setDepartment(response.data.data.filters.department);
