@@ -48,7 +48,19 @@ class LearningStateController extends Controller
         return response()->json(['data' => $data]);
     }
     public function create(LearningCourseRequest $request): JsonResponse { $version = $this->courses->createDraft($request->user(), $request->validated()); return response()->json(['data' => ['versionId' => $version->id, 'courseId' => $version->course_id, 'code' => $version->course->code]], 201); }
-    public function save(LearningCourseRequest $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('edit', $version); $this->courses->saveDraft($request->user(), $version, $request->validated()); return response()->json(['data' => $this->courses->state($request->user())]); }
+    public function save(LearningCourseRequest $request, LearningCourseVersion $version): JsonResponse
+    {
+        Gate::authorize('edit', $version);
+        $this->courses->saveDraft($request->user(), $version, $request->validated());
+        $fresh = $version->fresh();
+
+        return response()->json(['data' => [
+            'versionId' => (string) $fresh->id,
+            'courseId' => (string) $fresh->course_id,
+            'status' => (string) $fresh->status,
+            'workingStage' => (int) $fresh->builder_stage,
+        ]]);
+    }
     public function submitReview(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('submitReview', $version); $this->courses->submitForReview($request->user(), $version); return $this->show($request); }
     public function decideReview(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('review', $version); $data = $request->validate(['decision' => ['required', 'in:Approved,Changes Requested'], 'comment' => ['nullable', 'string', 'max:10000']]); $this->courses->decideReview($request->user(), $version, $data['decision'], $data['comment'] ?? ''); return $this->show($request); }
     public function publish(Request $request, LearningCourseVersion $version): JsonResponse { Gate::authorize('publish', $version); $this->courses->publish($request->user(), $version); return $this->show($request); }

@@ -180,7 +180,6 @@ export default function AdminLearning({ initialLearningState }: Props) {
             setState(next);
             setLoadStatus("ready");
         } catch (error) {
-            setState(null);
             setLoadError(learningError(error));
             setLoadStatus("error");
         }
@@ -193,6 +192,11 @@ export default function AdminLearning({ initialLearningState }: Props) {
     }, []);
 
     useReadModelRefresh("learning", loadLearningState);
+
+    const closeBuilder = useCallback(() => {
+        setBuilder(null);
+        void loadLearningState();
+    }, [loadLearningState]);
 
     if (!state) {
         return (
@@ -263,7 +267,7 @@ export default function AdminLearning({ initialLearningState }: Props) {
                 <Head title="Course Builder" />
                 <CourseBuilderRecoveryBoundary
                     key={`${builder.id ?? builder.courseId ?? "new-course"}:${builderRecovery}`}
-                    onExit={() => setBuilder(null)}
+                    onExit={closeBuilder}
                     onRetry={async () => {
                         const next = await learningClient.state();
                         const persisted = next.courses
@@ -280,7 +284,7 @@ export default function AdminLearning({ initialLearningState }: Props) {
                         initialDraft={builder}
                         state={state}
                         onState={setState}
-                        onExit={() => setBuilder(null)}
+                        onExit={closeBuilder}
                     />
                 </CourseBuilderRecoveryBoundary>
             </AuthenticatedLayout>

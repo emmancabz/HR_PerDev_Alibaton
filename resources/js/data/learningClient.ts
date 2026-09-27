@@ -19,7 +19,7 @@ const stateResponse = (response: { data: { data: unknown } }): LearningState =>
 
 async function fetchLearningState(): Promise<LearningState> {
     if (learningStateRequest) return learningStateRequest;
-    learningStateRequest = axios.get("/learning/api/state")
+    learningStateRequest = axios.get("/learning/api/state", { timeout: 20_000 })
         .then(stateResponse)
         .finally(() => { learningStateRequest = null; });
     return learningStateRequest;
@@ -32,7 +32,12 @@ export const learningClient = {
             await axios.post("/learning/api/courses", draft),
         ),
     save: async (versionId: string, draft: CourseDraft) =>
-        stateResponse(
+        unwrap<{
+            versionId: string;
+            courseId: string;
+            status: string;
+            workingStage: number;
+        }>(
             await axios.put(`/learning/api/versions/${versionId}`, draft),
         ),
     submitReview: async (versionId: string) =>
@@ -221,6 +226,9 @@ export const learningClient = {
 
 export function learningError(error: unknown): string {
     if (axios.isAxiosError(error)) {
+        if (error.code === "ECONNABORTED") {
+            return "Learning data took too long to load. Please retry.";
+        }
         const errors = error.response?.data?.errors as
             | Record<string, string[]>
             | undefined;

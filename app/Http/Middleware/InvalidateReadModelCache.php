@@ -13,7 +13,15 @@ class InvalidateReadModelCache
     {
         $response = $next($request);
 
-        if (! in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true)
+        $learningDraftAutosave = $domain === 'learning'
+            && $request->isMethod('PUT')
+            && (
+                $request->routeIs('learning.api.versions.save')
+                || preg_match('#^learning/api/versions/[^/]+$#', $request->path()) === 1
+            );
+
+        if (! $learningDraftAutosave
+            && ! in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true)
             && $response->getStatusCode() >= 200
             && $response->getStatusCode() < 400) {
             ReadModelCache::bump($domain);

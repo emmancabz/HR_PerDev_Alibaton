@@ -2169,7 +2169,7 @@ export default function Authenticated({
 
         // Let the requested page finish painting before secondary header data competes
         // for a constrained production worker. Cached notification data remains visible.
-        const initialTimer = window.setTimeout(refresh, 1500);
+        const initialTimer = window.setTimeout(refresh, 4000);
         const timer = window.setInterval(refresh, 120000);
         window.addEventListener('focus', refresh);
         window.addEventListener('header-notifications:refresh', refresh);
@@ -2232,13 +2232,13 @@ export default function Authenticated({
 
         const schedule = () => {
             if (timer !== null) window.clearInterval(timer);
-            timer = window.setInterval(() => void poll(), 5_000);
+            timer = window.setInterval(() => void poll(), 15_000);
         };
 
         const initial = window.setTimeout(() => {
             void poll();
             schedule();
-        }, 2_500);
+        }, 5_000);
         const onFocus = () => void poll();
         const onVisible = () => {
             if (document.visibilityState === 'visible') void poll();

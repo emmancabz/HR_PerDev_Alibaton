@@ -272,8 +272,24 @@ export default function CourseBuilder({
     }
 
     async function advanceToStage(destination: number): Promise<void> {
-        if (busy || destination <= stage || destination > maxReachableStage)
+        if (busy || destination <= stage) return;
+
+        if (destination > maxReachableStage) {
+            const blockingStage = stageIssues
+                .slice(0, destination)
+                .findIndex((issues) => issues.length > 0);
+            if (blockingStage >= 0) {
+                setMessage(
+                    `Complete ${BUILDER_STAGES[blockingStage]} first: ${stageIssues[blockingStage][0]}`,
+                );
+                if (blockingStage !== stage) {
+                    setStageDirection("backward");
+                    setStage(blockingStage);
+                }
+            }
             return;
+        }
+
         if (activeSave.current) await activeSave.current;
         const current = draftRef.current;
         const destinationDraft = {
@@ -305,27 +321,17 @@ export default function CourseBuilder({
                 queuedSave.current = false;
                 const savingRevision = revision.current;
                 const payload = structuredClone(draftRef.current);
-                let next: LearningState;
-                let ids: { versionId: string; courseId: string } | null = null;
-                if (payload.id)
-                    next = await learningClient.save(payload.id, payload);
-                else {
+                let ids: { versionId: string; courseId: string; code: string } | null = null;
+                if (payload.id) {
+                    await learningClient.save(payload.id, payload);
+                } else {
                     ids = await learningClient.create(payload);
-                    next = await learningClient.state();
-                }
-                onState(next);
-                const persisted = next.courses.find(
-                    (row) => row.id === (ids?.courseId ?? payload.courseId),
-                )?.draftDetail;
-                if (ids) {
                     const current = draftRef.current;
                     const value = {
                         ...current,
-                        ...(revision.current === savingRevision && persisted
-                            ? structuredClone(persisted)
-                            : {}),
-                        id: ids!.versionId,
-                        courseId: ids!.courseId,
+                        id: ids.versionId,
+                        courseId: ids.courseId,
+                        code: ids.code || current.code,
                         status: "Draft" as const,
                     };
                     draftRef.current = value;
@@ -337,11 +343,6 @@ export default function CourseBuilder({
                     dirty.current = true;
                     setSaveStatus("Saving");
                     continue;
-                }
-                if (persisted) {
-                    const clone = structuredClone(persisted);
-                    draftRef.current = clone;
-                    setDraft(clone);
                 }
                 dirty.current = false;
                 setSaveStatus("Saved");

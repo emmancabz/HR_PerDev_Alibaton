@@ -179,7 +179,10 @@ class CrossModuleReportService
 
     private function workforceRows(User $actor, array $filters): Collection
     {
-        $query = User::query()->activePersonnel()->orderBy('name');
+        $query = User::query()
+            ->activePersonnel()
+            ->orderBy('name');
+
         if ($actor->role === UserRole::User) {
             $query->whereKey($actor->id);
         }
@@ -187,73 +190,102 @@ class CrossModuleReportService
             $query->where('department', $filters['department']);
         }
 
-        return $query->get()->map(function (User $person) use ($filters): array {
-            $reviewCount = 0;
-            if (Schema::hasTable('performance_review_assignments') && Schema::hasTable('performance_reviews')) {
-                $reviewQuery = DB::table('performance_review_assignments as a')
-                    ->join('performance_reviews as r', 'r.performance_review_assignment_id', '=', 'a.id')
-                    ->where('a.subject_user_id', $person->id)
-                    ->whereNotNull('r.finalized_at');
-                $this->applyDateRange($reviewQuery, 'r.finalized_at', $filters);
-                $reviewCount = $reviewQuery->count();
-            }
+        $people = $query->get([
+            'id',
+            'name',
+            'employee_or_trainee_id',
+            'department',
+            'position',
+        ]);
+        $personIds = $people->pluck('id')->values();
 
-            $competencyAssessments = 0;
-            if (Schema::hasTable('competency_assessments') && Schema::hasTable('competency_finalizations')) {
-                $competencyQuery = DB::table('competency_assessments as a')
-                    ->join('competency_finalizations as f', 'f.assessment_id', '=', 'a.id')
-                    ->where('a.person_id', $person->id);
-                $this->applyDateRange($competencyQuery, 'f.finalized_at', $filters);
-                $competencyAssessments = $competencyQuery->distinct()->count('a.id');
-            }
+        if ($personIds->isEmpty()) {
+            return collect();
+        }
 
-            $competencyOpenGaps = 0;
-            if (Schema::hasTable('competency_recommendations')) {
-                $gapQuery = DB::table('competency_recommendations')
-                    ->where('person_id', $person->id)
-                    ->where('status', '!=', 'Reassessed');
-                $competencyOpenGaps = $gapQuery->count();
-            }
+        $reviewCounts = collect();
+        if (Schema::hasTable('performance_review_assignments') && Schema::hasTable('performance_reviews')) {
+            $reviewQuery = DB::table('performance_review_assignments as a')
+                ->join('performance_reviews as r', 'r.performance_review_assignment_id', '=', 'a.id')
+                ->whereIn('a.subject_user_id', $personIds)
+                ->whereNotNull('r.finalized_at');
+            $this->applyDateRange($reviewQuery, 'r.finalized_at', $filters);
+            $reviewCounts = $reviewQuery
+                ->selectRaw('a.subject_user_id as person_id, COUNT(*) as total')
+                ->groupBy('a.subject_user_id')
+                ->pluck('total', 'person_id');
+        }
 
-            $learning = 0;
-            if (Schema::hasTable('learning_completions')) {
-                $learningQuery = DB::table('learning_completions')->where('learner_id', $person->id);
-                $this->applyDateRange($learningQuery, 'completed_at', $filters);
-                $learning = $learningQuery->count();
-            }
+        $competencyCounts = collect();
+        if (Schema::hasTable('competency_assessments') && Schema::hasTable('competency_finalizations')) {
+            $competencyQuery = DB::table('competency_assessments as a')
+                ->join('competency_finalizations as f', 'f.assessment_id', '=', 'a.id')
+                ->whereIn('a.person_id', $personIds);
+            $this->applyDateRange($competencyQuery, 'f.finalized_at', $filters);
+            $competencyCounts = $competencyQuery
+                ->selectRaw('a.person_id, COUNT(DISTINCT a.id) as total')
+                ->groupBy('a.person_id')
+                ->pluck('total', 'person_id');
+        }
 
-            $training = 0;
-            if (Schema::hasTable('training_completions') && Schema::hasTable('training_enrollments')) {
-                $trainingQuery = DB::table('training_completions as c')
-                    ->join('training_enrollments as e', 'e.id', '=', 'c.enrollment_id')
-                    ->where('e.participant_id', $person->id);
-                $this->applyDateRange($trainingQuery, 'c.finalized_at', $filters);
-                $training = $trainingQuery->count();
-            }
+        $gapCounts = collect();
+        if (Schema::hasTable('competency_recommendations')) {
+            $gapCounts = DB::table('competency_recommendations')
+                ->whereIn('person_id', $personIds)
+                ->where('status', '!=', 'Reassessed')
+                ->selectRaw('person_id, COUNT(*) as total')
+                ->groupBy('person_id')
+                ->pluck('total', 'person_id');
+        }
 
-            $recognition = 0;
-            if (Schema::hasTable('recognition_records')) {
-                $recognitionQuery = DB::table('recognition_records')
-                    ->where('recipient_id', $person->id)
-                    ->where('status', 'Recognized');
-                $this->applyDateRange($recognitionQuery, 'recognized_at', $filters);
-                $recognition = $recognitionQuery->count();
-            }
+        $learningCounts = collect();
+        if (Schema::hasTable('learning_completions')) {
+            $learningQuery = DB::table('learning_completions')
+                ->whereIn('learner_id', $personIds);
+            $this->applyDateRange($learningQuery, 'completed_at', $filters);
+            $learningCounts = $learningQuery
+                ->selectRaw('learner_id as person_id, COUNT(*) as total')
+                ->groupBy('learner_id')
+                ->pluck('total', 'person_id');
+        }
 
-            return [
-                'id' => (string) $person->id,
-                'person' => $person->name,
-                'employee_id' => $person->employee_or_trainee_id,
-                'department' => $person->department,
-                'position' => $person->position,
-                'finalized_reviews' => $reviewCount,
-                'competency_assessments' => $competencyAssessments,
-                'open_competency_gaps' => $competencyOpenGaps,
-                'learning_completions' => $learning,
-                'training_completions' => $training,
-                'recognitions' => $recognition,
-            ];
-        });
+        $trainingCounts = collect();
+        if (Schema::hasTable('training_completions') && Schema::hasTable('training_enrollments')) {
+            $trainingQuery = DB::table('training_completions as c')
+                ->join('training_enrollments as e', 'e.id', '=', 'c.enrollment_id')
+                ->whereIn('e.participant_id', $personIds);
+            $this->applyDateRange($trainingQuery, 'c.finalized_at', $filters);
+            $trainingCounts = $trainingQuery
+                ->selectRaw('e.participant_id as person_id, COUNT(*) as total')
+                ->groupBy('e.participant_id')
+                ->pluck('total', 'person_id');
+        }
+
+        $recognitionCounts = collect();
+        if (Schema::hasTable('recognition_records')) {
+            $recognitionQuery = DB::table('recognition_records')
+                ->whereIn('recipient_id', $personIds)
+                ->where('status', 'Recognized');
+            $this->applyDateRange($recognitionQuery, 'recognized_at', $filters);
+            $recognitionCounts = $recognitionQuery
+                ->selectRaw('recipient_id as person_id, COUNT(*) as total')
+                ->groupBy('recipient_id')
+                ->pluck('total', 'person_id');
+        }
+
+        return $people->map(fn (User $person): array => [
+            'id' => (string) $person->id,
+            'person' => $person->name,
+            'employee_id' => $person->employee_or_trainee_id,
+            'department' => $person->department,
+            'position' => $person->position,
+            'finalized_reviews' => (int) ($reviewCounts[$person->id] ?? 0),
+            'competency_assessments' => (int) ($competencyCounts[$person->id] ?? 0),
+            'open_competency_gaps' => (int) ($gapCounts[$person->id] ?? 0),
+            'learning_completions' => (int) ($learningCounts[$person->id] ?? 0),
+            'training_completions' => (int) ($trainingCounts[$person->id] ?? 0),
+            'recognitions' => (int) ($recognitionCounts[$person->id] ?? 0),
+        ]);
     }
 
     private function performanceRows(array $filters): Collection
