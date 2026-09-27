@@ -8,9 +8,40 @@ import {
 const unwrap = <T>(response: { data: { data: T } }) => response.data.data;
 let learningStateCache: LearningState | null = null;
 let learningStateRequest: Promise<LearningState> | null = null;
+const LEARNING_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const learningStorageKey = (actorId: number) => `pd:learning-state:v1:${actorId}`;
+
+const readPersistedLearningState = (actorId: number): LearningState | null => {
+    if (typeof window === "undefined" || !Number.isFinite(actorId) || actorId < 1) return null;
+    try {
+        const raw = window.sessionStorage.getItem(learningStorageKey(actorId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { savedAt?: number; state?: unknown };
+        if (!parsed.savedAt || Date.now() - parsed.savedAt > LEARNING_CACHE_MAX_AGE_MS) {
+            window.sessionStorage.removeItem(learningStorageKey(actorId));
+            return null;
+        }
+        const state = normalizeLearningState(parsed.state);
+        return Number(state.actor.id) === actorId ? state : null;
+    } catch {
+        window.sessionStorage.removeItem(learningStorageKey(actorId));
+        return null;
+    }
+};
 
 const rememberLearningState = (state: LearningState): LearningState => {
     learningStateCache = state;
+    if (typeof window !== "undefined" && Number(state.actor.id) > 0) {
+        try {
+            window.sessionStorage.setItem(
+                learningStorageKey(Number(state.actor.id)),
+                JSON.stringify({ savedAt: Date.now(), state }),
+            );
+        } catch {
+            // Browser storage is only a speed-up; API state remains authoritative.
+        }
+    }
     return state;
 };
 
@@ -25,7 +56,13 @@ async function fetchLearningState(): Promise<LearningState> {
     return learningStateRequest;
 }
 export const learningClient = {
-    peekState: () => learningStateCache,
+    peekState: (actorId?: number) => {
+        if (learningStateCache && (!actorId || Number(learningStateCache.actor.id) === actorId)) return learningStateCache;
+        if (!actorId) return null;
+        const persisted = readPersistedLearningState(actorId);
+        if (persisted) learningStateCache = persisted;
+        return persisted;
+    },
     state: fetchLearningState,
     create: async (draft: CourseDraft) =>
         unwrap<{ versionId: string; courseId: string; code: string }>(
