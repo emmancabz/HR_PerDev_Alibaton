@@ -91,6 +91,55 @@ type Leadership360Task = {
 
 type Leadership360Draft = { ratings: Record<string, number>; comment: string };
 
+const USER_PERFORMANCE_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+type UserPerformanceCache = {
+  savedAt: number;
+  reviews: PerformanceReview[];
+  leadershipTasks: Leadership360Task[];
+};
+
+function userPerformanceStorageKey(actorId: number): string {
+  return `pd:user-performance:v1:${actorId}`;
+}
+
+function readUserPerformanceCache(actorId: number): UserPerformanceCache | null {
+  if (typeof window === "undefined" || !Number.isFinite(actorId) || actorId < 1) return null;
+  try {
+    const raw = window.sessionStorage.getItem(userPerformanceStorageKey(actorId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as UserPerformanceCache;
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > USER_PERFORMANCE_CACHE_MAX_AGE_MS) {
+      window.sessionStorage.removeItem(userPerformanceStorageKey(actorId));
+      return null;
+    }
+    return {
+      savedAt: parsed.savedAt,
+      reviews: Array.isArray(parsed.reviews) ? parsed.reviews : [],
+      leadershipTasks: Array.isArray(parsed.leadershipTasks) ? parsed.leadershipTasks : [],
+    };
+  } catch {
+    window.sessionStorage.removeItem(userPerformanceStorageKey(actorId));
+    return null;
+  }
+}
+
+function writeUserPerformanceCache(
+  actorId: number,
+  patch: Partial<Pick<UserPerformanceCache, "reviews" | "leadershipTasks">>,
+): void {
+  if (typeof window === "undefined" || !Number.isFinite(actorId) || actorId < 1) return;
+  const current = readUserPerformanceCache(actorId);
+  const next: UserPerformanceCache = {
+    savedAt: Date.now(),
+    reviews: patch.reviews ?? current?.reviews ?? [],
+    leadershipTasks: patch.leadershipTasks ?? current?.leadershipTasks ?? [],
+  };
+  try {
+    window.sessionStorage.setItem(userPerformanceStorageKey(actorId), JSON.stringify(next));
+  } catch {}
+}
+
 function resolveCurrentPerson(user: AuthUserShape): PersonnelIdentity | undefined {
   const authId = user.id === undefined ? "" : String(user.id);
   const normalizedEmail = user.email?.trim().toLowerCase();
@@ -653,17 +702,19 @@ function Leadership360FeedbackModal({
 
 export default function UserPerformance() {
   const authUser = usePage().props.auth.user as AuthUserShape;
+  const actorId = Number(authUser.id);
+  const cached = useMemo(() => readUserPerformanceCache(actorId), [actorId]);
   const currentPerson = useMemo(() => resolveCurrentPerson(authUser), [authUser]);
-  const [reviews, setReviews] = useState<PerformanceReview[]>([]);
-  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviews, setReviews] = useState<PerformanceReview[]>(() => cached?.reviews ?? []);
+  const [reviewsLoading, setReviewsLoading] = useState(() => !(cached?.reviews?.length));
   const [reviewsError, setReviewsError] = useState("");
   const [reviewSaving, setReviewSaving] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("My Performance");
   const [teamStatusFilter, setTeamStatusFilter] = useState<TeamStatusFilter>("All");
   const [selectedTeamReviewId, setSelectedTeamReviewId] = useState<string | null>(null);
   const [selectedSelfReviewId, setSelectedSelfReviewId] = useState<string | null>(null);
-  const [leadershipTasks, setLeadershipTasks] = useState<Leadership360Task[]>([]);
-  const [leadershipLoading, setLeadershipLoading] = useState(true);
+  const [leadershipTasks, setLeadershipTasks] = useState<Leadership360Task[]>(() => cached?.leadershipTasks ?? []);
+  const [leadershipLoading, setLeadershipLoading] = useState(() => !(cached?.leadershipTasks?.length));
   const [leadershipSaving, setLeadershipSaving] = useState(false);
   const [leadershipError, setLeadershipError] = useState("");
   const [selectedLeadershipTaskId, setSelectedLeadershipTaskId] = useState<string | null>(null);
@@ -671,17 +722,19 @@ export default function UserPerformance() {
 
   useEffect(() => {
     let active = true;
-    setReviewsLoading(true);
+    setReviewsLoading(!(cached?.reviews?.length));
     setReviewsError("");
     axios
       .get<{ data: PerformanceReview[] }>("/api/performance/user-reviews", { headers: { Accept: "application/json" } })
       .then((response) => {
-        if (active) setReviews(response.data.data ?? []);
+        if (!active) return;
+        const next = response.data.data ?? [];
+        setReviews(next);
+        writeUserPerformanceCache(actorId, { reviews: next });
       })
       .catch(() => {
         if (active) {
-          setReviews([]);
-          setReviewsError("Performance reviews could not be loaded right now.");
+          setReviewsError("Performance reviews could not be refreshed right now. The last loaded records remain available.");
         }
       })
       .finally(() => { if (active) setReviewsLoading(false); });
@@ -697,7 +750,9 @@ export default function UserPerformance() {
         { review },
         { headers: { Accept: "application/json" } },
       );
-      setReviews(response.data.data ?? []);
+      const next = response.data.data ?? [];
+      setReviews(next);
+      writeUserPerformanceCache(actorId, { reviews: next });
       setActionMessage(successMessage);
       return true;
     } catch (error) {
@@ -715,17 +770,19 @@ export default function UserPerformance() {
 
   useEffect(() => {
     let active = true;
-    setLeadershipLoading(true);
+    setLeadershipLoading(!(cached?.leadershipTasks?.length));
     setLeadershipError("");
     axios
       .get<{ data: Leadership360Task[] }>("/api/performance/360/tasks", { headers: { Accept: "application/json" } })
       .then((response) => {
-        if (active) setLeadershipTasks(response.data.data ?? []);
+        if (!active) return;
+        const next = response.data.data ?? [];
+        setLeadershipTasks(next);
+        writeUserPerformanceCache(actorId, { leadershipTasks: next });
       })
       .catch(() => {
         if (active) {
-          setLeadershipTasks([]);
-          setLeadershipError("Leadership feedback tasks could not be loaded right now.");
+          setLeadershipError("Leadership feedback tasks could not be refreshed right now. The last loaded tasks remain available.");
         }
       })
       .finally(() => { if (active) setLeadershipLoading(false); });
@@ -946,7 +1003,9 @@ export default function UserPerformance() {
         },
         { headers: { Accept: "application/json" } },
       );
-      setLeadershipTasks(response.data.data ?? []);
+      const next = response.data.data ?? [];
+      setLeadershipTasks(next);
+      writeUserPerformanceCache(actorId, { leadershipTasks: next });
       setSelectedLeadershipTaskId(null);
       setActionMessage("Leadership feedback saved. The formal 360° result remains governed and is released only through the Review workflow.");
     } catch (error) {
