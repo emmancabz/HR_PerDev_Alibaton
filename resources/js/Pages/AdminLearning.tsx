@@ -23,7 +23,7 @@ import {
 } from "@/data/learning";
 import { learningClient, learningError } from "@/data/learningClient";
 import { useReadModelRefresh } from "@/data/readModelRefresh";
-import { Head } from "@inertiajs/react";
+import { Head, usePage } from "@inertiajs/react";
 import { useHashWorkspace } from "@/workspaceNavigation";
 import {
     AlertCircle,
@@ -145,8 +145,9 @@ function initialState(value: unknown): LearningState | null {
 }
 
 export default function AdminLearning({ initialLearningState }: Props) {
+    const { auth } = usePage().props;
     const [state, setState] = useState<LearningState | null>(() =>
-        initialState(initialLearningState) ?? learningClient.peekState(),
+        initialState(initialLearningState) ?? learningClient.peekState(Number(auth.user.id)),
     );
     const [loadStatus, setLoadStatus] = useState<
         "loading" | "ready" | "error"
