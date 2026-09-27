@@ -1595,6 +1595,18 @@ function AssignModal({ course, state, renewal, close, done }: any) {
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
     const versionId = course?.publishedVersionId;
+    const audienceRules = course?.publishedDetail?.audience ?? {};
+    const likelyAudienceIds = state.personnel
+        .filter((person: any) => {
+            const personTypes = audienceRules.personTypes ?? [];
+            const departments = audienceRules.departments ?? [];
+            const positions = audienceRules.positions ?? [];
+            if (personTypes.length && !personTypes.includes(person.person_type)) return false;
+            if (!audienceRules.allDepartments && departments.length && !departments.includes(person.department)) return false;
+            if (positions.length && !positions.includes(person.position)) return false;
+            return true;
+        })
+        .map((person: any) => Number(person.id));
     useEffect(() => {
         if (!course) return;
         const audience = course.publishedDetail?.audience;
@@ -1701,6 +1713,44 @@ function AssignModal({ course, state, renewal, close, done }: any) {
                     </div>
                 )}
                 <Field label="Learners">
+                    {!renewal && (
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                className={btn}
+                                disabled={!likelyAudienceIds.length}
+                                onClick={() => {
+                                    setIds(likelyAudienceIds);
+                                    changed();
+                                }}
+                            >
+                                Select likely audience ({likelyAudienceIds.length})
+                            </button>
+                            <button
+                                type="button"
+                                className={btn}
+                                disabled={!state.personnel.length}
+                                onClick={() => {
+                                    setIds(state.personnel.map((person: any) => Number(person.id)));
+                                    changed();
+                                }}
+                            >
+                                Select all
+                            </button>
+                            <button
+                                type="button"
+                                className={btn}
+                                disabled={!ids.length}
+                                onClick={() => {
+                                    setIds([]);
+                                    changed();
+                                }}
+                            >
+                                Clear
+                            </button>
+                            <span className="text-xs font-semibold text-slate-500">{ids.length} selected</span>
+                        </div>
+                    )}
                     <SystemSelect
                         multiple
                         disabled={Boolean(renewal)}

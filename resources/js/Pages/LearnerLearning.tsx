@@ -846,6 +846,10 @@ function catalogEnrollmentState(row: any, assignments: any[], completions: any[]
         return { kind: "enrolled" as const, assignment: activeLineageAssignment };
     }
 
+    if (String(row?.catalogVisibility ?? "Assigned only") !== "Eligible users may self-enroll") {
+        return { kind: "assignment-required" as const, assignment: null };
+    }
+
     return { kind: "available" as const, assignment: null };
 }
 
@@ -869,7 +873,8 @@ function Catalog({
         enroll(row.publishedVersionId);
     };
 
-    const catalogActionLabel = () => "Self-enroll";
+    const catalogActionLabel = (enrollment: ReturnType<typeof catalogEnrollmentState>) =>
+        enrollment.kind === "assignment-required" ? "Assignment required" : "Self-enroll";
 
     return (
         <>
@@ -877,7 +882,7 @@ function Catalog({
                 <header className="border-b border-slate-100 px-5 py-5">
                     <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">Course Catalog</p>
                     <h2 className="mt-2 text-xl font-extrabold text-slate-950">Explore available courses</h2>
-                    <p className="mt-1 text-sm text-slate-500">Browse published courses available to your trainee profile. Self-enroll is available once per published version; after enrollment the same button remains visible but is disabled.</p>
+                    <p className="mt-1 text-sm text-slate-500">Browse published courses available to your trainee profile. Self-enrollment courses can be joined directly; assigned-only courses remain visible but require an HR/Admin assignment.</p>
                 </header>
 
                 <div className="grid items-stretch gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
@@ -892,8 +897,8 @@ function Catalog({
                                             <h3 className="mt-1 text-lg font-bold text-slate-950">{row.title}</h3>
                                         </div>
                                         {enrollment.kind !== "available" && (
-                                            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${enrollment.kind === "completed" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"}`}>
-                                                {enrollment.kind === "completed" ? "Completed" : "Enrolled"}
+                                            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${enrollment.kind === "completed" ? "bg-emerald-50 text-emerald-700" : enrollment.kind === "assignment-required" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"}`}>
+                                                {enrollment.kind === "completed" ? "Completed" : enrollment.kind === "assignment-required" ? "Published" : "Enrolled"}
                                             </span>
                                         )}
                                     </div>
@@ -910,7 +915,7 @@ function Catalog({
                                             onClick={() => catalogAction(row, enrollment)}
                                         >
                                             <GraduationCap className="h-4 w-4" />
-                                            {catalogActionLabel()}
+                                            {catalogActionLabel(enrollment)}
                                         </button>
                                     </div>
                                 </article>
@@ -938,7 +943,7 @@ function Catalog({
                         }}
                     >
                         <GraduationCap className="h-4 w-4" />
-                        {catalogActionLabel()}
+                        {catalogActionLabel(selectedEnrollment)}
                     </button>
                 ) : undefined}
             >
@@ -946,9 +951,21 @@ function Catalog({
                     <div className="space-y-4 text-sm text-slate-600">
                         <p className="leading-7">{firstText(selected.description, selected.summary, selected.objective, selected.short_description) || 'No published description is available for this course yet.'}</p>
                         {selectedEnrollment && selectedEnrollment.kind !== "available" && (
-                            <div className={`rounded-xl border px-4 py-3 ${selectedEnrollment.kind === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-sky-200 bg-sky-50 text-sky-800"}`}>
-                                <p className="font-bold">{selectedEnrollment.kind === "completed" ? "This published version is already completed." : "You are already enrolled in this course."}</p>
-                                <p className="mt-1 text-xs">{selectedEnrollment.kind === "completed" ? "Its permanent record is available in Development → Learning History." : "Continue the existing learning record from My Courses; a duplicate enrollment will not be created."}</p>
+                            <div className={`rounded-xl border px-4 py-3 ${selectedEnrollment.kind === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : selectedEnrollment.kind === "assignment-required" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-sky-200 bg-sky-50 text-sky-800"}`}>
+                                <p className="font-bold">
+                                    {selectedEnrollment.kind === "completed"
+                                        ? "This published version is already completed."
+                                        : selectedEnrollment.kind === "assignment-required"
+                                          ? "This course is published for your profile and requires assignment."
+                                          : "You are already enrolled in this course."}
+                                </p>
+                                <p className="mt-1 text-xs">
+                                    {selectedEnrollment.kind === "completed"
+                                        ? "Its permanent record is available in Development → Learning History."
+                                        : selectedEnrollment.kind === "assignment-required"
+                                          ? "It will move into Assigned Learning / My Courses as soon as HR or Admin assigns it to you."
+                                          : "Continue the existing learning record from My Courses; a duplicate enrollment will not be created."}
+                                </p>
                             </div>
                         )}
                         <div className="grid gap-3 sm:grid-cols-2">

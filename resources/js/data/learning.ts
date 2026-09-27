@@ -200,6 +200,8 @@ export type CourseSummary = {
     id: string;
     code: string;
     title: string;
+    description?: string;
+    catalogVisibility?: "Assigned only" | "Eligible users may self-enroll" | "Unlisted";
     category: string;
     status: CourseStatus;
     owner: string;
@@ -575,6 +577,10 @@ function normalizeCourseSummary(value: unknown, actorId: number): CourseSummary 
         id: text(source.id),
         code: text(source.code),
         title: text(source.title),
+        description: optionalText(source.description),
+        catalogVisibility: ["Assigned only", "Eligible users may self-enroll", "Unlisted"].includes(text(source.catalogVisibility))
+            ? (text(source.catalogVisibility) as CourseSummary["catalogVisibility"])
+            : "Assigned only",
         category: text(source.category),
         status: courseStatuses.includes(statusValue as CourseStatus)
             ? (statusValue as CourseStatus)

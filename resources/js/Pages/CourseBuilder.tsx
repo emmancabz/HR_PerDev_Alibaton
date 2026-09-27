@@ -175,12 +175,12 @@ export default function CourseBuilder({
                   ]),
               ]).filter(Boolean)
             : ["Add at least one module."];
-        const assessment = [
+        const assessment = [...new Set([
             ...draft.assessments.flatMap((value) => assessmentErrors(value)),
             ...draft.assessments
                 .filter((value) => value.type === "Knowledge Check" && !value.moduleClientId)
                 .map((value) => `Knowledge Check “${value.title}” must be linked to a module.`),
-        ];
+        ])];
         return [details, sources, audience, curriculum, assessment, [], errors];
     }, [availablePersonTypes, detailIssues, draft, errors, invalidAudiencePersonTypes]);
     const maxReachableStage = useMemo(() => {
@@ -695,6 +695,16 @@ export default function CourseBuilder({
                             </p>
                         )}
                     </div>
+                    {stageIssues[stage].length > 0 && stage !== 6 && (
+                        <div className="border-b border-rose-100 bg-rose-50/70 px-5 py-3 sm:px-6">
+                            <p className="text-xs font-bold uppercase tracking-wide text-rose-700">Complete these before Continue</p>
+                            <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-rose-800">
+                                {stageIssues[stage].map((issue) => (
+                                    <li key={issue}>{issue}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                     <div
                         key={`${stage}-${stageDirection}`}
                         data-testid="learning-stage-content"
@@ -738,7 +748,7 @@ export default function CourseBuilder({
                             <Curriculum draft={draft} update={update} material={material} busy={busy} />
                         )}{" "}
                         {stage === 4 && (
-                            <Assessment draft={draft} update={update} />
+                            <Assessment draft={draft} update={update} issues={stageIssues[4]} />
                         )}{" "}
                         {stage === 5 && (
                             <Review draft={draft} errors={errors} />
@@ -1173,7 +1183,32 @@ function SourceDocuments({ draft, update, documents }: any) {
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h3 className="text-sm font-bold text-slate-950">Source Documents</h3>
-
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            className={button}
+                            disabled={recommended.size === 0}
+                            onClick={() => update({ sourceDocumentIds: [...recommended] })}
+                        >
+                            Use recommended
+                        </button>
+                        <button
+                            type="button"
+                            className={button}
+                            disabled={rows.length === 0}
+                            onClick={() => update({ sourceDocumentIds: rows.map((document: any) => document.documentId) })}
+                        >
+                            Select all
+                        </button>
+                        <button
+                            type="button"
+                            className={button}
+                            disabled={draft.sourceDocumentIds.length === 0}
+                            onClick={() => update({ sourceDocumentIds: [] })}
+                        >
+                            Clear
+                        </button>
+                    </div>
                 </div>
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200">
                     {draft.sourceDocumentIds.length} selected
@@ -1905,9 +1940,26 @@ function Curriculum({ draft, update, material, busy }: any) {
     );
 }
 
-function Assessment({ draft, update }: any) {
+function Assessment({ draft, update, issues = [] }: any) {
     const set = (v: any) => update({ assessments: v });
     const pendingFocus = useRef<string | null>(null);
+    const emptyAssessmentIndexes = draft.assessments
+        .map((assessment: any, index: number) => ({
+            index,
+            empty:
+                assessment.questions.length > 0 &&
+                assessment.questions.every(
+                    (question: any) =>
+                        !String(question.text ?? "").trim() &&
+                        question.options.every((option: any) => !String(option.text ?? "").trim()),
+                ),
+        }))
+        .filter((item: any) => item.empty)
+        .map((item: any) => item.index);
+    const unlinkedKnowledgeChecks = draft.assessments.filter(
+        (assessment: any) =>
+            assessment.type === "Knowledge Check" && !assessment.moduleClientId,
+    );
     useEffect(() => {
         if (!pendingFocus.current) return;
         const target = document.querySelector<HTMLElement>(
@@ -1918,6 +1970,51 @@ function Assessment({ draft, update }: any) {
     }, [draft.assessments]);
     return (
         <div className="space-y-5">
+            {issues.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-bold text-amber-950">Assessment readiness</p>
+                            <p className="mt-1 text-xs text-amber-800">The exact blockers are listed above. Use these safe shortcuts only when they match what you intended.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {emptyAssessmentIndexes.length > 0 && (
+                                <button
+                                    type="button"
+                                    className={button}
+                                    onClick={() =>
+                                        set(
+                                            draft.assessments.filter(
+                                                (_: any, index: number) =>
+                                                    !emptyAssessmentIndexes.includes(index),
+                                            ),
+                                        )
+                                    }
+                                >
+                                    Remove {emptyAssessmentIndexes.length} empty assessment{emptyAssessmentIndexes.length === 1 ? "" : "s"}
+                                </button>
+                            )}
+                            {draft.modules.length === 1 && unlinkedKnowledgeChecks.length > 0 && (
+                                <button
+                                    type="button"
+                                    className={button}
+                                    onClick={() =>
+                                        set(
+                                            draft.assessments.map((assessment: any) =>
+                                                assessment.type === "Knowledge Check" && !assessment.moduleClientId
+                                                    ? { ...assessment, moduleClientId: draft.modules[0].clientId }
+                                                    : assessment,
+                                            ),
+                                        )
+                                    }
+                                >
+                                    Link checks to {draft.modules[0].title || "Module 1"}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
                 <label className="flex items-center gap-2 text-sm">
                     <input

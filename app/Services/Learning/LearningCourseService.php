@@ -54,7 +54,11 @@ class LearningCourseService
                 ->get()
                 ->filter(function (LearningCourse $course) use ($actor) {
                     $version = $course->versions->firstWhere('id', $course->current_published_version_id);
-                    if (! $version || ($version->audience_rules['catalogVisibility'] ?? '') !== 'Eligible users may self-enroll' || ! $this->available($version)) return false;
+                    if (! $version || ! $this->available($version)) return false;
+
+                    $visibility = (string) ($version->audience_rules['catalogVisibility'] ?? 'Assigned only');
+                    if ($visibility === 'Unlisted') return false;
+
                     return $this->eligibility->matchesAudience($actor, $version);
                 })
                 ->values();
@@ -856,6 +860,8 @@ class LearningCourseService
         $delivery = $official ? $this->publication->statusFor($official->id) : null;
         $summary = ['id' => $course->id, 'code' => $course->code, 'owner' => $course->owner?->name, 'ownerId' => $course->owner_id,
             'publishedVersionId' => $official?->id, 'publishedVersion' => $official?->version_number, 'title' => $published?->title ?? $draft?->title ?? $official?->title,
+            'description' => $published?->description ?? $draft?->description ?? $official?->description,
+            'catalogVisibility' => (string) ($audienceRules['catalogVisibility'] ?? 'Assigned only'),
             'category' => $published?->category ?? $draft?->category ?? $official?->category, 'status' => $course->archived_at ? 'Archived' : ($draft?->status ?? $published?->status ?? 'Draft'),
             'draftVersionId' => $draft?->id, 'audience' => $audience, 'targetDepartment' => $target, 'competencies' => $competencies,
             'sourceReview' => $sourceReview, 'delivery' => $delivery,
