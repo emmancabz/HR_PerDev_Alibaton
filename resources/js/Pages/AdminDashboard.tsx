@@ -1,8 +1,7 @@
 import { ChartDateRangeControl, DEFAULT_CHART_DATE_RANGE, dateFallsInChartRange, type ChartDateRangeValue } from '@/Components/ChartDateRange';
 import AuthenticatedLayout, { HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
-import { fetchDashboardState, peekDashboardState, rememberDashboardState } from '@/data/dashboardClient';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     AlertTriangle,
     Award,
@@ -272,42 +271,16 @@ function PerformanceTooltip({
 }
 
 export default function AdminDashboard({ userName = 'Admin', dashboard }: Props) {
-    const cachedApi = peekDashboardState<{ kind: 'admin'; dashboard: AdminDashboardState }>();
-    const [liveDashboard, setLiveDashboard] = useState<AdminDashboardState | null>(() =>
-        dashboard ?? (cachedApi?.kind === 'admin' ? cachedApi.dashboard : null) ?? adminDashboardCache,
-    );
-
-    const applyDashboard = (next: AdminDashboardState) => {
-        adminDashboardCache = next;
-        rememberDashboardState({ kind: 'admin', dashboard: next });
-        setLiveDashboard(next);
-    };
-
-    useEffect(() => {
-        if (dashboard) applyDashboard(dashboard);
-
-        void fetchDashboardState<{ kind: 'admin'; dashboard: AdminDashboardState }>(Boolean(dashboard || liveDashboard))
-            .then((payload) => {
-                if (payload.kind === 'admin') applyDashboard(payload.dashboard);
-            })
-            .catch(() => {});
-        // The direct state endpoint is authoritative; the Inertia prop is only a fast
-        // first-paint seed when the dashboard was opened by a full browser request.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    const [liveDashboard, setLiveDashboard] = useState<AdminDashboardState | null>(() => dashboard ?? adminDashboardCache);
 
     useEffect(() => {
         if (!dashboard) return;
-        applyDashboard(dashboard);
+        adminDashboardCache = dashboard;
+        setLiveDashboard(dashboard);
     }, [dashboard]);
 
-    useReadModelRefresh('dashboard', async () => {
-        try {
-            const payload = await fetchDashboardState<{ kind: 'admin'; dashboard: AdminDashboardState }>(true);
-            if (payload.kind === 'admin') applyDashboard(payload.dashboard);
-        } catch {
-            // Keep the last good dashboard visible. The next revision/focus load retries.
-        }
+    useReadModelRefresh('dashboard', () => {
+        router.reload({ only: ['dashboard'] });
     });
 
     const resolvedDashboard = liveDashboard ?? EMPTY_ADMIN_DASHBOARD;

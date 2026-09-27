@@ -22,7 +22,6 @@ final class ReadModelCache
         'succession',
         'recognition',
         'reports',
-        'notifications',
     ];
 
     /**

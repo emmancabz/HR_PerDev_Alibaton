@@ -1,8 +1,7 @@
 import { ChartDateRangeControl, DEFAULT_CHART_DATE_RANGE, dateFallsInChartRange, type ChartDateRangeValue } from '@/Components/ChartDateRange';
 import AuthenticatedLayout, { HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
-import { fetchDashboardState, peekDashboardState, rememberDashboardState } from '@/data/dashboardClient';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     AlertTriangle,
     Award,
@@ -272,40 +271,16 @@ function PerformanceTooltip({
 }
 
 export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Props) {
-    const cachedApi = peekDashboardState<{ kind: 'hr'; dashboard: HRDashboardState }>();
-    const [liveDashboard, setLiveDashboard] = useState<HRDashboardState | null>(() =>
-        dashboard ?? (cachedApi?.kind === 'hr' ? cachedApi.dashboard : null) ?? hrDashboardCache,
-    );
-
-    const applyDashboard = (next: HRDashboardState) => {
-        hrDashboardCache = next;
-        rememberDashboardState({ kind: 'hr', dashboard: next });
-        setLiveDashboard(next);
-    };
-
-    useEffect(() => {
-        if (dashboard) applyDashboard(dashboard);
-
-        void fetchDashboardState<{ kind: 'hr'; dashboard: HRDashboardState }>(Boolean(dashboard || liveDashboard))
-            .then((payload) => {
-                if (payload.kind === 'hr') applyDashboard(payload.dashboard);
-            })
-            .catch(() => {});
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    const [liveDashboard, setLiveDashboard] = useState<HRDashboardState | null>(() => dashboard ?? hrDashboardCache);
 
     useEffect(() => {
         if (!dashboard) return;
-        applyDashboard(dashboard);
+        hrDashboardCache = dashboard;
+        setLiveDashboard(dashboard);
     }, [dashboard]);
 
-    useReadModelRefresh('dashboard', async () => {
-        try {
-            const payload = await fetchDashboardState<{ kind: 'hr'; dashboard: HRDashboardState }>(true);
-            if (payload.kind === 'hr') applyDashboard(payload.dashboard);
-        } catch {
-            // Keep the last good dashboard visible.
-        }
+    useReadModelRefresh('dashboard', () => {
+        router.reload({ only: ['dashboard'] });
     });
 
     const resolvedDashboard = liveDashboard ?? EMPTY_HR_DASHBOARD;

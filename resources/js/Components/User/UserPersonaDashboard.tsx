@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
-import { fetchDashboardState, peekDashboardState, rememberDashboardState } from '@/data/dashboardClient';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     Award,
     BookOpen,
@@ -121,45 +120,16 @@ export default function UserPersonaDashboard({
     dashboardPayload,
 }: Props) {
     const incoming = dashboardPayload ?? (dashboard ? { dashboard, team } : undefined);
-    const cachedApi = peekDashboardState<{ kind: 'user'; persona: Persona; dashboard: DashboardState; team?: TeamState }>();
-    const initialApiPayload = cachedApi?.kind === 'user' && cachedApi.persona === persona
-        ? { dashboard: cachedApi.dashboard, team: cachedApi.team }
-        : null;
-    const [livePayload, setLivePayload] = useState(() => incoming ?? initialApiPayload ?? personaDashboardCache.get(persona) ?? null);
-
-    const applyPayload = (next: { dashboard: DashboardState; team?: TeamState }) => {
-        personaDashboardCache.set(persona, next);
-        rememberDashboardState({ kind: 'user', persona, dashboard: next.dashboard, team: next.team });
-        setLivePayload(next);
-    };
-
-    useEffect(() => {
-        if (incoming) applyPayload(incoming);
-
-        void fetchDashboardState<{ kind: 'user'; persona: Persona; dashboard: DashboardState; team?: TeamState }>(Boolean(incoming || livePayload))
-            .then((payload) => {
-                if (payload.kind === 'user' && payload.persona === persona) {
-                    applyPayload({ dashboard: payload.dashboard, team: payload.team });
-                }
-            })
-            .catch(() => {});
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [persona]);
+    const [livePayload, setLivePayload] = useState(() => incoming ?? personaDashboardCache.get(persona) ?? null);
 
     useEffect(() => {
         if (!incoming) return;
-        applyPayload(incoming);
+        personaDashboardCache.set(persona, incoming);
+        setLivePayload(incoming);
     }, [dashboardPayload, dashboard, team, persona]);
 
-    useReadModelRefresh('dashboard', async () => {
-        try {
-            const payload = await fetchDashboardState<{ kind: 'user'; persona: Persona; dashboard: DashboardState; team?: TeamState }>(true);
-            if (payload.kind === 'user' && payload.persona === persona) {
-                applyPayload({ dashboard: payload.dashboard, team: payload.team });
-            }
-        } catch {
-            // Keep the last good dashboard visible.
-        }
+    useReadModelRefresh('dashboard', () => {
+        router.reload({ only: ['dashboardPayload'] });
     });
 
     const resolvedDashboard = livePayload?.dashboard ?? EMPTY_DASHBOARD;

@@ -1,5 +1,4 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { useReadModelRefresh } from '@/data/readModelRefresh';
 import { Head, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { Bell, Building2, CheckCircle2, IdCard, Mail, RefreshCcw, UserRound } from 'lucide-react';
@@ -37,30 +36,12 @@ function tabFromHash(): ProfileTab {
 
 export default function UserProfile() {
     const { auth } = usePage().props;
-    const sharedUser = auth.user;
-    const [user, setUser] = useState(sharedUser);
+    const user = auth.user;
     const isTrainee = user.persona === 'trainee';
     const [activeTab, setActiveTab] = useState<ProfileTab>(() => tabFromHash());
     const [notifications, setNotifications] = useState<NotificationResponse | null>(null);
     const [notificationError, setNotificationError] = useState('');
     const [loadingNotifications, setLoadingNotifications] = useState(false);
-
-    const loadCurrentUser = useCallback(async () => {
-        try {
-            const response = await axios.get<{ data: typeof sharedUser }>('/api/current-user', {
-                headers: { Accept: 'application/json' },
-            });
-            setUser(response.data.data);
-        } catch {
-            // Keep the last known identity visible. A later users revision retries.
-        }
-    }, []);
-
-    useEffect(() => {
-        void loadCurrentUser();
-    }, [loadCurrentUser]);
-
-    useReadModelRefresh('users', loadCurrentUser);
 
     useEffect(() => {
         if (isTrainee) return;
@@ -85,10 +66,6 @@ export default function UserProfile() {
             setLoadingNotifications(false);
         }
     }, []);
-
-    useReadModelRefresh('notifications', () => {
-        if (!isTrainee && activeTab === 'Notifications') return loadNotifications();
-    });
 
     useEffect(() => {
         if (!isTrainee && activeTab === 'Notifications' && notifications === null && !loadingNotifications) {

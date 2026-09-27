@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Support\ReadModelCache;
 use App\Services\Notifications\NotificationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +28,7 @@ class HeaderNotificationController extends Controller
 
     public static function cacheKeyFor(int|string $userId): string
     {
-        return 'header-notifications:v4:g'.ReadModelCache::generation('notifications').':user:'.$userId;
+        return 'header-notifications:v3:user:'.$userId;
     }
 
     /** @return array<string, mixed> */

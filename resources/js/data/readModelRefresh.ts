@@ -11,8 +11,7 @@ export type ReadModelDomain =
     | 'training'
     | 'succession'
     | 'recognition'
-    | 'reports'
-    | 'notifications';
+    | 'reports';
 
 type ReadModelRefreshDetail = {
     domains?: string[];

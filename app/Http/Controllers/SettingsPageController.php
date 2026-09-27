@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Governance\SystemSettingsService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class SettingsPageController extends Controller
 {
+    public function __construct(private readonly SystemSettingsService $settings) {}
+
     public function index(Request $request): Response
     {
         $initialWorkspace = match (true) {
@@ -27,6 +30,7 @@ class SettingsPageController extends Controller
         };
 
         return Inertia::render('Settings', [
+            'initialSettingsState' => Inertia::defer(fn (): array => $this->settings->state($request->user(), $request)),
             'initialWorkspace' => $initialWorkspace,
         ]);
     }

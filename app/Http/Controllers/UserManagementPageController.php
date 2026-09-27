@@ -8,7 +8,6 @@ use App\Support\CanonicalLearningReference;
 use App\Support\CanonicalWorkforceReference;
 use App\Support\ReadModelCache;
 use Carbon\CarbonImmutable;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -28,22 +27,9 @@ class UserManagementPageController extends Controller
         $actor = $request->user();
         abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
 
-        // V5: render the route shell only. The directory is fetched after paint
-        // through the JSON state endpoint so page navigation never waits for the
-        // personnel/security aggregation query.
-        return Inertia::render('UserManagement');
-    }
-
-    public function state(Request $request): JsonResponse
-    {
-        $actor = $request->user();
-        abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
-
-        return response()->json([
-            'data' => ReadModelCache::remember(
-                'users',
-                $actor,
-                fn (): array => $this->directoryPayload($actor),
+        return Inertia::render('UserManagement', [
+            'directoryPayload' => Inertia::defer(
+                fn (): array => ReadModelCache::remember('users', $actor, fn (): array => $this->directoryPayload($actor)),
             ),
         ]);
     }

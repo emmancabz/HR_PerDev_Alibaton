@@ -20,7 +20,7 @@ class InvalidateReadModelCache
 
             // Cross-module summaries can depend on any successful operational write.
             // Bump these lightweight generations instead of forcing users to press F5.
-            foreach (['dashboard', 'reports', 'users', 'notifications'] as $dependent) {
+            foreach (['dashboard', 'reports', 'users'] as $dependent) {
                 if ($dependent !== $domain) {
                     ReadModelCache::bump($dependent);
                 }

@@ -211,47 +211,20 @@ export default function Settings({
     initialSettingsState?: SettingsState;
     initialWorkspace?: Workspace;
 }) {
-    const [liveState, setLiveState] = useState<SettingsState | null>(initialSettingsState ?? null);
-    const [loadError, setLoadError] = useState('');
-
-    useEffect(() => {
-        let active = true;
-
-        axios
-            .get<{ data: SettingsState }>('/governance/api/settings', {
-                headers: { Accept: 'application/json' },
-            })
-            .then((response) => {
-                if (!active) return;
-                setLiveState(response.data.data);
-                setLoadError('');
-            })
-            .catch(() => {
-                if (!active) return;
-                setLoadError('Settings could not be loaded right now.');
-            });
-
-        return () => {
-            active = false;
-        };
-    }, []);
-
-    if (!liveState) {
+    if (!initialSettingsState) {
         return (
             <AuthenticatedLayout header={<h1 className="truncate text-lg font-bold text-slate-900">Settings</h1>}>
                 <Head title="Settings" />
                 <div className="app-page app-page-enter">
                     <section className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm" role="status" aria-live="polite">
-                        <p className="text-sm font-semibold text-slate-600">
-                            {loadError || 'Loading the latest account and settings data…'}
-                        </p>
+                        <p className="text-sm font-semibold text-slate-600">Loading the latest account and settings data…</p>
                     </section>
                 </div>
             </AuthenticatedLayout>
         );
     }
 
-    return <SettingsContent initialSettingsState={liveState} initialWorkspace={initialWorkspace} />;
+    return <SettingsContent initialSettingsState={initialSettingsState} initialWorkspace={initialWorkspace} />;
 }
 
 function SettingsContent({

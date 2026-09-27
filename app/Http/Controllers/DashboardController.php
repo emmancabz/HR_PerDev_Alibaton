@@ -3,13 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Support\SchemaPresence;
-use App\Support\ReadModelCache;
 use App\Enums\UserRole;
 use App\Enums\UserPersona;
 use App\Services\UserWorkspace\UserPersonaResolver;
 use App\Models\User;
 use Carbon\CarbonImmutable;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -32,6 +30,7 @@ class DashboardController extends Controller
 
         return Inertia::render('AdminDashboard', [
             'userName' => $actor->name,
+            'dashboard' => Inertia::defer(fn (): array => $this->adminDashboardState($actor)),
         ]);
     }
 
@@ -41,6 +40,7 @@ class DashboardController extends Controller
 
         return Inertia::render('HRDashboard', [
             'userName' => $actor->name,
+            'dashboard' => Inertia::defer(fn (): array => $this->hrDashboardState($actor)),
         ]);
     }
 
@@ -58,40 +58,11 @@ class DashboardController extends Controller
         return Inertia::render($page, [
             'userName' => $user->name,
             'persona' => $persona->value,
+            'dashboardPayload' => Inertia::defer(fn (): array => [
+                'dashboard' => $this->userDashboardState($user),
+                'team' => $this->userTeamState($user, $persona),
+            ]),
         ]);
-    }
-
-    public function state(Request $request): JsonResponse
-    {
-        $actor = $request->user();
-        $role = $actor->role instanceof UserRole ? $actor->role : UserRole::User;
-
-        $payload = ReadModelCache::remember('dashboard', $actor, function () use ($actor, $role): array {
-            if ($role === UserRole::Admin) {
-                return [
-                    'kind' => 'admin',
-                    'dashboard' => $this->adminDashboardState($actor),
-                ];
-            }
-
-            if ($role === UserRole::HR) {
-                return [
-                    'kind' => 'hr',
-                    'dashboard' => $this->hrDashboardState($actor),
-                ];
-            }
-
-            $persona = app(UserPersonaResolver::class)->resolve($actor);
-
-        return [
-                'kind' => 'user',
-                'persona' => $persona->value,
-                'dashboard' => $this->userDashboardState($actor),
-                'team' => $this->userTeamState($actor, $persona),
-            ];
-        });
-
-        return response()->json(['data' => $payload]);
     }
 
     public function redirectToOwnedDashboard(User $user): RedirectResponse
@@ -122,7 +93,7 @@ class DashboardController extends Controller
         $recognition = $this->adminRecognitionSnapshot();
         $security = $forHr ? ['flagged' => 0] : $this->adminSecuritySnapshot();
 
-            return [
+        return [
             'stats' => [
                 'activeWorkforce' => $activeWorkforce,
                 'performanceActions' => $performance['actions'],

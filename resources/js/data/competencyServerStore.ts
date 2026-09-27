@@ -14,24 +14,6 @@ export type CompetencyPayload = {
 const collections = ['competencies', 'roleProfiles', 'cycles', 'assessorAuthorizations', 'assessments', 'recommendations', 'acknowledgmentEvents'] as const;
 const emptyState: CompetencyState = { schemaVersion: 4, competencies: [], roleProfiles: [], cycles: [], assessorAuthorizations: [], assessments: [], recommendations: [], acknowledgmentEvents: [], activities: [], auditLog: [] };
 let competencyPayloadCache: CompetencyPayload | null = null;
-let competencyPayloadRequest: Promise<CompetencyPayload> | null = null;
-
-export function primeCompetencyStateCache(): Promise<CompetencyPayload> {
-    if (competencyPayloadCache) return Promise.resolve(competencyPayloadCache);
-    if (competencyPayloadRequest) return competencyPayloadRequest;
-
-    competencyPayloadRequest = axios.get<CompetencyPayload>('/competency/api/state')
-        .then(({ data }) => {
-            competencyPayloadCache = data;
-            replaceSharedPersonnel(data.personnel);
-            return data;
-        })
-        .finally(() => {
-            competencyPayloadRequest = null;
-        });
-
-    return competencyPayloadRequest;
-}
 
 export function competencyChanges(before: CompetencyState, after: CompetencyState) {
     return collections.flatMap(collection => {
