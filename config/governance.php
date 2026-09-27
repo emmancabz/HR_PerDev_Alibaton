@@ -22,7 +22,7 @@ return [
         ],
     ],
     'security' => [
-        'session_timeout_minutes' => (int) env('SECURITY_SESSION_TIMEOUT_MINUTES', 30),
+        'session_timeout_minutes' => (int) env('SECURITY_SESSION_TIMEOUT_MINUTES', 5),
         'failed_login_flag_threshold' => 3,
         'failed_login_window_minutes' => 15,
         'step_up_verification_minutes' => 10,
