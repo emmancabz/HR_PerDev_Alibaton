@@ -17,7 +17,7 @@ import {
     type RecognitionStatus,
 } from '@/data/recognition';
 import { useHashWorkspace } from '@/workspaceNavigation';
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import {
     Award,
     Building2,
@@ -282,8 +282,9 @@ function slugCode(value: string) {
 }
 
 export default function AdminRecognition({ initialRecognitionState }: Props) {
+    const { auth } = usePage().props;
     const [workspace, setWorkspace] = useHashWorkspace<RecognitionAdminWorkspace>(RECOGNITION_ADMIN_WORKSPACES, 'Overview');
-    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState) ?? recognitionClient.peekState());
+    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState) ?? recognitionClient.peekState(Number(auth.user.id)));
     const [loading, setLoading] = useState(!state);
     const [error, setError] = useState('');
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
