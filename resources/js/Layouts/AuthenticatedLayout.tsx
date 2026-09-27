@@ -1591,18 +1591,19 @@ export default function Authenticated({
     /*
      * Human inactivity timeout.
      *
-     * Background notification polling must not count as user activity. The
-     * browser records only real interaction events, shares the timestamp
-     * across tabs, and signs the account out once the configured idle window
-     * is reached. The server still keeps its own audit/fallback timeout.
+     * Only genuine browser interaction advances the local inactivity clock.
+     * A lightweight authenticated heartbeat mirrors that activity to the server
+     * at most once per minute; background polling never keeps an idle session alive.
      */
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
         const timeoutMs = sessionTimeoutMinutes * 60 * 1000;
         const activityKey = `pd:last-human-activity:${user.id}`;
+        const heartbeatKey = `pd:last-session-heartbeat:${user.id}`;
         let timingOut = false;
         let lastPersistAt = 0;
+        let heartbeatInFlight = false;
 
         const readLastActivity = () => {
             const value = Number(window.localStorage.getItem(activityKey));
@@ -1644,20 +1645,45 @@ export default function Authenticated({
             return false;
         };
 
-        const existingActivity = readLastActivity();
-        if (existingActivity === 0) {
-            writeActivity(true);
-        } else if (checkTimeout()) {
-            return;
-        }
+        const sendHeartbeat = () => {
+            if (timingOut || heartbeatInFlight) return;
 
-        const markActivity = () => writeActivity();
+            const current = Date.now();
+            const persisted = Number(window.localStorage.getItem(heartbeatKey));
+            if (Number.isFinite(persisted) && persisted > 0 && current - persisted < 60_000) {
+                return;
+            }
+
+            window.localStorage.setItem(heartbeatKey, String(current));
+            heartbeatInFlight = true;
+            void axios
+                .post('/api/session/heartbeat', {}, { headers: { Accept: 'application/json' } })
+                .catch(() => {})
+                .finally(() => {
+                    heartbeatInFlight = false;
+                });
+        };
+
+        // An authenticated layout has already passed server session validation.
+        // Reset stale browser activity left by a previous login/session.
+        writeActivity(true);
+
+        const markActivity = () => {
+            writeActivity();
+            sendHeartbeat();
+        };
         const handleVisibilityChange = () => {
             if (document.visibilityState !== 'visible') return;
-            if (!checkTimeout()) writeActivity(true);
+            if (!checkTimeout()) {
+                writeActivity(true);
+                sendHeartbeat();
+            }
         };
         const handleFocus = () => {
-            if (!checkTimeout()) writeActivity(true);
+            if (!checkTimeout()) {
+                writeActivity(true);
+                sendHeartbeat();
+            }
         };
 
         const activityEvents: Array<keyof WindowEventMap> = [

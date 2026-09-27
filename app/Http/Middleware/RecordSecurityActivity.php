@@ -99,6 +99,12 @@ class RecordSecurityActivity
 
     private function isBackgroundRequest(Request $request): bool
     {
+        // This endpoint is emitted only from genuine browser interaction and is
+        // deliberately allowed to refresh the server-side inactivity clock.
+        if ($request->routeIs('session.heartbeat')) {
+            return false;
+        }
+
         $purpose = strtolower((string) ($request->header('Purpose') ?: $request->header('Sec-Purpose')));
         if (str_contains($purpose, 'prefetch')) {
             return true;

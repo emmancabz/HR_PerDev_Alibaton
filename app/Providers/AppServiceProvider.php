@@ -120,9 +120,34 @@ class AppServiceProvider extends ServiceProvider
             max(1, (int) config('security_auth.mfa_email_confirm_per_minute', 30)),
         )->by('mfa-email-confirm|'.$request->ip()));
 
-        RateLimiter::for('mfa-status', fn (Request $request): Limit => Limit::perMinute(
-            max(1, (int) config('security_auth.mfa_status_per_minute', 120)),
-        )->by('mfa-status|'.$request->ip()));
+        RateLimiter::for('mfa-status', function (Request $request): Limit {
+            $pendingUserId = $request->hasSession()
+                ? $request->session()->get('mfa.pending_user_id')
+                : null;
+            $actorKey = $request->user()?->getAuthIdentifier() ?? $pendingUserId;
+
+            if ($actorKey !== null) {
+                $scope = 'user:'.$actorKey;
+            } elseif ($request->hasSession() && $request->session()->getId() !== '') {
+                $scope = 'session:'.hash('sha256', $request->session()->getId());
+            } else {
+                $scope = 'ip:'.$request->ip();
+            }
+
+            return Limit::perMinute(
+                max(1, (int) config('security_auth.mfa_status_per_minute', 120)),
+            )->by('mfa-status|'.$scope);
+        });
+
+        RateLimiter::for('session-heartbeat', function (Request $request): Limit {
+            $actorKey = $request->user()?->getAuthIdentifier() ?? 'guest';
+            $sessionKey = $request->hasSession() && $request->session()->getId() !== ''
+                ? hash('sha256', $request->session()->getId())
+                : hash('sha256', (string) $request->ip());
+
+            return Limit::perMinute(12)
+                ->by('session-heartbeat|'.$actorKey.'|'.$sessionKey);
+        });
 
         RateLimiter::for('mfa-resend', fn (Request $request): Limit => Limit::perMinute(
             max(1, (int) config('security_auth.mfa_resend_per_minute', 5)),

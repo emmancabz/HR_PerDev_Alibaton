@@ -27,6 +27,7 @@ use App\Http\Controllers\ReportsPageController;
 use App\Http\Controllers\ReportsStateController;
 use App\Http\Controllers\SettingsPageController;
 use App\Http\Controllers\SettingsStateController;
+use App\Http\Controllers\SessionHeartbeatController;
 use App\Services\Personnel\CanonicalPersonnelService;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -60,6 +61,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/read-model-revisions', ReadModelRevisionController::class)
         ->middleware('throttle:60,1')
         ->name('read-model-revisions');
+    Route::post('/api/session/heartbeat', SessionHeartbeatController::class)
+        ->middleware('throttle:session-heartbeat')
+        ->name('session.heartbeat');
     Route::get('/account/profile-photo', [SettingsStateController::class, 'profilePhotoImage'])
         ->middleware('throttle:120,1')
         ->name('account.profile-photo');
