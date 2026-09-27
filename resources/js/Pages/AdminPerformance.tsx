@@ -1368,8 +1368,11 @@ export default function PerformanceManagement({
     role?: "admin" | "hr" | "user";
     personnel_key?: string | null;
   };
-  seedPerformanceState(initialPerformanceState);
-  hydratePerformanceState(Number(authUser.id));
+  useState(() => {
+    seedPerformanceState(initialPerformanceState);
+    hydratePerformanceState(Number(authUser.id));
+    return true;
+  });
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [developmentStore, setDevelopmentStore] =
     useState<PerformanceDevelopmentStore>(
