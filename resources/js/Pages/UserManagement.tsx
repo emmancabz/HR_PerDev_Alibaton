@@ -517,6 +517,38 @@ type UserManagementPageProps = {
 };
 
 let userDirectoryPayloadCache: UserDirectoryPayload | null = null;
+const USER_DIRECTORY_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const userDirectoryStorageKey = (actorId: number) => `pd:user-directory:v1:${actorId}`;
+
+function readPersistedUserDirectory(actorId: number): UserDirectoryPayload | null {
+    if (typeof window === 'undefined' || !Number.isFinite(actorId) || actorId < 1) return null;
+    try {
+        const raw = window.sessionStorage.getItem(userDirectoryStorageKey(actorId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { savedAt?: number; payload?: UserDirectoryPayload };
+        if (!parsed.savedAt || Date.now() - parsed.savedAt > USER_DIRECTORY_CACHE_MAX_AGE_MS || !parsed.payload) {
+            window.sessionStorage.removeItem(userDirectoryStorageKey(actorId));
+            return null;
+        }
+        return parsed.payload;
+    } catch {
+        window.sessionStorage.removeItem(userDirectoryStorageKey(actorId));
+        return null;
+    }
+}
+
+function rememberUserDirectory(actorId: number, payload: UserDirectoryPayload): void {
+    userDirectoryPayloadCache = payload;
+    if (typeof window !== 'undefined' && Number.isFinite(actorId) && actorId > 0) {
+        try {
+            window.sessionStorage.setItem(
+                userDirectoryStorageKey(actorId),
+                JSON.stringify({ savedAt: Date.now(), payload }),
+            );
+        } catch {}
+    }
+}
 
 function normalizeDirectoryState(value?: DirectoryState): DirectoryState {
     if (!value) return initialState;
@@ -2138,7 +2170,8 @@ function InviteUserModal({
 function UserManagement() {
     const inertiaPage = usePage();
     const props = inertiaPage.props as typeof inertiaPage.props & UserManagementPageProps;
-    const resolvedPayload = props.directoryPayload ?? userDirectoryPayloadCache;
+    const actorId = Number(inertiaPage.props.auth.user.id);
+    const resolvedPayload = props.directoryPayload ?? userDirectoryPayloadCache ?? readPersistedUserDirectory(actorId);
     const availablePersonnel = resolvedPayload?.availablePersonnel ?? props.availablePersonnel ?? [];
     const currentOperatorName = (inertiaPage.props.auth.user as { name?: string }).name ?? 'Current P&D Operator';
     const [state, setState] = useState<DirectoryState>(() => normalizeDirectoryState(
@@ -2146,9 +2179,9 @@ function UserManagement() {
     ));
     useEffect(() => {
         if (!props.directoryPayload) return;
-        userDirectoryPayloadCache = props.directoryPayload;
+        rememberUserDirectory(actorId, props.directoryPayload);
         setState(normalizeDirectoryState(props.directoryPayload.initialUserDirectoryState));
-    }, [props.directoryPayload]);
+    }, [actorId, props.directoryPayload]);
     const [activeMajorTab, setActiveMajorTab] = useHashWorkspace<MajorTab>(USER_MANAGEMENT_WORKSPACES, 'All Users');
     
     // Filters
