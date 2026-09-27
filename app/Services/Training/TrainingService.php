@@ -55,6 +55,14 @@ class TrainingService
             ->when($programIds !== null, fn ($query) => $query->whereIn('id', $programIds))
             ->orderByDesc('updated_at')->get();
         $sessionIds = $programs->flatMap(fn (TrainingProgram $program) => $program->sessions->pluck('id'))->unique();
+        $participantCounts = $sessionIds->isEmpty()
+            ? collect()
+            : DB::table('training_session_participants')
+                ->whereIn('session_id', $sessionIds)
+                ->whereNotIn('status', ['Withdrawn', 'Cancelled'])
+                ->selectRaw('session_id, COUNT(*) as aggregate')
+                ->groupBy('session_id')
+                ->pluck('aggregate', 'session_id');
         $feedback = TrainingFeedback::query()
             ->whereIn('session_id', $sessionIds)
             ->when(! $operator, fn ($query) => $query->where('participant_id', $actor->id))
@@ -96,7 +104,7 @@ class TrainingService
                 'roleProfiles' => $operator ? $this->catalog->roleProfiles() : [],
                 'learningCourses' => $operator ? $this->publishedLearningCourses() : [],
             ],
-            'programs' => $programs->map(fn (TrainingProgram $program) => $this->programPayload($program))->values()->all(),
+            'programs' => $programs->map(fn (TrainingProgram $program) => $this->programPayload($program, $participantCounts))->values()->all(),
             'enrollments' => $enrollments->map(fn (TrainingEnrollment $enrollment) => $this->enrollmentPayload($enrollment))->values()->all(),
             'facilitation' => $facilitation->map(fn (TrainingEnrollment $enrollment) => $this->enrollmentPayload($enrollment))->values()->all(),
             'feedback' => $feedback->map(fn (TrainingFeedback $row) => [
@@ -1135,7 +1143,7 @@ class TrainingService
             && $this->catalog->userMatchesProfiles($user, $rules['roleProfileIds'] ?? []);
     }
 
-    private function programPayload(TrainingProgram $program): array
+    private function programPayload(TrainingProgram $program, $participantCounts = null): array
     {
         return [
             'id' => $program->id,
@@ -1172,7 +1180,7 @@ class TrainingService
                 'enrollmentClosesAt' => $session->enrollment_closes_at?->toIso8601String(),
                 'status' => $session->status,
                 'attendanceFinalizedAt' => $session->attendance_finalized_at?->toIso8601String(),
-                'participantCount' => $session->participants()->whereNotIn('status', ['Withdrawn', 'Cancelled'])->count(),
+                'participantCount' => (int) (($participantCounts?->get($session->id)) ?? 0),
                 'cancellationReason' => $session->cancellation_reason,
             ])->values()->all(),
             'updatedAt' => $program->updated_at?->toIso8601String(),
