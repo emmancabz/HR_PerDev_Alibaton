@@ -1,6 +1,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { normalizeTrainingState, type AttendanceStatus, type TrainerEvaluationTask, type TrainingEnrollment, type TrainingState } from '@/data/training';
 import { trainingClient, trainingError } from '@/data/trainingClient';
+import { useReadModelRefresh } from '@/data/readModelRefresh';
 import { Head, usePage } from '@inertiajs/react';
 import {
     AlertCircle,
@@ -84,7 +85,7 @@ function tabFromHash(): TrainingTab {
 export default function LearnerTraining({ initialTrainingState }: Props) {
     const { auth } = usePage().props;
     const isTrainee = auth.user.persona === 'trainee';
-    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState));
+    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState) ?? trainingClient.peekState());
     const [activeTab, setActiveTab] = useState<TrainingTab>(() => tabFromHash());
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(!state);
@@ -113,8 +114,11 @@ export default function LearnerTraining({ initialTrainingState }: Props) {
     }, []);
 
     useEffect(() => {
-        if (!state) void load();
-    }, [load, state]);
+        void load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useReadModelRefresh("training", load);
 
     useEffect(() => {
         const sync = () => setActiveTab(tabFromHash());

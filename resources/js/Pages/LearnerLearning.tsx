@@ -7,6 +7,7 @@ import {
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import type { LearningState } from "@/data/learning";
 import { learningClient, learningError } from "@/data/learningClient";
+import { useReadModelRefresh } from "@/data/readModelRefresh";
 import { Head, usePage } from "@inertiajs/react";
 import {
     Award,
@@ -27,7 +28,7 @@ import {
     Sparkles,
     X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const btn =
     "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F4B400] disabled:cursor-not-allowed disabled:opacity-50";
@@ -48,7 +49,7 @@ type Tab = (typeof tabs)[number];
 export default function LearnerLearning({
     initialLearningState,
 }: {
-    initialLearningState: LearningState;
+    initialLearningState?: LearningState;
 }) {
     const { auth } = usePage().props;
     const isTrainee = auth.user.persona === "trainee";
@@ -67,10 +68,10 @@ export default function LearnerLearning({
         : route().current("user.certificates.index")
           ? "Review certificates and achievements issued from completed learning."
           : "Version-pinned online courses, saved progress, assessments, results, certificates, and transcript records.";
-    const [state, setState] = useState(initialLearningState);
+    const [state, setState] = useState<LearningState | null>(() => initialLearningState ?? learningClient.peekState());
     const canonicalAssignments = useMemo(
-        () => canonicalizeLearningAssignments(state.assignments ?? []),
-        [state.assignments],
+        () => canonicalizeLearningAssignments(state?.assignments ?? []),
+        [state?.assignments],
     );
     const activeAssignments = useMemo(
         () =>
@@ -109,8 +110,8 @@ export default function LearnerLearning({
                         progressPercent: Number(row?.progress_percent ?? 0),
                         dueAt: row?.due_at ?? null,
                     })),
-                    completedCount: (state.completions ?? []).length,
-                    catalogCount: (state.catalog ?? []).length,
+                    completedCount: (state?.completions ?? []).length,
+                    catalogCount: (state?.catalog ?? []).length,
                     playerOpen: Boolean(player),
                 },
             },
@@ -121,7 +122,7 @@ export default function LearnerLearning({
                 detail: { source: 'learner-learning', context: null },
             }));
         };
-    }, [tab, activeAssignments, state.completions, state.catalog, player]);
+    }, [tab, activeAssignments, state?.completions, state?.catalog, player]);
 
     useEffect(() => {
         const syncFromHash = () => {
@@ -163,13 +164,20 @@ export default function LearnerLearning({
             setLoading(false);
         }
     };
-    const refresh = async () => {
+    const refresh = useCallback(async () => {
         try {
             setState(await learningClient.state());
+            setError("");
         } catch (e) {
             setError(learningError(e));
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        void refresh();
+    }, [refresh]);
+
+    useReadModelRefresh("learning", refresh);
     const selfEnroll = async (
         versionId: string,
         destination: Tab = "My Courses",
@@ -187,6 +195,29 @@ export default function LearnerLearning({
             setLoading(false);
         }
     };
+    if (!state) {
+        return (
+            <AuthenticatedLayout
+                header={isTrainee ? (
+                    <div className="min-w-0 py-0.5">
+                        <h1 className="truncate text-xl font-extrabold tracking-tight text-slate-950">Learning Dashboard</h1>
+                        <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">Loading current learning…</p>
+                    </div>
+                ) : undefined}
+            >
+                <Head title={pageTitle} />
+                <div className="app-page app-page-enter">
+                    <section className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm" role="status" aria-live="polite">
+                        <div className="flex items-center gap-3 text-sm font-semibold text-slate-600">
+                            <RotateCcw className="h-4 w-4 animate-spin text-amber-600" />
+                            Loading the latest Learning data…
+                        </div>
+                    </section>
+                </div>
+            </AuthenticatedLayout>
+        );
+    }
+
     return (
         <AuthenticatedLayout
             header={

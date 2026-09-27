@@ -5,6 +5,7 @@ import StatCard from '@/Components/StatCard';
 import SystemSelect from '@/Components/SystemSelect';
 import AuthenticatedLayout, { HeaderActions, HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { recognitionClient, recognitionError } from '@/data/recognitionClient';
+import { useReadModelRefresh } from '@/data/readModelRefresh';
 import {
     RECOGNITION_ADMIN_WORKSPACES,
     normalizeRecognitionState,
@@ -282,7 +283,7 @@ function slugCode(value: string) {
 
 export default function AdminRecognition({ initialRecognitionState }: Props) {
     const [workspace, setWorkspace] = useHashWorkspace<RecognitionAdminWorkspace>(RECOGNITION_ADMIN_WORKSPACES, 'Overview');
-    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState));
+    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState) ?? recognitionClient.peekState());
     const [loading, setLoading] = useState(!state);
     const [error, setError] = useState('');
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -303,7 +304,8 @@ export default function AdminRecognition({ initialRecognitionState }: Props) {
         finally { setLoading(false); }
     }
 
-    useEffect(() => { if (!state) void reload(); }, []);
+    useEffect(() => { void reload(); }, []);
+    useReadModelRefresh("recognition", reload);
 
     const departments = useMemo(() => [...new Set((state?.personnel ?? []).map((person) => person.department).filter(Boolean) as string[])].sort(), [state]);
     const nominators = useMemo(() => [...new Set((state?.records ?? []).map((record) => record.nominator.name))].sort(), [state]);

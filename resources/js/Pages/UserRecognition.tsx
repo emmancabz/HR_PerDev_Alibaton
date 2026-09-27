@@ -4,6 +4,7 @@ import RecognitionNominationForm from '@/Components/Recognition/RecognitionNomin
 import StatCard from '@/Components/StatCard';
 import AuthenticatedLayout, { HeaderActions, HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { recognitionClient, recognitionError } from '@/data/recognitionClient';
+import { useReadModelRefresh } from '@/data/readModelRefresh';
 import { RECOGNITION_USER_WORKSPACES, denseRank, leaderboardForPeriod, normalizeRecognitionState, ownRecognitions, ownSubmissions, publicFeed, type RecognitionPeriod, type RecognitionRecord, type RecognitionState } from '@/data/recognition';
 import { useHashWorkspace } from '@/workspaceNavigation';
 import { Head } from '@inertiajs/react';
@@ -27,12 +28,13 @@ function Feed({ records, onSelect }: { records: RecognitionRecord[]; onSelect: (
 
 export default function UserRecognition({ initialRecognitionState }: Props) {
     const [workspace, setWorkspace] = useHashWorkspace(RECOGNITION_USER_WORKSPACES, 'Recognition Feed');
-    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState));
+    const [state, setState] = useState<RecognitionState | null>(() => initialState(initialRecognitionState) ?? recognitionClient.peekState());
     const [loading, setLoading] = useState(!state); const [error, setError] = useState(''); const [selected, setSelected] = useState<RecognitionRecord | null>(null); const [busyId, setBusyId] = useState<string | null>(null);
     const [leaderboardPeriod, setLeaderboardPeriod] = useState<RecognitionPeriod>('All Time');
     const periodLeaderboard = useMemo(() => leaderboardForPeriod(state?.records ?? [], leaderboardPeriod), [state, leaderboardPeriod]);
     async function reload() { setLoading(true); setError(''); try { setState(await recognitionClient.state()); } catch (requestError) { setError(recognitionError(requestError)); } finally { setLoading(false); } }
-    useEffect(() => { if (!state) void reload(); }, []);
+    useEffect(() => { void reload(); }, []);
+    useReadModelRefresh("recognition", reload);
     async function submitDraft(record: RecognitionRecord) { setBusyId(record.id); setError(''); try { await recognitionClient.submit(record.id); await reload(); } catch (requestError) { setError(recognitionError(requestError)); } finally { setBusyId(null); } }
     if (!state) return <AuthenticatedLayout header={<h1 className="text-lg font-bold">Recognition</h1>}><Head title="Recognition" /><div className="p-6"><div className="app-card p-10 text-center text-sm text-slate-500">{loading ? 'Loading Recognition…' : error || 'Recognition state is unavailable.'}</div></div></AuthenticatedLayout>;
     const feed = publicFeed(state); const mine = ownRecognitions(state); const submissions = ownSubmissions(state);

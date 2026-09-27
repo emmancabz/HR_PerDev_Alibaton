@@ -2,6 +2,7 @@ import axios from 'axios';
 import { useEffect, useRef, useState, type SetStateAction } from 'react';
 import type { CompetencyState } from './competency';
 import { replaceSharedPersonnel, type PersonnelIdentity } from './personnel';
+import { useReadModelRefresh } from './readModelRefresh';
 
 export type CompetencyPayload = {
     state: CompetencyState;
@@ -12,6 +13,7 @@ export type CompetencyPayload = {
 };
 const collections = ['competencies', 'roleProfiles', 'cycles', 'assessorAuthorizations', 'assessments', 'recommendations', 'acknowledgmentEvents'] as const;
 const emptyState: CompetencyState = { schemaVersion: 4, competencies: [], roleProfiles: [], cycles: [], assessorAuthorizations: [], assessments: [], recommendations: [], acknowledgmentEvents: [], activities: [], auditLog: [] };
+let competencyPayloadCache: CompetencyPayload | null = null;
 
 export function competencyChanges(before: CompetencyState, after: CompetencyState) {
     return collections.flatMap(collection => {
@@ -22,12 +24,13 @@ export function competencyChanges(before: CompetencyState, after: CompetencyStat
 
 /** Serial, revision-checked server mutations; local state is only the pending editor view. */
 export function useCompetencyServerStore(initial?: CompetencyPayload) {
-    const confirmed = useRef(initial ?? null);
+    const hydratedInitial = initial ?? competencyPayloadCache ?? undefined;
+    const confirmed = useRef(hydratedInitial ?? null);
     const pending = useRef<SetStateAction<CompetencyState>[]>([]);
     const running = useRef(false);
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const alive = useRef(true);
-    const [state, render] = useState(initial?.state ?? emptyState);
+    const [state, render] = useState(hydratedInitial?.state ?? emptyState);
     const [saving, setSaving] = useState(false);
     const [storageError, setError] = useState('');
     const apply = (base: CompetencyState, updates: SetStateAction<CompetencyState>[]) => updates.reduce<CompetencyState>((s, update) => typeof update === 'function' ? update(s) : update, base);
@@ -35,6 +38,7 @@ export function useCompetencyServerStore(initial?: CompetencyPayload) {
     const reload = async () => {
         const { data } = await axios.get<CompetencyPayload>('/competency/api/state');
         confirmed.current = data;
+        competencyPayloadCache = data;
         replaceSharedPersonnel(data.personnel);
         if (alive.current) render(data.state);
         return data;
@@ -50,6 +54,7 @@ export function useCompetencyServerStore(initial?: CompetencyPayload) {
             const changes = competencyChanges(before, desired);
             const data = changes.length ? (await axios.post<CompetencyPayload>('/competency/api/changes', { revision: confirmed.current.revision, changes })).data : confirmed.current;
             confirmed.current = data;
+            competencyPayloadCache = data;
             replaceSharedPersonnel(data.personnel);
             pending.current.splice(0, count);
             if (alive.current) {
@@ -77,9 +82,16 @@ export function useCompetencyServerStore(initial?: CompetencyPayload) {
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => void flush(), 350);
     };
+    useReadModelRefresh('competency', () => {
+        if (!pending.current.length && !running.current) {
+            void reload().catch(() => {});
+        }
+    });
+
     useEffect(() => {
         alive.current = true;
-        if (!initial) void reload().catch(() => setError('Competency records could not be loaded. Refresh to retry.'));
+        if (!hydratedInitial) void reload().catch(() => setError('Competency records could not be loaded. Try again.'));
+        else void reload().catch(() => {});
         const warn = (event: BeforeUnloadEvent) => {
             if (pending.current.length || running.current) { event.preventDefault(); event.returnValue = ''; }
         };

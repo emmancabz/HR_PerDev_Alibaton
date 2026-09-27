@@ -22,6 +22,7 @@ use App\Http\Controllers\SuccessionPageController;
 use App\Http\Controllers\SuccessionStateController;
 use App\Http\Controllers\RecognitionPageController;
 use App\Http\Controllers\RecognitionStateController;
+use App\Http\Controllers\ReadModelRevisionController;
 use App\Http\Controllers\ReportsPageController;
 use App\Http\Controllers\ReportsStateController;
 use App\Http\Controllers\SettingsPageController;
@@ -56,6 +57,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/header-notifications', HeaderNotificationController::class)
         ->middleware('throttle:90,1')
         ->name('header-notifications');
+    Route::get('/api/read-model-revisions', ReadModelRevisionController::class)
+        ->middleware('throttle:60,1')
+        ->name('read-model-revisions');
     Route::get('/account/profile-photo', [SettingsStateController::class, 'profilePhotoImage'])
         ->middleware('throttle:120,1')
         ->name('account.profile-photo');

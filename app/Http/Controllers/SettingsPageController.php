@@ -30,7 +30,7 @@ class SettingsPageController extends Controller
         };
 
         return Inertia::render('Settings', [
-            'initialSettingsState' => $this->settings->state($request->user(), $request),
+            'initialSettingsState' => Inertia::defer(fn (): array => $this->settings->state($request->user(), $request)),
             'initialWorkspace' => $initialWorkspace,
         ]);
     }

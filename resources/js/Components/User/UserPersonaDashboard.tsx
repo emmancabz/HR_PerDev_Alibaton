@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link } from '@inertiajs/react';
+import { useReadModelRefresh } from '@/data/readModelRefresh';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     Award,
     BookOpen,
@@ -47,9 +48,18 @@ type Persona = 'trainee' | 'employee' | 'supervisor' | 'manager';
 type Props = {
     userName: string;
     persona: Persona;
-    dashboard: DashboardState;
+    dashboard?: DashboardState;
     team?: TeamState;
+    dashboardPayload?: { dashboard: DashboardState; team?: TeamState };
 };
+
+
+const EMPTY_DASHBOARD: DashboardState = {
+    stats: { activeLearning: 0, completedLearning: 0, upcomingTraining: 0, recognitions: 0, latestPerformance: null },
+    learningDue: [],
+    upcomingTrainings: [],
+};
+const personaDashboardCache = new Map<Persona, { dashboard: DashboardState; team?: TeamState }>();
 
 const personaCopy: Record<
     Persona,
@@ -107,7 +117,23 @@ export default function UserPersonaDashboard({
     persona,
     dashboard,
     team,
+    dashboardPayload,
 }: Props) {
+    const incoming = dashboardPayload ?? (dashboard ? { dashboard, team } : undefined);
+    const [livePayload, setLivePayload] = useState(() => incoming ?? personaDashboardCache.get(persona) ?? null);
+
+    useEffect(() => {
+        if (!incoming) return;
+        personaDashboardCache.set(persona, incoming);
+        setLivePayload(incoming);
+    }, [dashboardPayload, dashboard, team, persona]);
+
+    useReadModelRefresh('dashboard', () => {
+        router.reload({ only: ['dashboardPayload'] });
+    });
+
+    const resolvedDashboard = livePayload?.dashboard ?? EMPTY_DASHBOARD;
+    const resolvedTeam = livePayload?.team;
     const copy = personaCopy[persona];
 
     useEffect(() => {
@@ -118,16 +144,16 @@ export default function UserPersonaDashboard({
                 source: 'trainee-dashboard',
                 context: {
                     workspace: 'Dashboard',
-                    activeLearning: dashboard.stats.activeLearning,
-                    completedLearning: dashboard.stats.completedLearning,
-                    upcomingTraining: dashboard.stats.upcomingTraining,
-                    currentLearning: dashboard.learningDue.slice(0, 4).map((row) => ({
+                    activeLearning: resolvedDashboard.stats.activeLearning,
+                    completedLearning: resolvedDashboard.stats.completedLearning,
+                    upcomingTraining: resolvedDashboard.stats.upcomingTraining,
+                    currentLearning: resolvedDashboard.learningDue.slice(0, 4).map((row) => ({
                         title: row.title,
                         status: row.status,
                         progress: row.progress,
                         dueAt: row.dueAt,
                     })),
-                    upcomingTrainingItems: dashboard.upcomingTrainings.slice(0, 4).map((row) => ({
+                    upcomingTrainingItems: resolvedDashboard.upcomingTrainings.slice(0, 4).map((row) => ({
                         title: row.title,
                         session: row.sessionLabel,
                         startsAt: row.startsAt,
@@ -144,14 +170,14 @@ export default function UserPersonaDashboard({
         };
     }, [dashboard, persona]);
 
-    const currentLearning = dashboard.learningDue[0] ?? null;
-    const remainingLearning = dashboard.learningDue.slice(1, 4);
-    const upcoming = dashboard.upcomingTrainings.slice(0, 3);
+    const currentLearning = resolvedDashboard.learningDue[0] ?? null;
+    const remainingLearning = resolvedDashboard.learningDue.slice(1, 4);
+    const upcoming = resolvedDashboard.upcomingTrainings.slice(0, 3);
 
     const isEmployeePlus = persona !== 'trainee';
     const isTeamLead = persona === 'supervisor' || persona === 'manager';
 
-    const performance = dashboard.stats.latestPerformance;
+    const performance = resolvedDashboard.stats.latestPerformance;
 
     const developmentTiles = [
         {
@@ -175,8 +201,8 @@ export default function UserPersonaDashboard({
         {
             title: 'Certificates & Achievements',
             meta: 'Learning records',
-            text: `${dashboard.stats.completedLearning} completed learning record${
-                dashboard.stats.completedLearning === 1 ? '' : 's'
+            text: `${resolvedDashboard.stats.completedLearning} completed learning record${
+                resolvedDashboard.stats.completedLearning === 1 ? '' : 's'
             }.`,
             href: hrefFor('user.certificates.index', 'Certificates'),
             icon: Award,
@@ -203,6 +229,7 @@ export default function UserPersonaDashboard({
             <Head title="Learning Dashboard" />
 
             <div className="space-y-5 pb-8">
+                {!livePayload && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">Loading live dashboard data…</div>}
                 {/* Standard trainee page title */}
                 <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <header className="px-5 py-5">
@@ -361,8 +388,8 @@ export default function UserPersonaDashboard({
                             </p>
 
                             <p className="mt-3 text-[20px] font-extrabold text-slate-950">
-                                {dashboard.stats.activeLearning} item
-                                {dashboard.stats.activeLearning === 1 ? '' : 's'}{' '}
+                                {resolvedDashboard.stats.activeLearning} item
+                                {resolvedDashboard.stats.activeLearning === 1 ? '' : 's'}{' '}
                                 to review
                             </p>
 
@@ -392,7 +419,7 @@ export default function UserPersonaDashboard({
                             <div className="mt-5 grid grid-cols-3 gap-2 text-center">
                                 <div>
                                     <p className="text-2xl font-extrabold text-slate-950">
-                                        {dashboard.stats.activeLearning}
+                                        {resolvedDashboard.stats.activeLearning}
                                     </p>
                                     <p className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
                                         Active
@@ -401,7 +428,7 @@ export default function UserPersonaDashboard({
 
                                 <div>
                                     <p className="text-2xl font-extrabold text-slate-950">
-                                        {dashboard.stats.upcomingTraining}
+                                        {resolvedDashboard.stats.upcomingTraining}
                                     </p>
                                     <p className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
                                         Upcoming
@@ -410,7 +437,7 @@ export default function UserPersonaDashboard({
 
                                 <div>
                                     <p className="text-2xl font-extrabold text-slate-950">
-                                        {dashboard.stats.completedLearning}
+                                        {resolvedDashboard.stats.completedLearning}
                                     </p>
                                     <p className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
                                         Completed
@@ -667,9 +694,9 @@ export default function UserPersonaDashboard({
                             </div>
 
                             <p className="mt-4 text-xs text-slate-600">
-                                {dashboard.stats.recognitions} recognition
+                                {resolvedDashboard.stats.recognitions} recognition
                                 record
-                                {dashboard.stats.recognitions === 1 ? '' : 's'}{' '}
+                                {resolvedDashboard.stats.recognitions === 1 ? '' : 's'}{' '}
                                 available to your account.
                             </p>
                         </Link>
@@ -717,7 +744,7 @@ export default function UserPersonaDashboard({
                                 </div>
 
                                 <p className="mt-2 text-2xl font-extrabold text-slate-950">
-                                    {team?.directReports ?? 0}
+                                    {resolvedTeam?.directReports ?? 0}
                                 </p>
                             </div>
 
@@ -730,7 +757,7 @@ export default function UserPersonaDashboard({
                                 </div>
 
                                 <p className="mt-2 text-2xl font-extrabold text-slate-950">
-                                    {team?.activeReviews ?? 0}
+                                    {resolvedTeam?.activeReviews ?? 0}
                                 </p>
                             </div>
                         </div>

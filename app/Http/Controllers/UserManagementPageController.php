@@ -27,54 +27,58 @@ class UserManagementPageController extends Controller
         $actor = $request->user();
         abort_unless(in_array($actor?->role, [UserRole::Admin, UserRole::HR], true), 403);
 
-        $props = ReadModelCache::remember('users', $actor, function () use ($actor): array {
-            // User Management is a P&D personnel/account directory. Governance-only accounts,
-            // anonymized identities, and archived records are intentionally excluded here.
-            // Archived personnel are governed in Settings > Archive.
-            $personnel = User::query()
-                ->canonicalPersonnel()
-                ->when($actor->role === UserRole::HR, fn ($query) => $query->where('role', '!=', UserRole::Admin->value))
-                ->with('manager:id,personnel_key,name,position,department')
-                ->whereNull('anonymized_at')
-                ->whereNull('archived_at')
-                ->orderBy('name')
-                ->get();
+        return Inertia::render('UserManagement', [
+            'directoryPayload' => Inertia::defer(
+                fn (): array => ReadModelCache::remember('users', $actor, fn (): array => $this->directoryPayload($actor)),
+            ),
+        ]);
+    }
 
-            $directoryUsers = $personnel
-                ->reject(fn (User $user): bool => $user->employment_status === 'Incoming')
-                ->values();
+    /** @return array<string, mixed> */
+    private function directoryPayload(User $actor): array
+    {
+        // User Management is a P&D personnel/account directory. Governance-only accounts,
+        // anonymized identities, and archived records are intentionally excluded here.
+        // Archived personnel are governed in Settings > Archive.
+        $personnel = User::query()
+            ->canonicalPersonnel()
+            ->when($actor->role === UserRole::HR, fn ($query) => $query->where('role', '!=', UserRole::Admin->value))
+            ->with('manager:id,personnel_key,name,position,department')
+            ->whereNull('anonymized_at')
+            ->whereNull('archived_at')
+            ->orderBy('name')
+            ->get();
 
-            $lastLogins = $this->lastLoginMap();
-            $failedSignIns = $this->failedSignInMap();
-            $activity = $this->activityMap();
-            $development = $this->developmentMap($directoryUsers);
+        $directoryUsers = $personnel
+            ->reject(fn (User $user): bool => $user->employment_status === 'Incoming')
+            ->values();
 
-            return [
-                'initialUserDirectoryState' => [
-                    'users' => $directoryUsers->map(fn (User $user): array => $this->userRow(
-                        $user,
-                        $lastLogins->get($user->id),
-                        (int) ($failedSignIns->get($user->id) ?? 0),
-                        $activity->get($user->id, collect()),
-                        $development->get($user->id, $this->emptyDevelopment($user)),
-                        $this->workforceReference->person($user->personnel_key),
-                    ))->values()->all(),
-                    'incomingRecords' => $this->incomingRows($personnel),
-                    'issues' => $this->issueRows(),
-                    'pendingVerifications' => [],
-                ],
-                // Until Core HR / HR1 is actually integrated, User Management must not invent
-                // invite candidates or claim a successful external sync.
-                'availablePersonnel' => [],
-                'userDirectorySource' => [
-                    'label' => 'Persistent P&D personnel directory',
-                    'personnelSource' => 'Canonical users table + approved workforce reference',
-                    'incomingSourceConnected' => false,
-                ],
-            ];
-        });
+        $lastLogins = $this->lastLoginMap();
+        $failedSignIns = $this->failedSignInMap();
+        $activity = $this->activityMap();
+        $development = $this->developmentMap($directoryUsers);
 
-        return Inertia::render('UserManagement', $props);
+        return [
+            'initialUserDirectoryState' => [
+                'users' => $directoryUsers->map(fn (User $user): array => $this->userRow(
+                    $user,
+                    $lastLogins->get($user->id),
+                    (int) ($failedSignIns->get($user->id) ?? 0),
+                    $activity->get($user->id, collect()),
+                    $development->get($user->id, $this->emptyDevelopment($user)),
+                    $this->workforceReference->person($user->personnel_key),
+                ))->values()->all(),
+                'incomingRecords' => $this->incomingRows($personnel),
+                'issues' => $this->issueRows(),
+                'pendingVerifications' => [],
+            ],
+            'availablePersonnel' => [],
+            'userDirectorySource' => [
+                'label' => 'Persistent P&D personnel directory',
+                'personnelSource' => 'Canonical users table + approved workforce reference',
+                'incomingSourceConnected' => false,
+            ],
+        ];
     }
 
     private function userRow(

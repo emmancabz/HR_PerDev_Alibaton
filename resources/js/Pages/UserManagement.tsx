@@ -10,6 +10,7 @@ import DataTable from '@/Components/DataTable';
 import { ChartDateRangeControl, DEFAULT_CHART_DATE_RANGE, dateFallsInChartRange, type ChartDateRangeValue } from '@/Components/ChartDateRange';
 import AuthenticatedLayout, { HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { useHashWorkspace } from '@/workspaceNavigation';
+import { useReadModelRefresh } from '@/data/readModelRefresh';
 
 type AccessRole = 'Admin' | 'HR' | 'User';
 type AccessRoleFilter = 'All' | 'Admin & HR' | AccessRole;
@@ -498,15 +499,24 @@ const initialState: DirectoryState = {
     pendingVerifications: [],
 };
 
-type UserManagementPageProps = {
-    initialUserDirectoryState?: DirectoryState;
-    availablePersonnel?: PersonnelOption[];
-    userDirectorySource?: {
+type UserDirectoryPayload = {
+    initialUserDirectoryState: DirectoryState;
+    availablePersonnel: PersonnelOption[];
+    userDirectorySource: {
         label: string;
         personnelSource: string;
         incomingSourceConnected: boolean;
     };
 };
+
+type UserManagementPageProps = {
+    directoryPayload?: UserDirectoryPayload;
+    initialUserDirectoryState?: DirectoryState;
+    availablePersonnel?: PersonnelOption[];
+    userDirectorySource?: UserDirectoryPayload['userDirectorySource'];
+};
+
+let userDirectoryPayloadCache: UserDirectoryPayload | null = null;
 
 function normalizeDirectoryState(value?: DirectoryState): DirectoryState {
     if (!value) return initialState;
@@ -2128,12 +2138,17 @@ function InviteUserModal({
 function UserManagement() {
     const inertiaPage = usePage();
     const props = inertiaPage.props as typeof inertiaPage.props & UserManagementPageProps;
-    const availablePersonnel = props.availablePersonnel ?? [];
+    const resolvedPayload = props.directoryPayload ?? userDirectoryPayloadCache;
+    const availablePersonnel = resolvedPayload?.availablePersonnel ?? props.availablePersonnel ?? [];
     const currentOperatorName = (inertiaPage.props.auth.user as { name?: string }).name ?? 'Current P&D Operator';
-    const [state, setState] = useState<DirectoryState>(() => normalizeDirectoryState(props.initialUserDirectoryState));
+    const [state, setState] = useState<DirectoryState>(() => normalizeDirectoryState(
+        resolvedPayload?.initialUserDirectoryState ?? props.initialUserDirectoryState,
+    ));
     useEffect(() => {
-        setState(normalizeDirectoryState(props.initialUserDirectoryState));
-    }, [props.initialUserDirectoryState]);
+        if (!props.directoryPayload) return;
+        userDirectoryPayloadCache = props.directoryPayload;
+        setState(normalizeDirectoryState(props.directoryPayload.initialUserDirectoryState));
+    }, [props.directoryPayload]);
     const [activeMajorTab, setActiveMajorTab] = useHashWorkspace<MajorTab>(USER_MANAGEMENT_WORKSPACES, 'All Users');
     
     // Filters
@@ -2336,8 +2351,10 @@ function UserManagement() {
     }
 
     function reloadDirectory(): void {
-        router.reload({ only: ['initialUserDirectoryState', 'availablePersonnel', 'userDirectorySource'] });
+        router.reload({ only: ['directoryPayload'] });
     }
+
+    useReadModelRefresh('users', reloadDirectory);
 
     async function confirmSuspend(form: SuspendFormState) {
         if (!suspendTargetUser?.databaseId) return;

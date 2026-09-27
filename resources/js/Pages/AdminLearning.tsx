@@ -22,6 +22,7 @@ import {
     type LearningWorkspace,
 } from "@/data/learning";
 import { learningClient, learningError } from "@/data/learningClient";
+import { useReadModelRefresh } from "@/data/readModelRefresh";
 import { Head } from "@inertiajs/react";
 import { useHashWorkspace } from "@/workspaceNavigation";
 import {
@@ -144,7 +145,7 @@ function initialState(value: unknown): LearningState | null {
 
 export default function AdminLearning({ initialLearningState }: Props) {
     const [state, setState] = useState<LearningState | null>(() =>
-        initialState(initialLearningState),
+        initialState(initialLearningState) ?? learningClient.peekState(),
     );
     const [loadStatus, setLoadStatus] = useState<
         "loading" | "ready" | "error"
@@ -186,11 +187,12 @@ export default function AdminLearning({ initialLearningState }: Props) {
     }, []);
 
     useEffect(() => {
-        if (!state) void loadLearningState();
-        // The initial Inertia prop is authoritative when present. A missing or
-        // invalid prop uses the state endpoint once and exposes any failure.
+        void loadLearningState();
+        // Page shell paints immediately; authoritative state revalidates in the background.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    useReadModelRefresh("learning", loadLearningState);
 
     if (!state) {
         return (

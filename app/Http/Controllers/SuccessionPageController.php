@@ -2,17 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\Succession\SuccessionService;
-use App\Support\ReadModelCache;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class SuccessionPageController extends Controller
 {
-    public function __construct(private readonly SuccessionService $succession) {}
-    public function administration(Request $request): Response
+    public function administration(): Response
     {
-        return Inertia::render('AdminSuccession', ['initialSuccessionState' => ReadModelCache::remember('succession', $request->user(), fn (): array => $this->succession->state($request->user()))]);
+        return Inertia::render('AdminSuccession');
     }
 }

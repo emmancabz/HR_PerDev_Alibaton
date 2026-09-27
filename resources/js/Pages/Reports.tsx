@@ -4,6 +4,7 @@ import StatCard from '@/Components/StatCard';
 import SystemSelect from '@/Components/SystemSelect';
 import AuthenticatedLayout, { HeaderActions, HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
+import { useReadModelRefresh } from '@/data/readModelRefresh';
 import axios from 'axios';
 import {
     Archive,
@@ -20,7 +21,7 @@ import {
     Users,
     type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type ReportRow = Record<string, unknown> & { id: string | number };
 type Metric = { label: string; value: string | number };
@@ -35,6 +36,10 @@ type ReportsState = {
     report: { key: string; title: string; rows: ReportRow[]; row_count: number; date_basis: string };
     exports: ExportRow[];
 };
+
+
+type ReportFilters = { report?: string; department?: string; date_from?: string; date_to?: string };
+let reportsStateCache: ReportsState | null = null;
 
 const metricIcons: Record<string, LucideIcon[]> = {
     'workforce-development': [Users, ClipboardCheck, ShieldCheck, GraduationCap],
@@ -85,13 +90,14 @@ function statusTone(value: unknown) {
     return 'bg-slate-100 text-slate-600';
 }
 
-export default function Reports({ initialReportsState }: { initialReportsState: ReportsState }) {
-    const [state, setState] = useState(initialReportsState);
-    const [reportType, setReportType] = useState(initialReportsState.selected_report);
-    const [department, setDepartment] = useState(initialReportsState.filters.department);
-    const [dateFrom, setDateFrom] = useState(initialReportsState.filters.date_from);
-    const [dateTo, setDateTo] = useState(initialReportsState.filters.date_to);
-    const [loading, setLoading] = useState(false);
+export default function Reports({ initialReportsState, initialReportFilters = {} }: { initialReportsState?: ReportsState; initialReportFilters?: ReportFilters }) {
+    const cached = initialReportsState ?? reportsStateCache;
+    const [state, setState] = useState<ReportsState | null>(cached);
+    const [reportType, setReportType] = useState(cached?.selected_report ?? initialReportFilters.report ?? '');
+    const [department, setDepartment] = useState(cached?.filters.department ?? initialReportFilters.department ?? '');
+    const [dateFrom, setDateFrom] = useState(cached?.filters.date_from ?? initialReportFilters.date_from ?? '');
+    const [dateTo, setDateTo] = useState(cached?.filters.date_to ?? initialReportFilters.date_to ?? '');
+    const [loading, setLoading] = useState(!cached);
     const [selected, setSelected] = useState<ReportRow | null>(null);
     const [exportOpen, setExportOpen] = useState(false);
     const [historyOpen, setHistoryOpen] = useState(false);
@@ -107,6 +113,7 @@ export default function Reports({ initialReportsState }: { initialReportsState: 
                     date_to: nextDateTo,
                 },
             });
+            reportsStateCache = response.data.data;
             setState(response.data.data);
             setReportType(response.data.data.selected_report);
             setDepartment(response.data.data.filters.department);
@@ -118,9 +125,17 @@ export default function Reports({ initialReportsState }: { initialReportsState: 
         }
     }
 
+    useEffect(() => {
+        void loadReport(reportType, department, dateFrom, dateTo);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useReadModelRefresh('reports', () => loadReport(reportType, department, dateFrom, dateTo));
+
     const columns = useMemo(() => {
-        const keys = state.report.rows.length > 0
-            ? Object.keys(state.report.rows[0]).filter((key) => key !== 'id')
+        const rows = state?.report.rows ?? [];
+        const keys = rows.length > 0
+            ? Object.keys(rows[0]).filter((key) => key !== 'id')
             : [];
 
         return (keys.length > 0 ? keys : ['record']).map((key) => ({
@@ -142,7 +157,20 @@ export default function Reports({ initialReportsState }: { initialReportsState: 
                 return <span className={isPrimary ? 'font-semibold text-slate-900' : ''}>{display(key, value)}</span>;
             },
         }));
-    }, [state.report.rows]);
+    }, [state?.report.rows]);
+
+    if (!state) {
+        return (
+            <AuthenticatedLayout header={<h1 className="truncate text-lg font-bold text-slate-900">Reports</h1>}>
+                <Head title="Reports" />
+                <div className="app-page app-page-enter">
+                    <section className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm" role="status" aria-live="polite">
+                        <p className="text-sm font-semibold text-slate-600">Loading the latest report data…</p>
+                    </section>
+                </div>
+            </AuthenticatedLayout>
+        );
+    }
 
     const exportUrl = (format: 'csv' | 'excel' | 'json' | 'print') => route('governance.api.reports.export', {
         report: state.report.key,

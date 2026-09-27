@@ -2,10 +2,26 @@ import axios from "axios";
 import { normalizeTrainingState, type TrainingProgramDraft, type TrainingState } from "./training";
 
 const unwrap = <T>(response: { data: { data: T } }) => response.data.data;
-const stateResponse = (response: { data: { data: unknown } }): TrainingState => normalizeTrainingState(unwrap(response));
+let trainingStateCache: TrainingState | null = null;
+let trainingStateRequest: Promise<TrainingState> | null = null;
+
+const rememberTrainingState = (state: TrainingState): TrainingState => {
+    trainingStateCache = state;
+    return state;
+};
+const stateResponse = (response: { data: { data: unknown } }): TrainingState => rememberTrainingState(normalizeTrainingState(unwrap(response)));
+
+async function fetchTrainingState(): Promise<TrainingState> {
+    if (trainingStateRequest) return trainingStateRequest;
+    trainingStateRequest = axios.get("/training/api/state")
+        .then(stateResponse)
+        .finally(() => { trainingStateRequest = null; });
+    return trainingStateRequest;
+}
 
 export const trainingClient = {
-    state: async () => stateResponse(await axios.get("/training/api/state")),
+    peekState: () => trainingStateCache,
+    state: fetchTrainingState,
     createProgram: async (payload: TrainingProgramDraft) => unwrap<{ programId: string; code: string }>(await axios.post("/training/api/programs", payload)),
     updateProgram: async (id: string, payload: TrainingProgramDraft) => stateResponse(await axios.put(`/training/api/programs/${id}`, payload)),
     transitionProgram: async (id: string, action: "activate" | "archive" | "cancel", reason?: string) => stateResponse(await axios.post(`/training/api/programs/${id}/transition`, { action, reason })),

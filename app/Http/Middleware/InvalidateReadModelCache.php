@@ -18,13 +18,12 @@ class InvalidateReadModelCache
             && $response->getStatusCode() < 400) {
             ReadModelCache::bump($domain);
 
-            // These are cross-module read models, so any successful domain write
-            // can change their aggregates/personnel development summaries.
-            if ($domain !== 'reports') {
-                ReadModelCache::bump('reports');
-            }
-            if ($domain !== 'users') {
-                ReadModelCache::bump('users');
+            // Cross-module summaries can depend on any successful operational write.
+            // Bump these lightweight generations instead of forcing users to press F5.
+            foreach (['dashboard', 'reports', 'users'] as $dependent) {
+                if ($dependent !== $domain) {
+                    ReadModelCache::bump($dependent);
+                }
             }
         }
 

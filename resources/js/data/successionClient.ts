@@ -2,8 +2,24 @@ import axios from "axios";
 import { normalizeSuccessionState, type SuccessionState } from "./succession";
 
 const data = (response: unknown): unknown => (response as { data?: { data?: unknown } })?.data?.data;
+let successionStateCache: SuccessionState | null = null;
+let successionStateRequest: Promise<SuccessionState> | null = null;
+
+const rememberSuccessionState = (state: SuccessionState): SuccessionState => {
+    successionStateCache = state;
+    return state;
+};
+
+async function fetchSuccessionState(): Promise<SuccessionState> {
+    if (successionStateRequest) return successionStateRequest;
+    successionStateRequest = axios.get("/succession/api/state")
+        .then((response) => rememberSuccessionState(normalizeSuccessionState(data(response))))
+        .finally(() => { successionStateRequest = null; });
+    return successionStateRequest;
+}
 export const successionClient = {
-    state: async (): Promise<SuccessionState> => normalizeSuccessionState(data(await axios.get("/succession/api/state"))),
+    peekState: () => successionStateCache,
+    state: fetchSuccessionState,
     createPosition: (payload: unknown) => axios.post("/succession/api/positions", payload),
     updatePosition: (id: string, payload: unknown) => axios.put(`/succession/api/positions/${id}`, payload),
     transitionPosition: (id: string, status: string, reason?: string) => axios.post(`/succession/api/positions/${id}/transition`, { status, reason }),

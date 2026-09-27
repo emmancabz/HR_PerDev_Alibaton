@@ -2,6 +2,7 @@ import AevynShell from '@/Components/Aevyn/AevynShell';
 import SystemSelect from '@/Components/SystemSelect';
 import alibatonLogo from '@/assets/AlibatonLogonobg.png';
 import { encodeWorkspaceHash } from '@/workspaceNavigation';
+import { READ_MODEL_REFRESH_EVENT } from '@/data/readModelRefresh';
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import {
@@ -102,6 +103,8 @@ type HeaderNotificationResponse = {
 const HEADER_NOTIFICATION_CACHE_TTL_MS = 60_000;
 let headerNotificationCache: { fetchedAt: number; payload: HeaderNotificationResponse } | null = null;
 let headerNotificationRequest: Promise<HeaderNotificationResponse> | null = null;
+let readModelRevisionSnapshot: Record<string, number> | null = null;
+let readModelRevisionRequest: Promise<Record<string, number>> | null = null;
 
 export type HeaderCrumb = {
     label: string;
@@ -2156,6 +2159,78 @@ export default function Authenticated({
     }, [fetchNotifications]);
 
     useEffect(() => {
+        let stopped = false;
+        let timer: number | null = null;
+
+        const poll = async () => {
+            if (stopped || document.visibilityState !== 'visible') return;
+
+            try {
+                if (!readModelRevisionRequest) {
+                    readModelRevisionRequest = axios
+                        .get<{ data: Record<string, number> }>('/api/read-model-revisions', {
+                            headers: { Accept: 'application/json' },
+                        })
+                        .then((response) => response.data.data ?? {})
+                        .finally(() => {
+                            readModelRevisionRequest = null;
+                        });
+                }
+
+                const next = await readModelRevisionRequest;
+                if (stopped) return;
+
+                const previous = readModelRevisionSnapshot;
+                readModelRevisionSnapshot = next;
+
+                if (!previous) return;
+
+                const changed = Object.keys(next).filter(
+                    (domain) => Number(next[domain] ?? 0) !== Number(previous[domain] ?? 0),
+                );
+                if (changed.length === 0) return;
+
+                window.dispatchEvent(new CustomEvent(READ_MODEL_REFRESH_EVENT, {
+                    detail: { domains: changed },
+                }));
+
+                // Notification counts often depend on the same writes. Expire the
+                // in-memory copy, but let its own delayed/polling path refresh it so
+                // it never competes with the affected module's authoritative reload.
+                headerNotificationCache = null;
+            } catch {
+                // The revision channel is an enhancement only. A temporary failure
+                // must never block navigation or the module's direct data requests.
+            }
+        };
+
+        const schedule = () => {
+            if (timer !== null) window.clearInterval(timer);
+            timer = window.setInterval(() => void poll(), 5_000);
+        };
+
+        const initial = window.setTimeout(() => {
+            void poll();
+            schedule();
+        }, 2_500);
+        const onFocus = () => void poll();
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') void poll();
+        };
+
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', onVisible);
+
+        return () => {
+            stopped = true;
+            window.clearTimeout(initial);
+            if (timer !== null) window.clearInterval(timer);
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, []);
+
+    useEffect(() => {
         const query = searchQuery.trim();
         if (query.length < 3) {
             setRemoteSearchResults([]);
@@ -2284,13 +2359,11 @@ export default function Authenticated({
     };
 
     const warmSidebarHref = (href: string) => {
-        // HostForge production workers are intentionally protected from speculative
-        // module requests. A hover must never compete with the navigation the user
-        // actually clicked. Local development keeps prefetching for fast iteration.
-        if (import.meta.env.PROD) return;
+        // V4 page routes render lightweight shells, so explicit hover/focus prefetch is
+        // safe in production again. Cache each URL once per tab to make the eventual
+        // click feel immediate without spraying speculative requests at HostForge.
+        if (warmedNavigationHrefs.has(href)) return;
 
-        // Cache the full Inertia GET response briefly. Hover/focus still refreshes this
-        // warm entry, while the idle warmup below makes the first module switch fast.
         const prefetch = (router as typeof router & {
             prefetch?: (
                 url: string,
@@ -2300,16 +2373,16 @@ export default function Authenticated({
         }).prefetch;
         if (typeof prefetch === 'function') {
             try {
-                prefetch.call(router, href, {}, { cacheFor: '20s' });
+                warmedNavigationHrefs.add(href);
+                prefetch.call(router, href, {}, { cacheFor: '60s' });
             } catch {
-                // Prefetch is a latency optimization only; navigation never depends on it.
+                warmedNavigationHrefs.delete(href);
             }
         }
     };
 
-    // Heavy module chunks are warmed only from explicit hover/focus prefetch on the
-    // corresponding sidebar link. Avoid downloading every Admin/HR/LMS module after
-    // login because that competes with the request the user is actually trying to open.
+    // Only explicit hover/focus warms a route. Data itself is fetched after the shell
+    // paints and refreshed through the lightweight read-model revision channel.
 
 
     const navigateSidebarHref = (href: string) => {

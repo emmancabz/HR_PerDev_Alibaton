@@ -1,6 +1,7 @@
 import { ChartDateRangeControl, DEFAULT_CHART_DATE_RANGE, dateFallsInChartRange, type ChartDateRangeValue } from '@/Components/ChartDateRange';
 import AuthenticatedLayout, { HeaderFilters } from '@/Layouts/AuthenticatedLayout';
-import { Head, Link } from '@inertiajs/react';
+import { useReadModelRefresh } from '@/data/readModelRefresh';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     AlertTriangle,
     Award,
@@ -20,7 +21,7 @@ import {
     UserRoundCheck,
     Users,
 } from 'lucide-react';
-import { useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import {
     Area,
     AreaChart,
@@ -115,7 +116,20 @@ type AdminDashboardState = {
 
 type Props = {
     userName?: string;
-    dashboard: AdminDashboardState;
+    dashboard?: AdminDashboardState;
+};
+
+let adminDashboardCache: AdminDashboardState | null = null;
+
+const EMPTY_ADMIN_DASHBOARD: AdminDashboardState = {
+    stats: { activeWorkforce: 0, performanceActions: 0, competencyActions: 0, trainingActions: 0, successionRisk: 0, recognitionPending: 0 },
+    needsAttention: [],
+    performance: { cycleName: null, cycleStatus: 'Loading', periodLabel: 'Loading current cycle…', reviewWindowLabel: 'Loading review window…', reviewOpenDate: null, reviewDueDate: null, total: 0, scheduled: 0, inProgress: 0, calibration: 0, finalized: 0, overdue: 0, actions: 0, averageFinalizedRating: null },
+    performanceSeries: [],
+    development: { learningInProgress: 0, learningOverdue: 0, trainingRequirements: 0, activeSuccessionPlans: 0 },
+    upcoming: [],
+    recentActivities: [],
+    workforceByDepartment: [],
 };
 
 type KpiDefinition = {
@@ -257,6 +271,19 @@ function PerformanceTooltip({
 }
 
 export default function AdminDashboard({ userName = 'Admin', dashboard }: Props) {
+    const [liveDashboard, setLiveDashboard] = useState<AdminDashboardState | null>(() => dashboard ?? adminDashboardCache);
+
+    useEffect(() => {
+        if (!dashboard) return;
+        adminDashboardCache = dashboard;
+        setLiveDashboard(dashboard);
+    }, [dashboard]);
+
+    useReadModelRefresh('dashboard', () => {
+        router.reload({ only: ['dashboard'] });
+    });
+
+    const resolvedDashboard = liveDashboard ?? EMPTY_ADMIN_DASHBOARD;
     const [performanceRange, setPerformanceRange] = useState<ChartDateRangeValue>({
         ...DEFAULT_CHART_DATE_RANGE,
         preset: 'ytd',
@@ -267,41 +294,41 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
     const kpis: KpiDefinition[] = [
         {
             label: 'Active Workforce',
-            value: dashboard.stats.activeWorkforce,
+            value: resolvedDashboard.stats.activeWorkforce,
             icon: Users,
             href: route('admin.users.index'),
         },
         {
             label: 'Performance Actions',
-            value: dashboard.stats.performanceActions,
+            value: resolvedDashboard.stats.performanceActions,
             icon: ClipboardCheck,
             href: `${route('admin.performance.index')}#Reviews`,
             attention: true,
         },
         {
             label: 'Competency Actions',
-            value: dashboard.stats.competencyActions,
+            value: resolvedDashboard.stats.competencyActions,
             icon: Target,
             href: `${route('admin.competency.index')}#Assessments`,
             attention: true,
         },
         {
             label: 'Training Actions',
-            value: dashboard.stats.trainingActions,
+            value: resolvedDashboard.stats.trainingActions,
             icon: GraduationCap,
             href: `${route('admin.training.index')}#Overview`,
             attention: true,
         },
         {
             label: 'Succession Risk',
-            value: dashboard.stats.successionRisk,
+            value: resolvedDashboard.stats.successionRisk,
             icon: UserRoundCheck,
             href: `${route('admin.succession.index')}#Succession%20Register`,
             attention: true,
         },
         {
             label: 'Recognition Pending',
-            value: dashboard.stats.recognitionPending,
+            value: resolvedDashboard.stats.recognitionPending,
             icon: Award,
             href: `${route('admin.recognition.index')}#Review%20Queue`,
             attention: true,
@@ -309,8 +336,8 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
     ];
 
     const visiblePerformanceData = useMemo(
-        () => dashboard.performanceSeries.filter((point) => dateFallsInChartRange(point.date, performanceRange)),
-        [dashboard.performanceSeries, performanceRange],
+        () => resolvedDashboard.performanceSeries.filter((point) => dateFallsInChartRange(point.date, performanceRange)),
+        [resolvedDashboard.performanceSeries, performanceRange],
     );
 
     const performanceReviewCount = visiblePerformanceData.reduce((sum, point) => sum + point.count, 0);
@@ -321,22 +348,22 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
     const previousScore = visiblePerformanceData.at(-2)?.score ?? null;
     const scoreTrend = latestScore !== null && previousScore !== null ? latestScore - previousScore : null;
 
-    const totalReviews = dashboard.performance.total;
+    const totalReviews = resolvedDashboard.performance.total;
     const finalizationPercent = totalReviews > 0
-        ? Math.round((dashboard.performance.finalized / totalReviews) * 100)
+        ? Math.round((resolvedDashboard.performance.finalized / totalReviews) * 100)
         : 0;
-    const workforceTotal = dashboard.workforceByDepartment.reduce((sum, item) => sum + item.count, 0);
+    const workforceTotal = resolvedDashboard.workforceByDepartment.reduce((sum, item) => sum + item.count, 0);
     const filteredNeedsAttention = useMemo(
-        () => dashboard.needsAttention.filter((item) => {
+        () => resolvedDashboard.needsAttention.filter((item) => {
             const areaMatches = areaFilter === 'all' || item.module.toLowerCase() === areaFilter;
             const priorityMatches = priorityFilter === 'all' || item.priority.toLowerCase() === priorityFilter;
             return areaMatches && priorityMatches;
         }),
-        [areaFilter, dashboard.needsAttention, priorityFilter],
+        [areaFilter, resolvedDashboard.needsAttention, priorityFilter],
     );
     const filteredUpcoming = useMemo(
-        () => dashboard.upcoming.filter((item) => areaFilter === 'all' || item.type.toLowerCase() === areaFilter),
-        [areaFilter, dashboard.upcoming],
+        () => resolvedDashboard.upcoming.filter((item) => areaFilter === 'all' || item.type.toLowerCase() === areaFilter),
+        [areaFilter, resolvedDashboard.upcoming],
     );
 
 
@@ -356,6 +383,7 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
             <Head title="Dashboard" />
 
             <div className="app-page app-page-enter space-y-5">
+                {!liveDashboard && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">Loading live dashboard data…</div>}
                 <HeaderFilters
                     active={areaFilter !== 'all' || priorityFilter !== 'all'}
                     onReset={() => {
@@ -529,7 +557,7 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
                 <section className="app-card overflow-hidden">
                     <SectionHeader
                         title="Performance Cycle Summary"
-                        description={dashboard.performance.periodLabel}
+                        description={resolvedDashboard.performance.periodLabel}
                         href={`${route('admin.performance.index')}#Overview`}
                         action="Open workspace"
                     />
@@ -538,10 +566,10 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
                         <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <h3 className="truncate text-sm font-bold text-slate-900">{dashboard.performance.cycleName ?? 'No active quarterly cycle'}</h3>
-                                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{dashboard.performance.cycleStatus}</span>
+                                    <h3 className="truncate text-sm font-bold text-slate-900">{resolvedDashboard.performance.cycleName ?? 'No active quarterly cycle'}</h3>
+                                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{resolvedDashboard.performance.cycleStatus}</span>
                                 </div>
-                                <p className="mt-1 text-xs text-slate-500">{dashboard.performance.reviewWindowLabel}</p>
+                                <p className="mt-1 text-xs text-slate-500">{resolvedDashboard.performance.reviewWindowLabel}</p>
                             </div>
 
                             <div className="flex items-center gap-5 text-xs">
@@ -553,11 +581,11 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
                                 <div>
                                     <p className="text-slate-400">Finalized rating</p>
                                     <p className="mt-0.5 font-extrabold text-slate-900">
-                                        {dashboard.performance.averageFinalizedRating === null ? '—' : `${dashboard.performance.averageFinalizedRating.toFixed(2)} / 5`}
+                                        {resolvedDashboard.performance.averageFinalizedRating === null ? '—' : `${resolvedDashboard.performance.averageFinalizedRating.toFixed(2)} / 5`}
                                     </p>
                                 </div>
-                                {dashboard.performance.overdue > 0 ? (
-                                    <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700">{dashboard.performance.overdue} overdue</span>
+                                {resolvedDashboard.performance.overdue > 0 ? (
+                                    <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700">{resolvedDashboard.performance.overdue} overdue</span>
                                 ) : (
                                     <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">On track</span>
                                 )}
@@ -566,10 +594,10 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
 
                         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                             {[
-                                ['Scheduled', dashboard.performance.scheduled],
-                                ['In Progress', dashboard.performance.inProgress],
-                                ['Calibration', dashboard.performance.calibration],
-                                ['Finalized', dashboard.performance.finalized],
+                                ['Scheduled', resolvedDashboard.performance.scheduled],
+                                ['In Progress', resolvedDashboard.performance.inProgress],
+                                ['Calibration', resolvedDashboard.performance.calibration],
+                                ['Finalized', resolvedDashboard.performance.finalized],
                             ].map(([label, value]) => (
                                 <Link
                                     key={String(label)}
@@ -591,7 +619,7 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
                             <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                                 <div className="h-full rounded-full bg-[#F4B400] transition-all" style={{ width: `${Math.min(100, finalizationPercent)}%` }} />
                             </div>
-                            <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-500">{dashboard.performance.finalized} of {dashboard.performance.total} finalized</span>
+                            <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-500">{resolvedDashboard.performance.finalized} of {resolvedDashboard.performance.total} finalized</span>
                         </div>
                     </div>
                 </section>
@@ -600,7 +628,7 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
                     <div className="app-card overflow-hidden">
                         <SectionHeader title="Workforce by Department" description={`${workforceTotal} active personnel`} href={route('admin.users.index')} action="Open users" />
                         <div className="space-y-3 p-4">
-                            {dashboard.workforceByDepartment.length ? dashboard.workforceByDepartment.slice(0, 7).map((item) => {
+                            {resolvedDashboard.workforceByDepartment.length ? resolvedDashboard.workforceByDepartment.slice(0, 7).map((item) => {
                                 const percent = workforceTotal ? Math.round((item.count / workforceTotal) * 100) : 0;
                                 return (
                                     <Link key={item.department} href={route('admin.users.index', { department: item.department })} className="group block rounded-lg p-1 -m-1 transition hover:bg-slate-50">
@@ -646,7 +674,7 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
                     <div className="app-card overflow-hidden">
                         <SectionHeader title="Recent Activity" description="Latest governed events" />
                         <div className="divide-y divide-slate-100 px-4">
-                            {dashboard.recentActivities.length ? dashboard.recentActivities.slice(0, 6).map((activity, index) => {
+                            {resolvedDashboard.recentActivities.length ? resolvedDashboard.recentActivities.slice(0, 6).map((activity, index) => {
                                 const Icon = activityIcon[activity.type] ?? BriefcaseBusiness;
                                 return (
                                     <Link key={`${activity.type}-${activity.occurredAt}-${index}`} href={activity.href} className="group flex items-start gap-3 py-3">

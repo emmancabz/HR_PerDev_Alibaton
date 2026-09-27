@@ -26,17 +26,21 @@ class DashboardController extends Controller
 
     public function admin(Request $request): Response
     {
+        $actor = $request->user();
+
         return Inertia::render('AdminDashboard', [
-            'userName' => $request->user()->name,
-            'dashboard' => $this->adminDashboardState($request->user()),
+            'userName' => $actor->name,
+            'dashboard' => Inertia::defer(fn (): array => $this->adminDashboardState($actor)),
         ]);
     }
 
     public function hr(Request $request): Response
     {
+        $actor = $request->user();
+
         return Inertia::render('HRDashboard', [
-            'userName' => $request->user()->name,
-            'dashboard' => $this->hrDashboardState($request->user()),
+            'userName' => $actor->name,
+            'dashboard' => Inertia::defer(fn (): array => $this->hrDashboardState($actor)),
         ]);
     }
 
@@ -54,8 +58,10 @@ class DashboardController extends Controller
         return Inertia::render($page, [
             'userName' => $user->name,
             'persona' => $persona->value,
-            'dashboard' => $this->userDashboardState($user),
-            'team' => $this->userTeamState($user, $persona),
+            'dashboardPayload' => Inertia::defer(fn (): array => [
+                'dashboard' => $this->userDashboardState($user),
+                'team' => $this->userTeamState($user, $persona),
+            ]),
         ]);
     }
 

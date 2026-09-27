@@ -6,10 +6,27 @@ import {
 } from "./learning";
 
 const unwrap = <T>(response: { data: { data: T } }) => response.data.data;
+let learningStateCache: LearningState | null = null;
+let learningStateRequest: Promise<LearningState> | null = null;
+
+const rememberLearningState = (state: LearningState): LearningState => {
+    learningStateCache = state;
+    return state;
+};
+
 const stateResponse = (response: { data: { data: unknown } }): LearningState =>
-    normalizeLearningState(unwrap<unknown>(response));
+    rememberLearningState(normalizeLearningState(unwrap<unknown>(response)));
+
+async function fetchLearningState(): Promise<LearningState> {
+    if (learningStateRequest) return learningStateRequest;
+    learningStateRequest = axios.get("/learning/api/state")
+        .then(stateResponse)
+        .finally(() => { learningStateRequest = null; });
+    return learningStateRequest;
+}
 export const learningClient = {
-    state: async () => stateResponse(await axios.get("/learning/api/state")),
+    peekState: () => learningStateCache,
+    state: fetchLearningState,
     create: async (draft: CourseDraft) =>
         unwrap<{ versionId: string; courseId: string; code: string }>(
             await axios.post("/learning/api/courses", draft),

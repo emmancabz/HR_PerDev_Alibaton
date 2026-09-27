@@ -14,6 +14,7 @@ import {
     type TrainingWorkspace,
 } from "@/data/training";
 import { trainingClient, trainingError } from "@/data/trainingClient";
+import { useReadModelRefresh } from "@/data/readModelRefresh";
 import { useHashWorkspace } from "@/workspaceNavigation";
 import { Head } from "@inertiajs/react";
 import {
@@ -118,7 +119,7 @@ function StatusPill({ value }: { value: string }) {
 
 export default function AdminTraining({ initialTrainingState }: Props) {
     const [workspace, setWorkspace] = useHashWorkspace<TrainingWorkspace>(TRAINING_WORKSPACES, "Overview");
-    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState));
+    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState) ?? trainingClient.peekState());
     const [loading, setLoading] = useState(!state);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
@@ -146,8 +147,11 @@ export default function AdminTraining({ initialTrainingState }: Props) {
     }, []);
 
     useEffect(() => {
-        if (!state) void load();
-    }, [load, state]);
+        void load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useReadModelRefresh("training", load);
 
     useEffect(() => {
         const preset = workspaceFilterPreset.current;

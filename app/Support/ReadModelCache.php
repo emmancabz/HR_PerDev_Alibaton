@@ -11,6 +11,19 @@ final class ReadModelCache
 {
     private const TTL_SECONDS = 60;
 
+    /** @var list<string> */
+    public const LIVE_DOMAINS = [
+        'dashboard',
+        'users',
+        'performance',
+        'competency',
+        'learning',
+        'training',
+        'succession',
+        'recognition',
+        'reports',
+    ];
+
     /**
      * Cache expensive read-only state in production. Keys are per domain,
      * generation, user, role and optional variant so pages and JSON state
@@ -27,7 +40,7 @@ final class ReadModelCache
             return $build();
         }
 
-        $generation = (int) Cache::get(self::generationKey($domain), 1);
+        $generation = self::generation($domain);
         $role = strtolower((string) ($actor->role?->value ?? $actor->role ?? 'user'));
         $variant = $vary === [] ? 'base' : sha1(json_encode($vary, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         $key = sprintf(
@@ -69,6 +82,21 @@ final class ReadModelCache
         $key = self::generationKey($domain);
         Cache::add($key, 1, now()->addDays(30));
         Cache::increment($key);
+    }
+
+    public static function generation(string $domain): int
+    {
+        return max(1, (int) Cache::get(self::generationKey($domain), 1));
+    }
+
+    /** @return array<string, int> */
+    public static function revisions(?array $domains = null): array
+    {
+        $domains ??= self::LIVE_DOMAINS;
+
+        return collect($domains)
+            ->mapWithKeys(fn (string $domain): array => [$domain => self::generation($domain)])
+            ->all();
     }
 
     private static function generationKey(string $domain): string

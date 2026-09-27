@@ -18,6 +18,7 @@ import {
     type SuccessionWorkspace,
 } from "@/data/succession";
 import { successionClient, successionError } from "@/data/successionClient";
+import { useReadModelRefresh } from "@/data/readModelRefresh";
 import { useHashWorkspace } from "@/workspaceNavigation";
 import { Head } from "@inertiajs/react";
 import {
@@ -473,7 +474,7 @@ function DevelopmentPlanModal({ state, row, onClose, onSaved }: { state: Success
 
 export default function AdminSuccession({ initialSuccessionState }: Props) {
     const [workspace, setWorkspace] = useHashWorkspace<SuccessionWorkspace>(SUCCESSION_WORKSPACES, "Overview");
-    const [state, setState] = useState<SuccessionState | null>(() => initial(initialSuccessionState));
+    const [state, setState] = useState<SuccessionState | null>(() => initial(initialSuccessionState) ?? successionClient.peekState());
     const [loading, setLoading] = useState(!state);
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
@@ -508,8 +509,11 @@ export default function AdminSuccession({ initialSuccessionState }: Props) {
     }, []);
 
     useEffect(() => {
-        if (!state) void reload();
-    }, [reload, state]);
+        void reload();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useReadModelRefresh("succession", reload);
 
     useEffect(() => {
         const positionPreset = workspaceFilterPreset.current;

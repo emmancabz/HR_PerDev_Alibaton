@@ -13,6 +13,7 @@ import {
   type PersonnelIdentity,
 } from "./personnel";
 import axios, { AxiosError } from "axios";
+import { useReadModelRefresh } from "./readModelRefresh";
 import {
   useCallback,
   useEffect,
@@ -419,6 +420,8 @@ export function usePerformanceBackendBridge(
   }, [applyState]);
 
   const reload = useCallback(() => reloadState(false), [reloadState]);
+
+  useReadModelRefresh("performance", () => reloadState(true));
 
   useLayoutEffect(() => {
     const cached = cachedAtMountRef.current;

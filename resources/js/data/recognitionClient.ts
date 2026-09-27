@@ -2,9 +2,25 @@ import axios from "axios";
 import { normalizeRecognitionState, type RecognitionState } from "./recognition";
 
 const responseData = (response: unknown): unknown => (response as { data?: { data?: unknown } })?.data?.data;
+let recognitionStateCache: RecognitionState | null = null;
+let recognitionStateRequest: Promise<RecognitionState> | null = null;
+
+const rememberRecognitionState = (state: RecognitionState): RecognitionState => {
+    recognitionStateCache = state;
+    return state;
+};
+
+async function fetchRecognitionState(): Promise<RecognitionState> {
+    if (recognitionStateRequest) return recognitionStateRequest;
+    recognitionStateRequest = axios.get("/recognition/api/state")
+        .then((response) => rememberRecognitionState(normalizeRecognitionState(responseData(response))))
+        .finally(() => { recognitionStateRequest = null; });
+    return recognitionStateRequest;
+}
 
 export const recognitionClient = {
-    state: async (): Promise<RecognitionState> => normalizeRecognitionState(responseData(await axios.get("/recognition/api/state"))),
+    peekState: () => recognitionStateCache,
+    state: fetchRecognitionState,
     create: (payload: unknown) => axios.post("/recognition/api/records", payload),
     update: (id: string, payload: unknown) => axios.put(`/recognition/api/records/${id}`, payload),
     submit: (id: string) => axios.post(`/recognition/api/records/${id}/submit`),

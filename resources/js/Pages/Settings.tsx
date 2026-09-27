@@ -208,6 +208,29 @@ export default function Settings({
     initialSettingsState,
     initialWorkspace,
 }: {
+    initialSettingsState?: SettingsState;
+    initialWorkspace?: Workspace;
+}) {
+    if (!initialSettingsState) {
+        return (
+            <AuthenticatedLayout header={<h1 className="truncate text-lg font-bold text-slate-900">Settings</h1>}>
+                <Head title="Settings" />
+                <div className="app-page app-page-enter">
+                    <section className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm" role="status" aria-live="polite">
+                        <p className="text-sm font-semibold text-slate-600">Loading the latest account and settings data…</p>
+                    </section>
+                </div>
+            </AuthenticatedLayout>
+        );
+    }
+
+    return <SettingsContent initialSettingsState={initialSettingsState} initialWorkspace={initialWorkspace} />;
+}
+
+function SettingsContent({
+    initialSettingsState,
+    initialWorkspace,
+}: {
     initialSettingsState: SettingsState;
     initialWorkspace?: Workspace;
 }) {
