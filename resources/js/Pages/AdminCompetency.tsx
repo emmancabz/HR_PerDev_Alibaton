@@ -203,10 +203,11 @@ function finalizedSnapshotFor(
 }
 
 export default function AdminCompetency() {
-    const props = usePage().props as unknown as { canonicalPersonnel: PersonnelIdentity[]; competency?: CompetencyPayload };
+    const page = usePage();
+    const props = page.props as unknown as { canonicalPersonnel: PersonnelIdentity[]; competency?: CompetencyPayload };
+    const authUser = page.props.auth.user;
     useState(() => { replaceSharedPersonnel(props.canonicalPersonnel ?? []); return true; });
-    const { state, setState, storageError, saving } = useCompetencyServerStore(props.competency);
-    const authUser = usePage().props.auth.user;
+    const { state, setState, storageError, saving } = useCompetencyServerStore(props.competency, Number(authUser.id));
     const actor = SHARED_PERSONNEL.find(
         (person) =>
             person.id === authUser.personnel_key ||
