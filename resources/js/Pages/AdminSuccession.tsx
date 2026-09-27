@@ -20,7 +20,7 @@ import {
 import { successionClient, successionError } from "@/data/successionClient";
 import { useReadModelRefresh } from "@/data/readModelRefresh";
 import { useHashWorkspace } from "@/workspaceNavigation";
-import { Head } from "@inertiajs/react";
+import { Head, usePage } from "@inertiajs/react";
 import {
     AlertTriangle,
     CalendarClock,
@@ -473,8 +473,9 @@ function DevelopmentPlanModal({ state, row, onClose, onSaved }: { state: Success
 }
 
 export default function AdminSuccession({ initialSuccessionState }: Props) {
+    const { auth } = usePage().props;
     const [workspace, setWorkspace] = useHashWorkspace<SuccessionWorkspace>(SUCCESSION_WORKSPACES, "Overview");
-    const [state, setState] = useState<SuccessionState | null>(() => initial(initialSuccessionState) ?? successionClient.peekState());
+    const [state, setState] = useState<SuccessionState | null>(() => initial(initialSuccessionState) ?? successionClient.peekState(Number(auth.user.id)));
     const [loading, setLoading] = useState(!state);
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
@@ -623,7 +624,7 @@ export default function AdminSuccession({ initialSuccessionState }: Props) {
         }), status === "Completed" ? "Development action completed." : "Development action is now in progress.");
     }
 
-    if (loading || !state) {
+    if (!state) {
         return (
             <AuthenticatedLayout header={<h1 className="text-lg font-bold text-slate-950">Succession Planning</h1>}>
                 <Head title="Succession Planning" />
