@@ -85,7 +85,7 @@ function tabFromHash(): TrainingTab {
 export default function LearnerTraining({ initialTrainingState }: Props) {
     const { auth } = usePage().props;
     const isTrainee = auth.user.persona === 'trainee';
-    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState) ?? trainingClient.peekState());
+    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState) ?? trainingClient.peekState(Number(auth.user.id)));
     const [activeTab, setActiveTab] = useState<TrainingTab>(() => tabFromHash());
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(!state);
@@ -213,7 +213,7 @@ export default function LearnerTraining({ initialTrainingState }: Props) {
         };
     }, [state, activeTab, upcoming, attendanceRows]);
 
-    if (loading || !state) {
+    if (!state) {
         return (
             <AuthenticatedLayout header={isTrainee ? traineeHeader : undefined}>
                 <Head title="Training" />
