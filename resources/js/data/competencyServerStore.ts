@@ -14,6 +14,40 @@ export type CompetencyPayload = {
 const collections = ['competencies', 'roleProfiles', 'cycles', 'assessorAuthorizations', 'assessments', 'recommendations', 'acknowledgmentEvents'] as const;
 const emptyState: CompetencyState = { schemaVersion: 4, competencies: [], roleProfiles: [], cycles: [], assessorAuthorizations: [], assessments: [], recommendations: [], acknowledgmentEvents: [], activities: [], auditLog: [] };
 let competencyPayloadCache: CompetencyPayload | null = null;
+const COMPETENCY_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const competencyStorageKey = (actorId: number) => `pd:competency-state:v1:${actorId}`;
+
+function readPersistedCompetencyPayload(actorId?: number): CompetencyPayload | null {
+    if (typeof window === 'undefined' || !actorId || actorId < 1) return null;
+    try {
+        const raw = window.sessionStorage.getItem(competencyStorageKey(actorId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { savedAt?: number; payload?: CompetencyPayload };
+        if (!parsed.savedAt || Date.now() - parsed.savedAt > COMPETENCY_CACHE_MAX_AGE_MS || !parsed.payload) {
+            window.sessionStorage.removeItem(competencyStorageKey(actorId));
+            return null;
+        }
+        return Number(parsed.payload.actor.databaseId) === actorId ? parsed.payload : null;
+    } catch {
+        window.sessionStorage.removeItem(competencyStorageKey(actorId));
+        return null;
+    }
+}
+
+function rememberCompetencyPayload(payload: CompetencyPayload): CompetencyPayload {
+    competencyPayloadCache = payload;
+    const actorId = Number(payload.actor.databaseId);
+    if (typeof window !== 'undefined' && actorId > 0) {
+        try {
+            window.sessionStorage.setItem(
+                competencyStorageKey(actorId),
+                JSON.stringify({ savedAt: Date.now(), payload }),
+            );
+        } catch {}
+    }
+    return payload;
+}
 
 export function competencyChanges(before: CompetencyState, after: CompetencyState) {
     return collections.flatMap(collection => {
@@ -23,8 +57,11 @@ export function competencyChanges(before: CompetencyState, after: CompetencyStat
 }
 
 /** Serial, revision-checked server mutations; local state is only the pending editor view. */
-export function useCompetencyServerStore(initial?: CompetencyPayload) {
-    const hydratedInitial = initial ?? competencyPayloadCache ?? undefined;
+export function useCompetencyServerStore(initial?: CompetencyPayload, actorId?: number) {
+    const inMemory = competencyPayloadCache && (!actorId || Number(competencyPayloadCache.actor.databaseId) === actorId)
+        ? competencyPayloadCache
+        : null;
+    const hydratedInitial = initial ?? inMemory ?? readPersistedCompetencyPayload(actorId) ?? undefined;
     const confirmed = useRef(hydratedInitial ?? null);
     const pending = useRef<SetStateAction<CompetencyState>[]>([]);
     const running = useRef(false);
@@ -38,7 +75,7 @@ export function useCompetencyServerStore(initial?: CompetencyPayload) {
     const reload = async () => {
         const { data } = await axios.get<CompetencyPayload>('/competency/api/state');
         confirmed.current = data;
-        competencyPayloadCache = data;
+        rememberCompetencyPayload(data);
         replaceSharedPersonnel(data.personnel);
         if (alive.current) render(data.state);
         return data;
@@ -54,7 +91,7 @@ export function useCompetencyServerStore(initial?: CompetencyPayload) {
             const changes = competencyChanges(before, desired);
             const data = changes.length ? (await axios.post<CompetencyPayload>('/competency/api/changes', { revision: confirmed.current.revision, changes })).data : confirmed.current;
             confirmed.current = data;
-            competencyPayloadCache = data;
+            rememberCompetencyPayload(data);
             replaceSharedPersonnel(data.personnel);
             pending.current.splice(0, count);
             if (alive.current) {
