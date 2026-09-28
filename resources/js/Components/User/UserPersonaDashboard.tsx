@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     Award,
     BookOpen,
@@ -59,7 +59,29 @@ const EMPTY_DASHBOARD: DashboardState = {
     learningDue: [],
     upcomingTrainings: [],
 };
-const personaDashboardCache = new Map<Persona, { dashboard: DashboardState; team?: TeamState }>();
+type PersonaDashboardPayload = { dashboard: DashboardState; team?: TeamState };
+const personaDashboardCache = new Map<string, PersonaDashboardPayload>();
+const PERSONA_DASHBOARD_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+const personaDashboardKey = (actorId: number, persona: Persona) => `${actorId}:${persona}`;
+const personaDashboardStorageKey = (actorId: number, persona: Persona) => `pd:dashboard:user:v1:${actorId}:${persona}`;
+function readPersonaDashboardCache(actorId: number, persona: Persona): PersonaDashboardPayload | null {
+    if (typeof window === 'undefined' || !Number.isFinite(actorId) || actorId < 1) return null;
+    try {
+        const raw = window.sessionStorage.getItem(personaDashboardStorageKey(actorId, persona));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { savedAt?: number; state?: PersonaDashboardPayload };
+        if (!parsed.savedAt || Date.now() - parsed.savedAt > PERSONA_DASHBOARD_CACHE_MAX_AGE_MS || !parsed.state) {
+            window.sessionStorage.removeItem(personaDashboardStorageKey(actorId, persona));
+            return null;
+        }
+        return parsed.state;
+    } catch { return null; }
+}
+function rememberPersonaDashboard(actorId: number, persona: Persona, state: PersonaDashboardPayload) {
+    personaDashboardCache.set(personaDashboardKey(actorId, persona), state);
+    if (typeof window === 'undefined' || actorId < 1) return;
+    try { window.sessionStorage.setItem(personaDashboardStorageKey(actorId, persona), JSON.stringify({ savedAt: Date.now(), state })); } catch {}
+}
 
 const personaCopy: Record<
     Persona,
@@ -119,14 +141,19 @@ export default function UserPersonaDashboard({
     team,
     dashboardPayload,
 }: Props) {
+    const { auth } = usePage().props;
+    const actorId = Number(auth.user.id);
     const incoming = dashboardPayload ?? (dashboard ? { dashboard, team } : undefined);
-    const [livePayload, setLivePayload] = useState(() => incoming ?? personaDashboardCache.get(persona) ?? null);
+    const cacheKey = personaDashboardKey(actorId, persona);
+    const [livePayload, setLivePayload] = useState(() =>
+        incoming ?? personaDashboardCache.get(cacheKey) ?? readPersonaDashboardCache(actorId, persona),
+    );
 
     useEffect(() => {
         if (!incoming) return;
-        personaDashboardCache.set(persona, incoming);
+        rememberPersonaDashboard(actorId, persona, incoming);
         setLivePayload(incoming);
-    }, [dashboardPayload, dashboard, team, persona]);
+    }, [dashboardPayload, dashboard, team, persona, actorId]);
 
     useReadModelRefresh('dashboard', () => {
         router.reload({ only: ['dashboardPayload'] });

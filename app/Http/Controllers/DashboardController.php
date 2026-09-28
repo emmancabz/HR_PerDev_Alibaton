@@ -28,14 +28,16 @@ class DashboardController extends Controller
     public function admin(Request $request): Response
     {
         $actor = $request->user();
+        $vary = ['workspace' => 'admin'];
+        $cached = ReadModelCache::peek('dashboard', $actor, $vary);
 
         return Inertia::render('AdminDashboard', [
             'userName' => $actor->name,
-            'dashboard' => Inertia::defer(fn (): array => ReadModelCache::remember(
+            'dashboard' => $cached ?? Inertia::defer(fn (): array => ReadModelCache::remember(
                 'dashboard',
                 $actor,
                 fn (): array => $this->adminDashboardState($actor),
-                ['workspace' => 'admin'],
+                $vary,
             )),
         ]);
     }
@@ -43,14 +45,16 @@ class DashboardController extends Controller
     public function hr(Request $request): Response
     {
         $actor = $request->user();
+        $vary = ['workspace' => 'hr'];
+        $cached = ReadModelCache::peek('dashboard', $actor, $vary);
 
         return Inertia::render('HRDashboard', [
             'userName' => $actor->name,
-            'dashboard' => Inertia::defer(fn (): array => ReadModelCache::remember(
+            'dashboard' => $cached ?? Inertia::defer(fn (): array => ReadModelCache::remember(
                 'dashboard',
                 $actor,
                 fn (): array => $this->hrDashboardState($actor),
-                ['workspace' => 'hr'],
+                $vary,
             )),
         ]);
     }
@@ -66,17 +70,20 @@ class DashboardController extends Controller
             UserPersona::Manager => 'ManagerDashboard',
         };
 
+        $vary = ['workspace' => 'user', 'persona' => $persona->value];
+        $cached = ReadModelCache::peek('dashboard', $user, $vary);
+
         return Inertia::render($page, [
             'userName' => $user->name,
             'persona' => $persona->value,
-            'dashboardPayload' => Inertia::defer(fn (): array => ReadModelCache::remember(
+            'dashboardPayload' => $cached ?? Inertia::defer(fn (): array => ReadModelCache::remember(
                 'dashboard',
                 $user,
                 fn (): array => [
                     'dashboard' => $this->userDashboardState($user),
                     'team' => $this->userTeamState($user, $persona),
                 ],
-                ['workspace' => 'user', 'persona' => $persona->value],
+                $vary,
             )),
         ]);
     }

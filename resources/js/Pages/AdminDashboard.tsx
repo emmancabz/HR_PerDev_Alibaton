@@ -1,7 +1,7 @@
 import { ChartDateRangeControl, DEFAULT_CHART_DATE_RANGE, dateFallsInChartRange, type ChartDateRangeValue } from '@/Components/ChartDateRange';
 import AuthenticatedLayout, { HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     AlertTriangle,
     Award,
@@ -119,7 +119,27 @@ type Props = {
     dashboard?: AdminDashboardState;
 };
 
-let adminDashboardCache: AdminDashboardState | null = null;
+const adminDashboardCache = new Map<number, AdminDashboardState>();
+const ADMIN_DASHBOARD_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+const adminDashboardStorageKey = (actorId: number) => `pd:dashboard:admin:v1:${actorId}`;
+function readAdminDashboardCache(actorId: number): AdminDashboardState | null {
+    if (typeof window === 'undefined' || !Number.isFinite(actorId) || actorId < 1) return null;
+    try {
+        const raw = window.sessionStorage.getItem(adminDashboardStorageKey(actorId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { savedAt?: number; state?: AdminDashboardState };
+        if (!parsed.savedAt || Date.now() - parsed.savedAt > ADMIN_DASHBOARD_CACHE_MAX_AGE_MS || !parsed.state) {
+            window.sessionStorage.removeItem(adminDashboardStorageKey(actorId));
+            return null;
+        }
+        return parsed.state;
+    } catch { return null; }
+}
+function rememberAdminDashboard(actorId: number, state: AdminDashboardState) {
+    adminDashboardCache.set(actorId, state);
+    if (typeof window === 'undefined' || actorId < 1) return;
+    try { window.sessionStorage.setItem(adminDashboardStorageKey(actorId), JSON.stringify({ savedAt: Date.now(), state })); } catch {}
+}
 
 const EMPTY_ADMIN_DASHBOARD: AdminDashboardState = {
     stats: { activeWorkforce: 0, performanceActions: 0, competencyActions: 0, trainingActions: 0, successionRisk: 0, recognitionPending: 0 },
@@ -271,13 +291,17 @@ function PerformanceTooltip({
 }
 
 export default function AdminDashboard({ userName = 'Admin', dashboard }: Props) {
-    const [liveDashboard, setLiveDashboard] = useState<AdminDashboardState | null>(() => dashboard ?? adminDashboardCache);
+    const { auth } = usePage().props;
+    const actorId = Number(auth.user.id);
+    const [liveDashboard, setLiveDashboard] = useState<AdminDashboardState | null>(() =>
+        dashboard ?? adminDashboardCache.get(actorId) ?? readAdminDashboardCache(actorId),
+    );
 
     useEffect(() => {
         if (!dashboard) return;
-        adminDashboardCache = dashboard;
+        rememberAdminDashboard(actorId, dashboard);
         setLiveDashboard(dashboard);
-    }, [dashboard]);
+    }, [dashboard, actorId]);
 
     useReadModelRefresh('dashboard', () => {
         router.reload({ only: ['dashboard'] });

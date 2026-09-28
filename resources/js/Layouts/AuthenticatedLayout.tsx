@@ -3,6 +3,11 @@ import SystemSelect from '@/Components/SystemSelect';
 import alibatonLogo from '@/assets/AlibatonLogonobg.png';
 import { encodeWorkspaceHash } from '@/workspaceNavigation';
 import { READ_MODEL_REFRESH_EVENT } from '@/data/readModelRefresh';
+import { learningClient } from '@/data/learningClient';
+import { trainingClient } from '@/data/trainingClient';
+import { successionClient } from '@/data/successionClient';
+import { recognitionClient } from '@/data/recognitionClient';
+import { primePerformanceStateCache } from '@/data/performanceBackend';
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import {
@@ -49,6 +54,7 @@ type UserPersona = 'trainee' | 'employee' | 'supervisor' | 'manager';
 // Module-scoped warm caches survive Inertia page swaps for the life of the tab.
 // Nothing sensitive is persisted to browser storage.
 const warmedNavigationHrefs = new Set<string>();
+const warmedWorkspaceActors = new Set<string>();
 
 
 type NavChild = {
@@ -2415,9 +2421,73 @@ export default function Authenticated({
         }
     };
 
-    // Only explicit hover/focus warms a route. Data itself is fetched after the shell
-    // paints and refreshed through the lightweight read-model revision channel.
+    // Prime high-value read models after the authenticated shell paints. This never
+    // blocks login or a click. The API calls fill both Redis and actor-scoped browser
+    // caches; then the matching Inertia route shell is prefetched.
+    useEffect(() => {
+        const actorId = Number(user.id);
+        if (!Number.isFinite(actorId) || actorId < 1) return;
 
+        const actorWarmKey = `${actorId}:${String(user.role)}:${String(user.persona ?? '')}`;
+        if (warmedWorkspaceActors.has(actorWarmKey)) return;
+        warmedWorkspaceActors.add(actorWarmKey);
+
+        let cancelled = false;
+        const wait = (milliseconds: number) => new Promise<void>((resolve) => {
+            window.setTimeout(resolve, milliseconds);
+        });
+        const navFor = (needle: string) => navItems.find((item) => item.routeName.includes(needle));
+        const warmRoute = (item: NavItem | undefined) => {
+            if (!item || cancelled) return;
+            warmSidebarHref(resolveNavHref(item.routeName, item.children?.[0]?.workspace));
+        };
+
+        const jobs: Array<{ item?: NavItem; prime: () => Promise<unknown> }> = [];
+        const learningItem = navFor('learning');
+        const trainingItem = navFor('training');
+        const performanceItem = navFor('performance');
+        const successionItem = navFor('succession');
+        const recognitionItem = navFor('recognition') ?? navFor('leaderboard');
+
+        if (learningItem) jobs.push({ item: learningItem, prime: () => learningClient.state() });
+        if (trainingItem) jobs.push({ item: trainingItem, prime: () => trainingClient.state() });
+        if (performanceItem) jobs.push({ item: performanceItem, prime: () => primePerformanceStateCache() });
+        if (successionItem) jobs.push({ item: successionItem, prime: () => successionClient.state() });
+        if (recognitionItem) jobs.push({ item: recognitionItem, prime: () => recognitionClient.state() });
+
+        const queue = [...jobs];
+        const worker = async () => {
+            while (!cancelled && queue.length > 0) {
+                const job = queue.shift();
+                if (!job) return;
+                try {
+                    await job.prime();
+                } catch {
+                    // Opportunistic only. The destination keeps its normal retry path.
+                }
+                if (cancelled) return;
+                warmRoute(job.item);
+                await wait(120);
+            }
+        };
+
+        const start = window.setTimeout(() => {
+            void Promise.allSettled([worker(), worker()]).then(() => {
+                if (cancelled) return;
+                navItems.forEach((item, index) => {
+                    window.setTimeout(() => {
+                        if (!cancelled) warmRoute(item);
+                    }, index * 160);
+                });
+            });
+        }, 1200);
+
+        return () => {
+            cancelled = true;
+            window.clearTimeout(start);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user.id, user.role, user.persona]);
 
     const navigateSidebarHref = (href: string) => {
         // Keep module switches inside the Inertia SPA. Do not preserve the previous

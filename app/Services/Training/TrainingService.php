@@ -1001,7 +1001,7 @@ class TrainingService
     {
         if (
             $actor->role !== UserRole::User
-            || strcasecmp((string) $actor->person_type, 'Trainee') !== 0
+            || ! str_contains(Str::lower((string) $actor->person_type), 'trainee')
             || ! Schema::hasTable('training_trainer_evaluations')
         ) {
             return [];
@@ -1535,26 +1535,36 @@ class TrainingService
 
     private function publishedLearningCourses(): array
     {
-        return DB::table('learning_courses')->join('learning_course_versions', 'learning_courses.current_published_version_id', '=', 'learning_course_versions.id')
-            ->whereNull('learning_courses.archived_at')->orderBy('learning_course_versions.title')
-            ->get(['learning_courses.id', 'learning_courses.code', 'learning_course_versions.id as version_id', 'learning_course_versions.title'])
-            ->map(function ($row) {
-                $enrolledCount = LearningAssignment::query()
-                    ->where('course_id', $row->id)
-                    ->whereNotIn('status', ['Cancelled', 'Expired'])
-                    ->whereNotNull('learner_id')
-                    ->whereHas('learner', fn ($query) => $query->activePersonnel()->where('role', '!=', UserRole::Admin->value))
-                    ->distinct('learner_id')
-                    ->count('learner_id');
+        $courses = DB::table('learning_courses')
+            ->join('learning_course_versions', 'learning_courses.current_published_version_id', '=', 'learning_course_versions.id')
+            ->whereNull('learning_courses.archived_at')
+            ->orderBy('learning_course_versions.title')
+            ->get([
+                'learning_courses.id',
+                'learning_courses.code',
+                'learning_course_versions.id as version_id',
+                'learning_course_versions.title',
+            ]);
 
-                return [
-                    'id' => $row->id,
-                    'versionId' => $row->version_id,
-                    'code' => $row->code,
-                    'title' => $row->title,
-                    'enrolledCount' => $enrolledCount,
-                ];
-            })->all();
+        $courseIds = $courses->pluck('id')->filter()->values();
+        $counts = $courseIds->isEmpty()
+            ? collect()
+            : LearningAssignment::query()
+                ->whereIn('course_id', $courseIds)
+                ->whereNotIn('status', ['Cancelled', 'Expired'])
+                ->whereNotNull('learner_id')
+                ->whereHas('learner', fn ($query) => $query->activePersonnel()->where('role', '!=', UserRole::Admin->value))
+                ->selectRaw('course_id, COUNT(DISTINCT learner_id) as aggregate')
+                ->groupBy('course_id')
+                ->pluck('aggregate', 'course_id');
+
+        return $courses->map(fn ($row) => [
+            'id' => $row->id,
+            'versionId' => $row->version_id,
+            'code' => $row->code,
+            'title' => $row->title,
+            'enrolledCount' => (int) ($counts->get($row->id) ?? 0),
+        ])->all();
     }
 
     private function personnelSnapshot(User $user): array

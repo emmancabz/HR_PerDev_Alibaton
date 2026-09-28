@@ -1,7 +1,7 @@
 import { ChartDateRangeControl, DEFAULT_CHART_DATE_RANGE, dateFallsInChartRange, type ChartDateRangeValue } from '@/Components/ChartDateRange';
 import AuthenticatedLayout, { HeaderFilters } from '@/Layouts/AuthenticatedLayout';
 import { useReadModelRefresh } from '@/data/readModelRefresh';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     AlertTriangle,
     Award,
@@ -119,7 +119,27 @@ type Props = {
     dashboard?: HRDashboardState;
 };
 
-let hrDashboardCache: HRDashboardState | null = null;
+const hrDashboardCache = new Map<number, HRDashboardState>();
+const HR_DASHBOARD_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+const hrDashboardStorageKey = (actorId: number) => `pd:dashboard:hr:v1:${actorId}`;
+function readHrDashboardCache(actorId: number): HRDashboardState | null {
+    if (typeof window === 'undefined' || !Number.isFinite(actorId) || actorId < 1) return null;
+    try {
+        const raw = window.sessionStorage.getItem(hrDashboardStorageKey(actorId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { savedAt?: number; state?: HRDashboardState };
+        if (!parsed.savedAt || Date.now() - parsed.savedAt > HR_DASHBOARD_CACHE_MAX_AGE_MS || !parsed.state) {
+            window.sessionStorage.removeItem(hrDashboardStorageKey(actorId));
+            return null;
+        }
+        return parsed.state;
+    } catch { return null; }
+}
+function rememberHrDashboard(actorId: number, state: HRDashboardState) {
+    hrDashboardCache.set(actorId, state);
+    if (typeof window === 'undefined' || actorId < 1) return;
+    try { window.sessionStorage.setItem(hrDashboardStorageKey(actorId), JSON.stringify({ savedAt: Date.now(), state })); } catch {}
+}
 
 const EMPTY_HR_DASHBOARD: HRDashboardState = {
     stats: { activeWorkforce: 0, performanceActions: 0, competencyActions: 0, trainingActions: 0, successionRisk: 0, recognitionPending: 0 },
@@ -271,13 +291,17 @@ function PerformanceTooltip({
 }
 
 export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Props) {
-    const [liveDashboard, setLiveDashboard] = useState<HRDashboardState | null>(() => dashboard ?? hrDashboardCache);
+    const { auth } = usePage().props;
+    const actorId = Number(auth.user.id);
+    const [liveDashboard, setLiveDashboard] = useState<HRDashboardState | null>(() =>
+        dashboard ?? hrDashboardCache.get(actorId) ?? readHrDashboardCache(actorId),
+    );
 
     useEffect(() => {
         if (!dashboard) return;
-        hrDashboardCache = dashboard;
+        rememberHrDashboard(actorId, dashboard);
         setLiveDashboard(dashboard);
-    }, [dashboard]);
+    }, [dashboard, actorId]);
 
     useReadModelRefresh('dashboard', () => {
         router.reload({ only: ['dashboard'] });

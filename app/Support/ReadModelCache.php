@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Cache;
 
 final class ReadModelCache
 {
-    private const TTL_SECONDS = 60;
+    private const TTL_SECONDS = 900;
 
     /** @var list<string> */
     public const LIVE_DOMAINS = [
