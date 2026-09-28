@@ -16,7 +16,7 @@ import {
 import { trainingClient, trainingError } from "@/data/trainingClient";
 import { useReadModelRefresh } from "@/data/readModelRefresh";
 import { useHashWorkspace } from "@/workspaceNavigation";
-import { Head, usePage } from "@inertiajs/react";
+import { Head } from "@inertiajs/react";
 import {
     AlertCircle,
     CalendarCheck2,
@@ -25,6 +25,8 @@ import {
     CheckCircle2,
     Clock3,
     MapPin,
+    Play,
+    Plus,
     RefreshCcw,
     RotateCcw,
     ShieldCheck,
@@ -118,9 +120,8 @@ function StatusPill({ value }: { value: string }) {
 }
 
 export default function AdminTraining({ initialTrainingState }: Props) {
-    const { auth } = usePage().props;
     const [workspace, setWorkspace] = useHashWorkspace<TrainingWorkspace>(TRAINING_WORKSPACES, "Overview");
-    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState) ?? trainingClient.peekState(Number(auth.user.id)));
+    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState) ?? trainingClient.peekState());
     const [loading, setLoading] = useState(!state);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
@@ -130,7 +131,11 @@ export default function AdminTraining({ initialTrainingState }: Props) {
     const [expandedSession, setExpandedSession] = useState<string | null>(null);
     const [expandedRecord, setExpandedRecord] = useState<string | null>(null);
     const [scheduleGroup, setScheduleGroup] = useState<RequirementGroup | null>(null);
+    const [createSessionOpen, setCreateSessionOpen] = useState(false);
     const [rescheduleRow, setRescheduleRow] = useState<RegisterRow | null>(null);
+    const [addParticipantsRow, setAddParticipantsRow] = useState<RegisterRow | null>(null);
+    const [attendanceRow, setAttendanceRow] = useState<RegisterRow | null>(null);
+    const [assessmentTarget, setAssessmentTarget] = useState<{ row: RegisterRow; enrollment: TrainingEnrollment } | null>(null);
     const [cancelRow, setCancelRow] = useState<RegisterRow | null>(null);
     const workspaceFilterPreset = useRef<Partial<Filters> | null>(null);
     const workspaceExpandedSession = useRef<string | null>(null);
@@ -272,7 +277,7 @@ export default function AdminTraining({ initialTrainingState }: Props) {
         pending: registerRows.filter((row) => ["Pending Attendance", "Pending Finalization"].includes(row.displayStatus)).length,
     }), [registerRows, state]);
 
-    if (!state) {
+    if (loading || !state) {
         return <AuthenticatedLayout header={<h1 className="truncate text-sm font-bold text-slate-900">Training Management</h1>}><Head title="Training Management" /><div className="app-page"><section className={`${card} p-8 text-center`}>
             {error ? <><AlertCircle className="mx-auto h-7 w-7 text-rose-500" /><h2 className="mt-2 text-sm font-extrabold text-slate-900">Training Management could not be loaded</h2><p className="mt-1 text-xs text-slate-500">{error}</p><button type="button" className={`${primary} mt-4`} onClick={() => void load()}><RefreshCcw className="h-4 w-4" />Retry</button></> : <p className="text-sm font-semibold text-slate-500">Loading Training Management…</p>}
         </section></div></AuthenticatedLayout>;
@@ -399,17 +404,29 @@ export default function AdminTraining({ initialTrainingState }: Props) {
                 </div>
             </>}
 
-            {workspace === "Training Register" && <DataTable
-                title="Training Register"
-                data={filteredRegister}
-                rowKey={(row) => row.key}
-                pageSize={10}
-                onRowClick={(row) => setExpandedSession(row.key)}
-                getRowLabel={(row) => `Open ${row.program.title} training details`}
-                emptyTitle="No training sessions match the current filters"
-                emptyDescription="Ready requirements are scheduled from the Overview instead of being created as blank events."
-                columns={registerColumns()}
-            />}
+            {workspace === "Training Register" && <>
+                <div className="mb-3 flex justify-end">
+                    <button
+                        type="button"
+                        className={primary}
+                        disabled={busy || !state.actor.canManage || activePrograms.length === 0}
+                        onClick={() => setCreateSessionOpen(true)}
+                    >
+                        <Plus className="h-4 w-4" /> Schedule Training
+                    </button>
+                </div>
+                <DataTable
+                    title="Training Register"
+                    data={filteredRegister}
+                    rowKey={(row) => row.key}
+                    pageSize={10}
+                    onRowClick={(row) => setExpandedSession(row.key)}
+                    getRowLabel={(row) => `Open ${row.program.title} training details`}
+                    emptyTitle="No training sessions match the current filters"
+                    emptyDescription="Schedule an approved active Training program, then assign eligible participants from the session details."
+                    columns={registerColumns()}
+                />
+            </>}
 
             {workspace === "Training Records" && <DataTable
                 title="Training Records"
@@ -450,8 +467,13 @@ export default function AdminTraining({ initialTrainingState }: Props) {
         >
             <TrainingDetails
                 row={selectedSession}
+                canManage={state.actor.canManage}
                 canFinalize={state.actor.canFinalize}
                 busy={busy}
+                onAddParticipants={() => { setExpandedSession(null); setAddParticipantsRow(selectedSession); }}
+                onStart={() => void mutate(() => trainingClient.transitionSession(selectedSession.session.id, "Ongoing"), "Training session started. Attendance can now be recorded.")}
+                onManageAttendance={() => { setExpandedSession(null); setAttendanceRow(selectedSession); }}
+                onAssess={(enrollment) => { setExpandedSession(null); setAssessmentTarget({ row: selectedSession, enrollment }); }}
                 onReschedule={() => { setExpandedSession(null); setRescheduleRow(selectedSession); }}
                 onCancel={() => { setExpandedSession(null); setCancelRow(selectedSession); }}
                 onRefreshAttendance={() => void mutate(() => trainingClient.syncWorkforce(selectedSession.session.id), "Attendance evidence refreshed.")}
@@ -470,6 +492,49 @@ export default function AdminTraining({ initialTrainingState }: Props) {
         >
             <RecordDetails row={selectedRecord} />
         </AppModal>}
+
+        {createSessionOpen && <CreateSessionModal state={state} programs={activePrograms} busy={busy} error={error} onClose={() => { setCreateSessionOpen(false); setError(""); }} onCreate={async (programId, payloads, participantIds) => {
+            setBusy(true); setError(""); setNotice("");
+            try {
+                const sessionIds: string[] = [];
+                for (const payload of payloads) {
+                    const created = await trainingClient.createSession(programId, payload);
+                    sessionIds.push(created.sessionId);
+                }
+                if (participantIds.length > 0) {
+                    await trainingClient.enroll(programId, {
+                        participantIds,
+                        sessionIds,
+                        source: "HR Assignment",
+                        reason: payloads.length > 1
+                            ? "Assigned by authorized Training Management to the quarterly recurring practical schedule."
+                            : "Assigned by authorized Training Management to the scheduled practical session.",
+                    });
+                }
+                setState(await trainingClient.state());
+                setNotice(`${payloads.length} training session${payloads.length === 1 ? "" : "s"} scheduled${participantIds.length ? ` for ${participantIds.length} participant${participantIds.length === 1 ? "" : "s"}` : ""}.`);
+                setCreateSessionOpen(false);
+            } catch (cause) { setError(trainingError(cause)); } finally { setBusy(false); }
+        }} />}
+        {addParticipantsRow && <AddParticipantsModal state={state} row={addParticipantsRow} busy={busy} error={error} onClose={() => { setAddParticipantsRow(null); setError(""); }} onAssign={async (participantIds, reason) => {
+            setBusy(true); setError(""); setNotice("");
+            try {
+                await trainingClient.enroll(addParticipantsRow.program.id, { participantIds, sessionIds: [addParticipantsRow.session.id], source: "HR Assignment", reason });
+                setState(await trainingClient.state());
+                setNotice(`${participantIds.length} participant${participantIds.length === 1 ? "" : "s"} assigned to ${addParticipantsRow.program.title}.`);
+                setAddParticipantsRow(null);
+            } catch (cause) { setError(trainingError(cause)); } finally { setBusy(false); }
+        }} />}
+        {attendanceRow && <AttendanceModal row={attendanceRow} busy={busy} error={error} onClose={() => { setAttendanceRow(null); setError(""); }} onSave={async (updates) => {
+            if (await mutate(async () => {
+                let latest = state;
+                for (const update of updates) latest = await trainingClient.markAttendance(update.id, update.status, update.note);
+                return latest ?? trainingClient.state();
+            }, "Training attendance updated.")) setAttendanceRow(null);
+        }} />}
+        {assessmentTarget && <AssessmentModal program={assessmentTarget.row.program} enrollment={assessmentTarget.enrollment} busy={busy} error={error} onClose={() => { setAssessmentTarget(null); setError(""); }} onSave={async (payload) => {
+            if (await mutate(() => trainingClient.assess(assessmentTarget.enrollment.id, payload), "Training assessment saved.")) setAssessmentTarget(null);
+        }} />}
 
         {scheduleGroup && <ScheduleTrainingModal state={state} group={scheduleGroup} busy={busy} error={error} onClose={() => { setScheduleGroup(null); setError(""); }} onSchedule={async (payload) => {
             if (await mutate(() => trainingClient.scheduleRequirements(payload), "Training session scheduled from ready development requirements.")) setScheduleGroup(null);
@@ -514,8 +579,8 @@ function RequirementDetails({ group, busy, onSchedule }: { group: RequirementGro
     </section>;
 }
 
-function TrainingDetails({ row, canFinalize, busy, onReschedule, onCancel, onRefreshAttendance, onFinalizeAttendance, onComplete, onFinalizeReady }: {
-    row: RegisterRow; canFinalize: boolean; busy: boolean; onReschedule: () => void; onCancel: () => void; onRefreshAttendance: () => void; onFinalizeAttendance: () => void; onComplete: () => void; onFinalizeReady: () => void;
+function TrainingDetails({ row, canManage, canFinalize, busy, onAddParticipants, onStart, onManageAttendance, onAssess, onReschedule, onCancel, onRefreshAttendance, onFinalizeAttendance, onComplete, onFinalizeReady }: {
+    row: RegisterRow; canManage: boolean; canFinalize: boolean; busy: boolean; onAddParticipants: () => void; onStart: () => void; onManageAttendance: () => void; onAssess: (enrollment: TrainingEnrollment) => void; onReschedule: () => void; onCancel: () => void; onRefreshAttendance: () => void; onFinalizeAttendance: () => void; onComplete: () => void; onFinalizeReady: () => void;
 }) {
     const allAttendanceReady = row.participants.length > 0 && row.participants.every((enrollment) => {
         const link = enrollment.sessions.find((session) => session.sessionId === row.session.id);
@@ -538,8 +603,19 @@ function TrainingDetails({ row, canFinalize, busy, onReschedule, onCancel, onRef
                 <p className="mt-1 text-xs text-slate-500">{row.program.deliveryType} · {row.program.category}</p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-                {row.session.status === "Scheduled" && <><button type="button" className={button} disabled={busy} onClick={onReschedule}>Reschedule</button><button type="button" className={button} disabled={busy} onClick={onCancel}>Cancel Training</button></>}
-                {row.session.status === "Ongoing" && <><button type="button" className={button} disabled={busy} onClick={onCancel}>Cancel Training</button><button type="button" className={button} disabled={busy} onClick={onRefreshAttendance}><RefreshCcw className="h-3.5 w-3.5" />Refresh Attendance</button>{canFinalize && !row.session.attendanceFinalizedAt && <button type="button" className={primary} disabled={busy || !allAttendanceReady} onClick={onFinalizeAttendance}>Finalize Attendance</button>}{canFinalize && row.session.attendanceFinalizedAt && <button type="button" className={primary} disabled={busy} onClick={onComplete}>Complete Session</button>}</>}
+                {row.session.status === "Scheduled" && <>
+                    {canManage && <button type="button" className={button} disabled={busy || row.participants.length >= row.session.capacity} onClick={onAddParticipants}><Users className="h-3.5 w-3.5" />Add Participants</button>}
+                    <button type="button" className={button} disabled={busy} onClick={onReschedule}>Reschedule</button>
+                    {canManage && <button type="button" className={primary} disabled={busy || row.participants.length === 0} onClick={onStart}><Play className="h-3.5 w-3.5" />Start Session</button>}
+                    <button type="button" className={button} disabled={busy} onClick={onCancel}>Cancel Training</button>
+                </>}
+                {row.session.status === "Ongoing" && <>
+                    <button type="button" className={button} disabled={busy} onClick={onCancel}>Cancel Training</button>
+                    {canManage && !row.session.attendanceFinalizedAt && <button type="button" className={button} disabled={busy || row.participants.length === 0} onClick={onManageAttendance}><UserCheck className="h-3.5 w-3.5" />Manage Attendance</button>}
+                    <button type="button" className={button} disabled={busy} onClick={onRefreshAttendance}><RefreshCcw className="h-3.5 w-3.5" />Refresh Attendance</button>
+                    {canFinalize && !row.session.attendanceFinalizedAt && <button type="button" className={primary} disabled={busy || !allAttendanceReady} onClick={onFinalizeAttendance}>Finalize Attendance</button>}
+                    {canFinalize && row.session.attendanceFinalizedAt && <button type="button" className={primary} disabled={busy} onClick={onComplete}>Complete Session</button>}
+                </>}
                 {row.session.status === "Completed" && canFinalize && row.pendingCount > 0 && <button type="button" className={primary} disabled={busy || readyForCompletion === 0} onClick={onFinalizeReady}>Finalize Session Outcomes ({readyForCompletion})</button>}
             </div>
         </div>
@@ -559,7 +635,7 @@ function TrainingDetails({ row, canFinalize, busy, onReschedule, onCancel, onRef
                     const attendance = link?.attendance;
                     const result = enrollment.assessment?.result ?? "Pending";
                     const completion = enrollment.completion?.status ?? (result === "Failed" || result === "Needs Improvement" ? "Needs Retraining" : "Pending");
-                    return <tr key={enrollment.id} className="border-b border-slate-100 last:border-0"><td className="px-3 py-2.5"><p className="text-xs font-bold text-slate-900">{enrollment.participant}</p><p className="mt-0.5 text-[10px] text-slate-400">{enrollment.position} · {enrollment.department}</p></td><td className="px-3 py-2.5"><StatusPill value={attendance?.trainingStatus ?? "Pending"} />{attendance?.finalizedAt && <p className="mt-1 text-[10px] font-semibold text-emerald-600">Verified & locked</p>}</td><td className="px-3 py-2.5"><StatusPill value={result} />{enrollment.assessment?.notes && <p className="mt-1 max-w-xs text-[10px] leading-relaxed text-slate-400">{enrollment.assessment.notes}</p>}</td><td className="px-3 py-2.5"><StatusPill value={completion} /></td></tr>;
+                    return <tr key={enrollment.id} className="border-b border-slate-100 last:border-0"><td className="px-3 py-2.5"><p className="text-xs font-bold text-slate-900">{enrollment.participant}</p><p className="mt-0.5 text-[10px] text-slate-400">{enrollment.position} · {enrollment.department}</p></td><td className="px-3 py-2.5"><StatusPill value={attendance?.trainingStatus ?? "Pending"} />{attendance?.finalizedAt && <p className="mt-1 text-[10px] font-semibold text-emerald-600">Verified & locked</p>}</td><td className="px-3 py-2.5"><StatusPill value={result} />{enrollment.assessment?.notes && <p className="mt-1 max-w-xs text-[10px] leading-relaxed text-slate-400">{enrollment.assessment.notes}</p>}{canManage && row.program.completionRules.assessmentRequired && !enrollment.completion && ["Ongoing", "Completed"].includes(row.session.status) && <button type="button" className="mt-2 text-[10px] font-extrabold text-amber-700 hover:text-amber-800" onClick={() => onAssess(enrollment)}>{enrollment.assessment ? "Update result" : "Record result"}</button>}</td><td className="px-3 py-2.5"><StatusPill value={completion} /></td></tr>;
                 })}</tbody>
             </table>
         </div>
@@ -577,6 +653,129 @@ function RecordDetails({ row }: { row: RecordRow }) {
             <section className="rounded-xl border border-slate-200 bg-white p-4"><h5 className="text-xs font-extrabold uppercase tracking-wide text-slate-400">Outcome evidence</h5><dl className="mt-3 grid grid-cols-[130px_1fr] gap-x-3 gap-y-2 text-xs"><dt className="font-semibold text-slate-400">Assessment</dt><dd className="font-bold text-slate-700">{row.enrollment.assessment?.result ?? "Not required"}</dd><dt className="font-semibold text-slate-400">Score</dt><dd className="font-bold text-slate-700">{row.enrollment.assessment?.score && row.enrollment.assessment?.maximumScore ? `${row.enrollment.assessment.score}/${row.enrollment.assessment.maximumScore}` : "—"}</dd><dt className="font-semibold text-slate-400">Completion</dt><dd className="font-bold text-slate-700">{completion?.status ?? "—"}</dd><dt className="font-semibold text-slate-400">Certificate No.</dt><dd className="font-bold text-slate-700">{completion?.certificate?.number ?? "—"}</dd><dt className="font-semibold text-slate-400">Valid until</dt><dd className="font-bold text-slate-700">{completion?.certificate?.expiresAt ? formatDate(completion.certificate.expiresAt) : "No expiry / Not applicable"}</dd></dl>{completion?.certificate?.status === "Active" && <a className={`${primary} mt-4 inline-flex`} target="_blank" rel="noreferrer" href={`/training/api/certificates/${completion.certificate.id}`}>Open Certificate</a>}</section>
         </div>
     </section>;
+}
+
+function CreateSessionModal({ state, programs, busy, error, onClose, onCreate }: { state: TrainingState; programs: TrainingProgram[]; busy: boolean; error: string; onClose: () => void; onCreate: (programId: string, payloads: Record<string, unknown>[], participantIds: number[]) => Promise<void> }) {
+    const [programId, setProgramId] = useState(programs[0]?.id ?? "");
+    const selectedProgram = programs.find((program) => program.id === programId) ?? null;
+    const [label, setLabel] = useState("Training Session");
+    const [startsAt, setStartsAt] = useState(defaultDateTime(1, 9));
+    const [endsAt, setEndsAt] = useState(defaultDateTime(1, 16));
+    const [venue, setVenue] = useState("");
+    const [capacity, setCapacity] = useState(20);
+    const [facilitatorId, setFacilitatorId] = useState("");
+    const [external, setExternal] = useState("");
+    const [scheduleMode, setScheduleMode] = useState<"single" | "quarterly">("single");
+    const defaultQuarter = getDefaultTrainingQuarter();
+    const [quarterYear, setQuarterYear] = useState(defaultQuarter.year);
+    const [quarter, setQuarter] = useState(defaultQuarter.quarter);
+    const [weekdays, setWeekdays] = useState<number[]>([]);
+    const [selectedParticipantIds, setSelectedParticipantIds] = useState<number[]>([]);
+    const facilitators = state.personnel.filter((person) => person.personType !== "Trainee");
+    const rules = selectedProgram?.audienceRules;
+    const candidates = state.personnel.filter((person) => person.role !== "admin" && (!rules || (
+        (!rules.personTypes.length || rules.personTypes.includes(person.personType)) &&
+        (!rules.departments.length || rules.departments.includes(person.department)) &&
+        (!rules.positions.length || rules.positions.includes(person.position))
+    )));
+    const startTime = startsAt.slice(11, 16);
+    const endTime = endsAt.slice(11, 16);
+    const quarterlyDates = scheduleMode === "quarterly" ? quarterWeekdayDates(quarterYear, quarter, weekdays) : [];
+    const participantCapacityValid = selectedParticipantIds.length <= capacity;
+    const valid = Boolean(programId && label.trim() && startsAt && endsAt && venue.trim() && capacity > 0 && participantCapacityValid && (facilitatorId || external.trim()) && (scheduleMode === "single" || (weekdays.length > 0 && quarterlyDates.length > 0 && startTime && endTime && endTime > startTime)));
+    const toggleParticipant = (id: number) => setSelectedParticipantIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+    const toggleWeekday = (day: number) => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort((a, b) => a - b));
+    const commonPayload = {
+        venue: venue.trim(),
+        capacity,
+        facilitatorId: facilitatorId ? Number(facilitatorId) : null,
+        externalFacilitatorName: facilitatorId ? null : external.trim() || null,
+        enrollmentClosesAt: null,
+        status: "Scheduled",
+    };
+    const submit = () => {
+        const payloads = scheduleMode === "single"
+            ? [{ ...commonPayload, label: label.trim(), startsAt, endsAt }]
+            : quarterlyDates.map((date, index) => ({
+                ...commonPayload,
+                label: `${label.trim()} ${index + 1}`,
+                startsAt: dateTimeLocalFor(date, startTime),
+                endsAt: dateTimeLocalFor(date, endTime),
+            }));
+        return onCreate(programId, payloads, selectedParticipantIds);
+    };
+
+    return <AppModal show title="Schedule Training" description="Create a governed session from an approved active Training program." onClose={onClose} maxWidth="2xl" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={primary} disabled={busy || !valid} onClick={() => void submit()}>{busy ? "Scheduling…" : scheduleMode === "quarterly" ? `Schedule ${quarterlyDates.length} Sessions` : "Schedule Training"}</button></>}>
+        {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+        <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2"><Field label="Training program" required><SystemSelect className={input} value={programId} onChange={(event) => { setProgramId(event.target.value); setSelectedParticipantIds([]); }}><option value="">Select approved active training</option>{programs.map((program) => <option key={program.id} value={program.id}>{program.title}</option>)}</SystemSelect></Field></div>
+            <div className="md:col-span-2"><Field label="Session name" required><input className={input} value={label} onChange={(event) => setLabel(event.target.value)} /></Field></div>
+            <Field label="Schedule pattern" required><SystemSelect className={input} value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value as "single" | "quarterly")}><option value="single">Single session</option><option value="quarterly">Quarterly recurring schedule</option></SystemSelect></Field>
+            {scheduleMode === "quarterly" ? <Field label="Quarter" required><div className="grid grid-cols-2 gap-2"><SystemSelect className={input} value={quarterYear} onChange={(event) => setQuarterYear(Number(event.target.value))}>{[quarterYear - 1, quarterYear, quarterYear + 1].map((year) => <option key={year} value={year}>{year}</option>)}</SystemSelect><SystemSelect className={input} value={quarter} onChange={(event) => setQuarter(Number(event.target.value))}>{[1, 2, 3, 4].map((value) => <option key={value} value={value}>Q{value}</option>)}</SystemSelect></div></Field> : <div />}
+            {scheduleMode === "single" ? <><Field label="Start" required><input className={input} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></Field><Field label="End" required><input className={input} type="datetime-local" value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} /></Field></> : <><Field label="Daily start time" required><input className={input} type="time" value={startTime} onChange={(event) => setStartsAt(`${startsAt.slice(0, 10)}T${event.target.value}`)} /></Field><Field label="Daily end time" required><input className={input} type="time" value={endTime} onChange={(event) => setEndsAt(`${endsAt.slice(0, 10)}T${event.target.value}`)} /></Field><div className="md:col-span-2"><Field label="Training days" required hint="Use the same weekly pattern within the selected quarter."><div className="flex flex-wrap gap-2">{[[0, "Sunday"], [1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thursday"], [5, "Friday"], [6, "Saturday"]].map(([day, name]) => <label key={day} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={weekdays.includes(Number(day))} onChange={() => toggleWeekday(Number(day))} />{name}</label>)}</div></Field></div><div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Quarterly schedule preview</p><p className="mt-1 text-xs font-bold text-slate-700">{quarterlyDates.length} session{quarterlyDates.length === 1 ? "" : "s"} · Q{quarter} {quarterYear}</p><p className="mt-1 text-[10px] text-slate-500">Only today or future dates are generated. Each selected participant is linked to every generated session.</p></div></>}
+            <div className="md:col-span-2"><Field label="Venue / location" required><input className={input} value={venue} onChange={(event) => setVenue(event.target.value)} placeholder="Training room, site, yard, workshop area…" /></Field></div>
+            <Field label="Facilitator" required><SystemSelect className={input} value={facilitatorId} onChange={(event) => setFacilitatorId(event.target.value)}><option value="">External / not listed</option>{facilitators.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.position}</option>)}</SystemSelect></Field>
+            <Field label="External facilitator" hint={facilitatorId ? "Disabled because an internal facilitator is selected." : "Required when no internal facilitator is selected."}><input className={input} value={external} disabled={Boolean(facilitatorId)} onChange={(event) => setExternal(event.target.value)} /></Field>
+            <Field label="Capacity" required hint={selectedParticipantIds.length ? `Selected participants: ${selectedParticipantIds.length}` : undefined}><input className={input} type="number" min={Math.max(1, selectedParticipantIds.length)} max={5000} value={capacity} onChange={(event) => setCapacity(Number(event.target.value))} /></Field>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Selected program</p><p className="mt-1 text-xs font-bold text-slate-700">{selectedProgram?.title ?? "Choose a program"}</p><p className="mt-1 text-[10px] text-slate-500">The same participant cohort can be assigned to every generated session.</p></div>
+            <div className="md:col-span-2"><div className="rounded-xl border border-slate-200 bg-white"><div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2.5"><div><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Participants</p><p className="mt-1 text-[10px] text-slate-500">Eligible personnel from the saved Training audience.</p></div><button type="button" className={button} disabled={!selectedProgram || candidates.length === 0} onClick={() => setSelectedParticipantIds(selectedParticipantIds.length === candidates.length ? [] : candidates.map((person) => person.id))}>{selectedParticipantIds.length === candidates.length && candidates.length ? "Clear all" : "Select all eligible"}</button></div><div className="max-h-52 overflow-y-auto p-2">{!selectedProgram ? <p className="px-3 py-6 text-center text-xs text-slate-400">Choose a Training program first.</p> : candidates.length === 0 ? <p className="px-3 py-6 text-center text-xs text-slate-400">No personnel match this program's saved audience.</p> : candidates.map((person) => <label key={person.id} className="flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2 hover:bg-amber-50/40"><input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" checked={selectedParticipantIds.includes(person.id)} onChange={() => toggleParticipant(person.id)} /><div className="min-w-0 flex-1"><p className="text-xs font-bold text-slate-900">{person.name}</p><p className="mt-0.5 text-[10px] text-slate-400">{person.employeeId ?? person.personnelKey} · {person.position} · {person.department}</p></div><StatusPill value={person.personType} /></label>)}</div></div>{!participantCapacityValid && <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Increase capacity to at least {selectedParticipantIds.length}.</p>}</div>
+        </div>
+    </AppModal>;
+}
+function AddParticipantsModal({ state, row, busy, error, onClose, onAssign }: { state: TrainingState; row: RegisterRow; busy: boolean; error: string; onClose: () => void; onAssign: (participantIds: number[], reason: string) => Promise<void> }) {
+    const existing = new Set(row.participants.map((enrollment) => enrollment.participantId));
+    const rules = row.program.audienceRules;
+    const visibleAudienceMatch = (person: TrainingState["personnel"][number]) =>
+        (!rules.personTypes.length || rules.personTypes.includes(person.personType)) &&
+        (!rules.departments.length || rules.departments.includes(person.department)) &&
+        (!rules.positions.length || rules.positions.includes(person.position));
+    const candidates = state.personnel.filter((person) => person.role !== "admin" && !existing.has(person.id) && visibleAudienceMatch(person));
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [reason, setReason] = useState("Assigned by authorized Training Management for the scheduled session.");
+    const toggle = (id: number) => setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+    const remaining = Math.max(0, row.session.capacity - row.participants.length);
+
+    return <AppModal show title="Add Participants" description={`${row.program.title} · ${formatDateTime(row.session.startsAt)}`} onClose={onClose} maxWidth="2xl" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={primary} disabled={busy || selectedIds.length === 0 || selectedIds.length > remaining} onClick={() => void onAssign(selectedIds, reason.trim())}>{busy ? "Assigning…" : `Assign ${selectedIds.length || ""} Participant${selectedIds.length === 1 ? "" : "s"}`}</button></>}>
+        {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+        <div className="mb-4 grid gap-3 sm:grid-cols-3"><Summary icon={Users} label="Current participants" value={`${row.participants.length}`} /><Summary icon={CalendarCheck2} label="Capacity" value={`${row.session.capacity}`} /><Summary icon={Plus} label="Open slots" value={`${remaining}`} /></div>
+        <Field label="Assignment reason"><input className={input} value={reason} onChange={(event) => setReason(event.target.value)} /></Field>
+        <div className="mt-4 max-h-80 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
+            {candidates.length === 0 ? <p className="px-3 py-8 text-center text-xs text-slate-400">No additional personnel match the visible saved audience. Role-profile eligibility is also validated by the server.</p> : candidates.map((person) => <label key={person.id} className="flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 hover:bg-amber-50/40"><input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" checked={selectedIds.includes(person.id)} onChange={() => toggle(person.id)} /><div className="min-w-0 flex-1"><p className="text-xs font-bold text-slate-900">{person.name}</p><p className="mt-0.5 text-[10px] text-slate-400">{person.employeeId ?? person.personnelKey} · {person.position} · {person.department}</p></div><StatusPill value={person.personType} /></label>)}
+        </div>
+        {selectedIds.length > remaining && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Selected participants exceed the remaining session capacity.</p>}
+    </AppModal>;
+}
+
+function AttendanceModal({ row, busy, error, onClose, onSave }: { row: RegisterRow; busy: boolean; error: string; onClose: () => void; onSave: (updates: Array<{ id: string; status: string; note: string }>) => Promise<void> }) {
+    const initialRows = row.participants.map((enrollment) => {
+        const attendance = enrollment.sessions.find((session) => session.sessionId === row.session.id)?.attendance;
+        return { enrollment, attendance, status: attendance?.trainingStatus ?? "Pending", note: attendance?.note ?? "" };
+    });
+    const [drafts, setDrafts] = useState(() => initialRows.map((item) => ({ id: item.attendance?.id ?? "", status: item.status, note: item.note, synced: item.attendance?.workforceSyncStatus === "Synced", participant: item.enrollment.participant })));
+    const statuses = ["Pending", "Present", "Late", "Partial", "Absent", "Excused"] as const;
+    const save = () => onSave(drafts.filter((item) => item.id).map((item) => ({ id: item.id, status: item.status, note: item.status !== "Pending" && !item.synced && !item.note.trim() ? "Recorded by authorized Training Management; HR2 workforce attendance evidence is not connected or synced." : item.note.trim() })));
+
+    return <AppModal show title="Manage Attendance" description={`${row.program.title} · ${formatDateTime(row.session.startsAt)}`} onClose={onClose} maxWidth="2xl" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={primary} disabled={busy || drafts.some((item) => !item.id)} onClick={() => void save()}>{busy ? "Saving…" : "Save Attendance"}</button></>}>
+        {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+        <p className="mb-3 text-xs leading-5 text-slate-500">Record attendance first. Finalization remains a separate Admin/HR governance action and locks the attendance records.</p>
+        <div className="max-h-[420px] space-y-3 overflow-y-auto">
+            {drafts.map((item, index) => <div key={item.id || item.participant} className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold text-slate-900">{item.participant}</p><SystemSelect className="min-w-36" value={item.status} onChange={(event) => setDrafts((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, status: event.target.value as (typeof statuses)[number] } : row))}>{statuses.map((status) => <option key={status}>{status}</option>)}</SystemSelect></div><div className="mt-2"><Field label="Attendance note" hint={item.synced ? "Workforce evidence is synced; a note is optional." : "A note is required for non-Pending attendance because HR2 evidence is not connected/synced."}><input className={input} value={item.note} onChange={(event) => setDrafts((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, note: event.target.value } : row))} /></Field></div></div>)}
+        </div>
+    </AppModal>;
+}
+
+function AssessmentModal({ program, enrollment, busy, error, onClose, onSave }: { program: TrainingProgram; enrollment: TrainingEnrollment; busy: boolean; error: string; onClose: () => void; onSave: (payload: Record<string, unknown>) => Promise<void> }) {
+    const [result, setResult] = useState(enrollment.assessment?.result ?? "Passed");
+    const [score, setScore] = useState(enrollment.assessment?.score ?? "");
+    const [maximumScore, setMaximumScore] = useState(enrollment.assessment?.maximumScore ?? (program.completionRules.passingScore !== null ? "100" : ""));
+    const [notes, setNotes] = useState(enrollment.assessment?.notes ?? "");
+    const scored = program.completionRules.passingScore !== null;
+    const valid = Boolean(result && (!scored || (score !== "" && maximumScore !== "" && Number(maximumScore) > 0 && Number(score) >= 0 && Number(score) <= Number(maximumScore))));
+
+    return <AppModal show title="Record Training Assessment" description={`${enrollment.participant} · ${program.title}`} onClose={onClose} maxWidth="lg" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={primary} disabled={busy || !valid} onClick={() => void onSave({ result, score: score === "" ? null : Number(score), maximumScore: maximumScore === "" ? null : Number(maximumScore), checklist: [], notes: notes.trim() || null })}>{busy ? "Saving…" : "Save Assessment"}</button></>}>
+        {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+        <div className="space-y-4"><Field label="Result" required><SystemSelect className={input} value={result} onChange={(event) => setResult(event.target.value)}>{["Pending", "Passed", "Failed", "Needs Improvement"].map((value) => <option key={value}>{value}</option>)}</SystemSelect></Field>{scored && <div className="grid grid-cols-2 gap-3"><Field label="Score" required><input className={input} type="number" min={0} value={score} onChange={(event) => setScore(event.target.value)} /></Field><Field label="Maximum score" required><input className={input} type="number" min={0.01} value={maximumScore} onChange={(event) => setMaximumScore(event.target.value)} /></Field></div>}<Field label="Assessment notes"><textarea className={`${input} min-h-24 resize-y`} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Document the practical/facilitated assessment basis." /></Field></div>
+    </AppModal>;
 }
 
 function ScheduleTrainingModal({ state, group, busy, error, onClose, onSchedule }: { state: TrainingState; group: RequirementGroup; busy: boolean; error: string; onClose: () => void; onSchedule: (payload: Record<string, unknown>) => Promise<void> }) {
@@ -829,4 +1028,37 @@ function defaultDateTime(daysAhead: number, hour: number) {
     date.setDate(date.getDate() + daysAhead);
     date.setHours(hour, 0, 0, 0);
     return toDateTimeLocal(date.toISOString());
+}
+
+
+function getDefaultTrainingQuarter() {
+    const today = new Date();
+    let year = today.getFullYear();
+    let quarter = Math.floor(today.getMonth() / 3) + 1;
+    const quarterEnd = new Date(year, quarter * 3, 0);
+    const daysRemaining = Math.ceil((quarterEnd.getTime() - new Date(year, today.getMonth(), today.getDate()).getTime()) / 86400000);
+    if (daysRemaining < 14) {
+        quarter += 1;
+        if (quarter > 4) { quarter = 1; year += 1; }
+    }
+    return { year, quarter };
+}
+
+function quarterWeekdayDates(year: number, quarter: number, weekdays: number[]) {
+    const start = new Date(year, (quarter - 1) * 3, 1);
+    const end = new Date(year, quarter * 3, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const cursor = new Date(Math.max(start.getTime(), today.getTime()));
+    const dates: Date[] = [];
+    while (cursor <= end) {
+        if (weekdays.includes(cursor.getDay())) dates.push(new Date(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    return dates;
+}
+
+function dateTimeLocalFor(date: Date, time: string) {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${time}`;
 }
