@@ -44,7 +44,14 @@ class LoginRequest extends FormRequest
 
         $email = Str::lower(trim((string) $this->input('email')));
 
+        // Most accounts are stored with normalized lowercase emails. Use the normal
+        // indexed equality lookup first, then keep the legacy case-insensitive fallback
+        // so older mixed-case records continue to authenticate correctly.
         $user = User::query()
+            ->where('email', $email)
+            ->first();
+
+        $user ??= User::query()
             ->whereRaw('LOWER(email) = ?', [$email])
             ->first();
 

@@ -28,11 +28,13 @@ class AuthenticatedSessionController extends Controller
     public function store(LoginRequest $request, MfaService $mfa): RedirectResponse
     {
         $user = $request->authenticate();
+        $requiresMfa = $mfa->requiresMfa($user);
 
-        $request->session()->regenerate();
-        $mfa->event($request, $user, 'auth.password', 'success');
-
-        if ($mfa->requiresMfa($user)) {
+        if ($requiresMfa) {
+            // Rotate before storing the pending MFA state. Non-MFA sign-ins rotate
+            // once below after Auth::login, avoiding a redundant session write.
+            $request->session()->regenerate();
+            $mfa->event($request, $user, 'auth.password', 'success');
             $request->session()->put([
                 'mfa.pending_user_id' => $user->id,
                 // MFA-governed accounts intentionally do not receive a long-lived
@@ -56,6 +58,7 @@ class AuthenticatedSessionController extends Controller
 
         Auth::guard('web')->login($user, $request->boolean('remember'));
         $request->session()->regenerate();
+        $mfa->event($request, $user, 'auth.password', 'success');
         $request->session()->put([
             'auth.password_confirmed_at' => now()->timestamp,
             'security.last_password_verified_at' => now()->timestamp,

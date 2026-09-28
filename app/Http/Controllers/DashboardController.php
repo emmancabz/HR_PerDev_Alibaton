@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\ReadModelCache;
 use App\Support\SchemaPresence;
 use App\Enums\UserRole;
 use App\Enums\UserPersona;
@@ -30,7 +31,12 @@ class DashboardController extends Controller
 
         return Inertia::render('AdminDashboard', [
             'userName' => $actor->name,
-            'dashboard' => Inertia::defer(fn (): array => $this->adminDashboardState($actor)),
+            'dashboard' => Inertia::defer(fn (): array => ReadModelCache::remember(
+                'dashboard',
+                $actor,
+                fn (): array => $this->adminDashboardState($actor),
+                ['workspace' => 'admin'],
+            )),
         ]);
     }
 
@@ -40,7 +46,12 @@ class DashboardController extends Controller
 
         return Inertia::render('HRDashboard', [
             'userName' => $actor->name,
-            'dashboard' => Inertia::defer(fn (): array => $this->hrDashboardState($actor)),
+            'dashboard' => Inertia::defer(fn (): array => ReadModelCache::remember(
+                'dashboard',
+                $actor,
+                fn (): array => $this->hrDashboardState($actor),
+                ['workspace' => 'hr'],
+            )),
         ]);
     }
 
@@ -58,10 +69,15 @@ class DashboardController extends Controller
         return Inertia::render($page, [
             'userName' => $user->name,
             'persona' => $persona->value,
-            'dashboardPayload' => Inertia::defer(fn (): array => [
-                'dashboard' => $this->userDashboardState($user),
-                'team' => $this->userTeamState($user, $persona),
-            ]),
+            'dashboardPayload' => Inertia::defer(fn (): array => ReadModelCache::remember(
+                'dashboard',
+                $user,
+                fn (): array => [
+                    'dashboard' => $this->userDashboardState($user),
+                    'team' => $this->userTeamState($user, $persona),
+                ],
+                ['workspace' => 'user', 'persona' => $persona->value],
+            )),
         ]);
     }
 

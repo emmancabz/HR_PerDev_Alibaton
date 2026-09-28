@@ -2230,18 +2230,26 @@ export default function Authenticated({
             }
         };
 
+        let lastPollAt = 0;
+        const guardedPoll = () => {
+            const current = Date.now();
+            if (current - lastPollAt < 10_000) return;
+            lastPollAt = current;
+            void poll();
+        };
+
         const schedule = () => {
             if (timer !== null) window.clearInterval(timer);
-            timer = window.setInterval(() => void poll(), 15_000);
+            timer = window.setInterval(guardedPoll, 30_000);
         };
 
         const initial = window.setTimeout(() => {
-            void poll();
+            guardedPoll();
             schedule();
-        }, 5_000);
-        const onFocus = () => void poll();
+        }, 7_500);
+        const onFocus = guardedPoll;
         const onVisible = () => {
-            if (document.visibilityState === 'visible') void poll();
+            if (document.visibilityState === 'visible') guardedPoll();
         };
 
         window.addEventListener('focus', onFocus);
