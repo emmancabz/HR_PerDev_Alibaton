@@ -15,14 +15,22 @@ class CompetencyController extends Controller
     public function page(Request $request): Response
     {
         return Inertia::render('AdminCompetency', [
-            'competency' => ReadModelCache::peek('competency', $request->user()),
+            'competency' => ReadModelCache::remember(
+                'competency',
+                $request->user(),
+                fn (): array => $this->competency->payload($request->user()),
+            ),
         ]);
     }
 
     public function wallet(Request $request): Response
     {
         return Inertia::render('UserSkillsWallet', [
-            'competency' => ReadModelCache::peek('competency', $request->user()),
+            'competency' => ReadModelCache::remember(
+                'competency',
+                $request->user(),
+                fn (): array => $this->competency->payload($request->user()),
+            ),
         ]);
     }
 

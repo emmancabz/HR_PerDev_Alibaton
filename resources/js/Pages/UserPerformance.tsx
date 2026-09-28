@@ -91,6 +91,8 @@ type Leadership360Task = {
 
 type Leadership360Draft = { ratings: Record<string, number>; comment: string };
 
+type Props = { initialReviews?: PerformanceReview[] };
+
 const USER_PERFORMANCE_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 
 type UserPerformanceCache = {
@@ -700,13 +702,13 @@ function Leadership360FeedbackModal({
   );
 }
 
-export default function UserPerformance() {
+export default function UserPerformance({ initialReviews }: Props) {
   const authUser = usePage().props.auth.user as AuthUserShape;
   const actorId = Number(authUser.id);
   const cached = useMemo(() => readUserPerformanceCache(actorId), [actorId]);
   const currentPerson = useMemo(() => resolveCurrentPerson(authUser), [authUser]);
-  const [reviews, setReviews] = useState<PerformanceReview[]>(() => cached?.reviews ?? []);
-  const [reviewsLoading, setReviewsLoading] = useState(() => !(cached?.reviews?.length));
+  const [reviews, setReviews] = useState<PerformanceReview[]>(() => initialReviews ?? cached?.reviews ?? []);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsError, setReviewsError] = useState("");
   const [reviewSaving, setReviewSaving] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("My Performance");
@@ -722,7 +724,7 @@ export default function UserPerformance() {
 
   useEffect(() => {
     let active = true;
-    setReviewsLoading(!(cached?.reviews?.length));
+    setReviewsLoading(false);
     setReviewsError("");
     axios
       .get<{ data: PerformanceReview[] }>("/api/performance/user-reviews", { headers: { Accept: "application/json" } })

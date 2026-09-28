@@ -407,7 +407,6 @@ export default function AdminDashboard({ userName = 'Admin', dashboard }: Props)
             <Head title="Dashboard" />
 
             <div className="app-page app-page-enter space-y-5">
-                {!liveDashboard && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">Loading live dashboard data…</div>}
                 <HeaderFilters
                     active={areaFilter !== 'all' || priorityFilter !== 'all'}
                     onReset={() => {

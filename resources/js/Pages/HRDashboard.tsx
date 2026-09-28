@@ -407,7 +407,6 @@ export default function HRDashboard({ userName = 'HR Personnel', dashboard }: Pr
             <Head title="HR Dashboard" />
 
             <div className="app-page app-page-enter space-y-5">
-                {!liveDashboard && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">Loading live dashboard data…</div>}
                 <section className="app-card flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                         <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-600">HR Personnel Workspace</p>

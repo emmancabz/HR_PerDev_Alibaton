@@ -2414,7 +2414,7 @@ export default function Authenticated({
         if (typeof prefetch === 'function') {
             try {
                 warmedNavigationHrefs.add(href);
-                prefetch.call(router, href, {}, { cacheFor: '60s' });
+                prefetch.call(router, href, {}, { cacheFor: '10m' });
             } catch {
                 warmedNavigationHrefs.delete(href);
             }
@@ -2480,7 +2480,7 @@ export default function Authenticated({
                     }, index * 160);
                 });
             });
-        }, 1200);
+        }, 250);
 
         return () => {
             cancelled = true;

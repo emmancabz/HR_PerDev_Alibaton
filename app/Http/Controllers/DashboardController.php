@@ -29,16 +29,15 @@ class DashboardController extends Controller
     {
         $actor = $request->user();
         $vary = ['workspace' => 'admin'];
-        $cached = ReadModelCache::peek('dashboard', $actor, $vary);
 
         return Inertia::render('AdminDashboard', [
             'userName' => $actor->name,
-            'dashboard' => $cached ?? Inertia::defer(fn (): array => ReadModelCache::remember(
+            'dashboard' => ReadModelCache::remember(
                 'dashboard',
                 $actor,
                 fn (): array => $this->adminDashboardState($actor),
                 $vary,
-            )),
+            ),
         ]);
     }
 
@@ -46,16 +45,15 @@ class DashboardController extends Controller
     {
         $actor = $request->user();
         $vary = ['workspace' => 'hr'];
-        $cached = ReadModelCache::peek('dashboard', $actor, $vary);
 
         return Inertia::render('HRDashboard', [
             'userName' => $actor->name,
-            'dashboard' => $cached ?? Inertia::defer(fn (): array => ReadModelCache::remember(
+            'dashboard' => ReadModelCache::remember(
                 'dashboard',
                 $actor,
                 fn (): array => $this->hrDashboardState($actor),
                 $vary,
-            )),
+            ),
         ]);
     }
 
@@ -71,12 +69,11 @@ class DashboardController extends Controller
         };
 
         $vary = ['workspace' => 'user', 'persona' => $persona->value];
-        $cached = ReadModelCache::peek('dashboard', $user, $vary);
 
         return Inertia::render($page, [
             'userName' => $user->name,
             'persona' => $persona->value,
-            'dashboardPayload' => $cached ?? Inertia::defer(fn (): array => ReadModelCache::remember(
+            'dashboardPayload' => ReadModelCache::remember(
                 'dashboard',
                 $user,
                 fn (): array => [
@@ -84,7 +81,7 @@ class DashboardController extends Controller
                     'team' => $this->userTeamState($user, $persona),
                 ],
                 $vary,
-            )),
+            ),
         ]);
     }
 

@@ -256,7 +256,6 @@ export default function UserPersonaDashboard({
             <Head title="Learning Dashboard" />
 
             <div className="space-y-5 pb-8">
-                {!livePayload && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">Loading live dashboard data…</div>}
                 {/* Standard trainee page title */}
                 <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <header className="px-5 py-5">
