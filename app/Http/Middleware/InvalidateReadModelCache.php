@@ -24,7 +24,21 @@ class InvalidateReadModelCache
             && ! in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true)
             && $response->getStatusCode() >= 200
             && $response->getStatusCode() < 400) {
+            $responsePayload = method_exists($response, 'getData')
+                ? $response->getData(true)
+                : null;
+            $returnedState = is_array($responsePayload)
+                && isset($responsePayload['data'])
+                && is_array($responsePayload['data'])
+                && isset($responsePayload['data']['actor'])
+                    ? $responsePayload['data']
+                    : null;
+
             ReadModelCache::bump($domain);
+
+            if ($returnedState !== null && $request->user()) {
+                ReadModelCache::put($domain, $request->user(), $returnedState);
+            }
 
             // Most operational writes only affect cross-module summaries. Personnel
             // changes are different: role/audience/manager changes can affect every

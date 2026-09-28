@@ -421,9 +421,13 @@ export default function CourseBuilder({
             return;
         }
         setBusy(true);
-        setMessage("");
+        setMessage("Uploading thumbnail…");
         try {
-            const result = await learningClient.uploadThumbnail(draft.id, file);
+            const result = await learningClient.uploadThumbnail(
+                draft.id,
+                file,
+                (percent) => setMessage(`Uploading thumbnail… ${percent}%`),
+            );
             setDraft((current) => {
                 const next = { ...current, thumbnailUrl: result.thumbnailUrl };
                 draftRef.current = next;
@@ -468,16 +472,41 @@ export default function CourseBuilder({
     }
     async function material(lessonId: string, file?: File, revokeId?: string) {
         setBusy(true);
-        setMessage("");
+        setMessage(file ? "Uploading protected material…" : "Removing material…");
         try {
-            if (file) await learningClient.uploadMaterial(lessonId, file);
+            let uploaded: {
+                id: string;
+                displayName: string;
+                mimeType: string;
+                sizeBytes: number;
+                downloadUrl?: string;
+            } | null = null;
+
+            if (file) {
+                uploaded = await learningClient.uploadMaterial(
+                    lessonId,
+                    file,
+                    (percent) => setMessage(`Uploading protected material… ${percent}%`),
+                );
+            }
             if (revokeId) await learningClient.revokeMaterial(revokeId);
-            const next = await learningClient.state();
-            onState(next);
-            const persisted = next.courses.find(
-                (row) => row.id === draft.courseId,
-            )?.draftDetail;
-            if (persisted) setDraft(structuredClone(persisted));
+
+            setDraft((current) => {
+                const next = structuredClone(current);
+                for (const module of next.modules) {
+                    const lesson = module.lessons.find((row) => row.id === lessonId);
+                    if (!lesson) continue;
+                    const materials = [...(lesson.materials ?? [])];
+                    if (uploaded) materials.push(uploaded);
+                    lesson.materials = revokeId
+                        ? materials.filter((row) => row.id !== revokeId)
+                        : materials;
+                    break;
+                }
+                draftRef.current = next;
+                return next;
+            });
+
             setMessage(
                 file
                     ? "Protected material uploaded."

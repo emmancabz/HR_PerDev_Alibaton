@@ -23,6 +23,7 @@ use App\Support\ReadModelCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Http\Response;
 
@@ -108,7 +109,23 @@ class LearningStateController extends Controller
     public function revokeCertificate(Request $request, string $certificate): JsonResponse { $data = $request->validate(['reason' => ['required', 'string', 'max:5000']]); $this->delivery->revokeCertificate($request->user(), $certificate, $data['reason']); return $this->show($request); }
     public function downloadCertificate(Request $request, LearningCertificate $certificate): Response { return $this->delivery->downloadCertificate($request->user(), $certificate); }
 
-    public function uploadMaterial(Request $request, LearningCourseLesson $lesson): JsonResponse { $data = $request->validate(['file' => ['required', 'file', 'max:51200']]); $material = $this->materials->store($request->user(), $lesson, $data['file']); return response()->json(['data' => $material], 201); }
+    public function uploadMaterial(Request $request, LearningCourseLesson $lesson): JsonResponse
+    {
+        $data = $request->validate(['file' => ['required', 'file', 'max:51200']]);
+        $material = $this->materials->store($request->user(), $lesson, $data['file']);
+
+        return response()->json(['data' => [
+            'id' => (string) $material->id,
+            'displayName' => (string) $material->display_name,
+            'mimeType' => (string) $material->mime_type,
+            'sizeBytes' => (int) $material->size_bytes,
+            'downloadUrl' => URL::temporarySignedRoute(
+                'learning.api.materials.download',
+                now()->addMinutes(15),
+                ['material' => $material->id],
+            ),
+        ]], 201);
+    }
     public function uploadThumbnail(Request $request, LearningCourseVersion $version): JsonResponse { $data = $request->validate(['thumbnail' => ['required', 'file', 'max:5120']]); return response()->json(['data' => $this->materials->storeThumbnail($request->user(), $version, $data['thumbnail'])], 201); }
     public function downloadThumbnail(Request $request, LearningCourseVersion $version): BinaryFileResponse { return $this->materials->downloadThumbnail($request->user(), $version); }
     public function revokeMaterial(Request $request, LearningMaterial $material): JsonResponse { $this->materials->revoke($request->user(), $material); return response()->json(['data' => ['revoked' => true]]); }

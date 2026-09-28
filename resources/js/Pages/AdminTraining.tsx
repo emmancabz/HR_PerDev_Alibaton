@@ -16,7 +16,7 @@ import {
 import { trainingClient, trainingError } from "@/data/trainingClient";
 import { useReadModelRefresh } from "@/data/readModelRefresh";
 import { useHashWorkspace } from "@/workspaceNavigation";
-import { Head } from "@inertiajs/react";
+import { Head, usePage } from "@inertiajs/react";
 import {
     AlertCircle,
     CalendarCheck2,
@@ -120,8 +120,9 @@ function StatusPill({ value }: { value: string }) {
 }
 
 export default function AdminTraining({ initialTrainingState }: Props) {
+    const { auth } = usePage().props;
     const [workspace, setWorkspace] = useHashWorkspace<TrainingWorkspace>(TRAINING_WORKSPACES, "Overview");
-    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState) ?? trainingClient.peekState());
+    const [state, setState] = useState<TrainingState | null>(() => initial(initialTrainingState) ?? trainingClient.peekState(Number(auth.user.id)));
     const [loading, setLoading] = useState(!state);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
@@ -277,7 +278,7 @@ export default function AdminTraining({ initialTrainingState }: Props) {
         pending: registerRows.filter((row) => ["Pending Attendance", "Pending Finalization"].includes(row.displayStatus)).length,
     }), [registerRows, state]);
 
-    if (loading || !state) {
+    if (!state) {
         return <AuthenticatedLayout header={<h1 className="truncate text-sm font-bold text-slate-900">Training Management</h1>}><Head title="Training Management" /><div className="app-page"><section className={`${card} p-8 text-center`}>
             {error ? <><AlertCircle className="mx-auto h-7 w-7 text-rose-500" /><h2 className="mt-2 text-sm font-extrabold text-slate-900">Training Management could not be loaded</h2><p className="mt-1 text-xs text-slate-500">{error}</p><button type="button" className={`${primary} mt-4`} onClick={() => void load()}><RefreshCcw className="h-4 w-4" />Retry</button></> : <p className="text-sm font-semibold text-slate-500">Loading Training Management…</p>}
         </section></div></AuthenticatedLayout>;

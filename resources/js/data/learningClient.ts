@@ -216,23 +216,51 @@ export const learningClient = {
                 acceptedOutput,
             }),
         ),
-    uploadMaterial: async (lessonId: string, file: File) => {
+    uploadMaterial: async (
+        lessonId: string,
+        file: File,
+        onProgress?: (percent: number) => void,
+    ) => {
         const body = new FormData();
         body.append("file", file);
-        return unwrap<any>(
+        return unwrap<{
+            id: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            downloadUrl?: string;
+        }>(
             await axios.post(
                 `/learning/api/lessons/${lessonId}/materials`,
                 body,
+                {
+                    timeout: 120_000,
+                    onUploadProgress: (event) => {
+                        if (!onProgress || !event.total) return;
+                        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+                    },
+                },
             ),
         );
     },
-    uploadThumbnail: async (versionId: string, file: File) => {
+    uploadThumbnail: async (
+        versionId: string,
+        file: File,
+        onProgress?: (percent: number) => void,
+    ) => {
         const body = new FormData();
         body.append("thumbnail", file);
         return unwrap<{ thumbnailUrl: string }>(
             await axios.post(
                 `/learning/api/versions/${versionId}/thumbnail`,
                 body,
+                {
+                    timeout: 120_000,
+                    onUploadProgress: (event) => {
+                        if (!onProgress || !event.total) return;
+                        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+                    },
+                },
             ),
         );
     },
