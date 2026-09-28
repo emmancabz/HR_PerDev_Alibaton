@@ -64,6 +64,17 @@ type RegisterRow = {
     pendingCount: number;
 };
 
+type RegisterGroupRow = {
+    key: string;
+    program: TrainingProgram;
+    sessions: RegisterRow[];
+    participantCount: number;
+    completedSessions: number;
+    pendingSessions: number;
+    nextSession: RegisterRow | null;
+    displayStatus: string;
+};
+
 type RecordRow = {
     key: string;
     enrollment: TrainingEnrollment;
@@ -129,6 +140,7 @@ export default function AdminTraining({ initialTrainingState }: Props) {
     const [notice, setNotice] = useState("");
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
     const [expandedRequirement, setExpandedRequirement] = useState<string | null>(null);
+    const [expandedProgram, setExpandedProgram] = useState<string | null>(null);
     const [expandedSession, setExpandedSession] = useState<string | null>(null);
     const [expandedRecord, setExpandedRecord] = useState<string | null>(null);
     const [scheduleGroup, setScheduleGroup] = useState<RequirementGroup | null>(null);
@@ -165,6 +177,7 @@ export default function AdminTraining({ initialTrainingState }: Props) {
         setFilters(preset ? { ...EMPTY_FILTERS, ...preset } : EMPTY_FILTERS);
         workspaceFilterPreset.current = null;
         setExpandedRequirement(null);
+        setExpandedProgram(null);
         setExpandedSession(workspaceExpandedSession.current);
         workspaceExpandedSession.current = null;
         setExpandedRecord(null);
@@ -258,6 +271,15 @@ export default function AdminTraining({ initialTrainingState }: Props) {
         return true;
     }), [filters, registerRows]);
 
+    const registerGroups = useMemo(() => groupRegisterRows(registerRows), [registerRows]);
+    const filteredRegisterGroups = useMemo(() => groupRegisterRows(filteredRegister), [filteredRegister]);
+    const activeRegisterGroups = useMemo(
+        () => groupRegisterRows(filteredRegister.filter((row) =>
+            ["Scheduled", "Ongoing", "Pending Attendance", "Pending Finalization"].includes(row.displayStatus),
+        )),
+        [filteredRegister],
+    );
+
     const filteredRecords = useMemo(() => records.filter((row) => {
         if (filters.training !== "all" && row.program?.id !== filters.training) return false;
         if (filters.department !== "all" && row.enrollment.department !== filters.department) return false;
@@ -313,6 +335,7 @@ export default function AdminTraining({ initialTrainingState }: Props) {
     };
 
     const selectedRequirement = expandedRequirement ? requirementGroups.find((row) => row.key === expandedRequirement) ?? null : null;
+    const selectedProgram = expandedProgram ? registerGroups.find((row) => row.key === expandedProgram) ?? null : null;
     const selectedSession = expandedSession ? registerRows.find((row) => row.key === expandedSession) ?? null : null;
     const selectedRecord = expandedRecord ? records.find((row) => row.key === expandedRecord) ?? null : null;
 
@@ -394,13 +417,14 @@ export default function AdminTraining({ initialTrainingState }: Props) {
 
                     <DataTable
                         title="Upcoming & Active Training"
-                        data={filteredRegister.filter((row) => ["Scheduled", "Ongoing", "Pending Attendance", "Pending Finalization"].includes(row.displayStatus))}
+                        data={activeRegisterGroups}
                         rowKey={(row) => row.key}
                         pageSize={10}
-                        onRowClick={(row) => setExpandedSession(row.key)}
+                        onRowClick={(row) => setExpandedProgram(row.key)}
+                        getRowLabel={(row) => `Open the full ${row.program.title} schedule`}
                         emptyTitle="No scheduled or active training"
-                        emptyDescription="Once a ready requirement is scheduled, its session will appear here."
-                        columns={registerColumns()}
+                        emptyDescription="Once training is scheduled, the course appears here with its complete session schedule."
+                        columns={registerGroupColumns()}
                     />
                 </div>
             </>}
@@ -418,14 +442,14 @@ export default function AdminTraining({ initialTrainingState }: Props) {
                 </div>
                 <DataTable
                     title="Training Register"
-                    data={filteredRegister}
+                    data={filteredRegisterGroups}
                     rowKey={(row) => row.key}
                     pageSize={10}
-                    onRowClick={(row) => setExpandedSession(row.key)}
-                    getRowLabel={(row) => `Open ${row.program.title} training details`}
-                    emptyTitle="No training sessions match the current filters"
-                    emptyDescription="Schedule onsite Training from a published Learning course. Current course enrollments are assigned automatically."
-                    columns={registerColumns()}
+                    onRowClick={(row) => setExpandedProgram(row.key)}
+                    getRowLabel={(row) => `Open the full ${row.program.title} schedule`}
+                    emptyTitle="No training schedules match the current filters"
+                    emptyDescription="Each Learning-linked course appears once. Open it to review every scheduled session and manage attendance per date."
+                    columns={registerGroupColumns()}
                 />
             </>}
 
@@ -457,6 +481,22 @@ export default function AdminTraining({ initialTrainingState }: Props) {
             maxWidth="2xl"
         >
             <RequirementDetails group={selectedRequirement} busy={busy} onSchedule={() => { setExpandedRequirement(null); setScheduleGroup(selectedRequirement); }} />
+        </AppModal>}
+
+        {selectedProgram && <AppModal
+            show
+            title="Training Schedule"
+            description={selectedProgram.program.title}
+            onClose={() => setExpandedProgram(null)}
+            maxWidth="2xl"
+        >
+            <ProgramScheduleDetails
+                group={selectedProgram}
+                onOpenSession={(sessionId) => {
+                    setExpandedProgram(null);
+                    setExpandedSession(sessionId);
+                }}
+            />
         </AppModal>}
 
         {selectedSession && <AppModal
@@ -537,15 +577,66 @@ export default function AdminTraining({ initialTrainingState }: Props) {
     </AuthenticatedLayout>;
 }
 
-function registerColumns() {
+function registerGroupColumns() {
     return [
-        { key: "training", header: "Training", render: (row: RegisterRow) => <div><p className="font-bold text-slate-900">{row.program.title}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.program.deliveryType} · {row.program.code}</p></div> },
-        { key: "schedule", header: "Schedule", render: (row: RegisterRow) => <div><p className="text-xs font-semibold text-slate-700">{formatDateTime(row.session.startsAt)}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.session.venue}</p></div> },
-        { key: "facilitator", header: "Facilitator", render: (row: RegisterRow) => <span className="text-xs font-semibold text-slate-600">{row.session.facilitator ?? "Not assigned"}</span> },
-        { key: "participants", header: "Participants", className: "w-28", render: (row: RegisterRow) => <span className="font-extrabold tabular-nums text-slate-800">{row.participants.length}</span> },
-        { key: "progress", header: "Progress", className: "w-36", render: (row: RegisterRow) => <div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-[#F4B400]" style={{ width: `${row.participants.length ? Math.round((row.completionCount / row.participants.length) * 100) : 0}%` }} /></div><p className="mt-1 text-[10px] font-semibold text-slate-400">{row.completionCount}/{row.participants.length} finalized</p></div> },
-        { key: "status", header: "Status", className: "w-40", render: (row: RegisterRow) => <StatusPill value={row.displayStatus} /> },
+        { key: "training", header: "Training", render: (row: RegisterGroupRow) => <div><p className="font-bold text-slate-900">{row.program.title}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.program.deliveryType} · {row.program.code}</p></div> },
+        { key: "schedule", header: "Schedule", render: (row: RegisterGroupRow) => <div><p className="text-xs font-semibold text-slate-700">{row.sessions.length} session{row.sessions.length === 1 ? "" : "s"}</p><p className="mt-0.5 text-[11px] text-slate-400">{row.nextSession ? `Next: ${formatDateTime(row.nextSession.session.startsAt)}` : "No future session"}</p></div> },
+        { key: "facilitator", header: "Facilitator", render: (row: RegisterGroupRow) => {
+            const facilitators = Array.from(new Set(row.sessions.map((session) => session.session.facilitator).filter((value): value is string => Boolean(value))));
+            return <span className="text-xs font-semibold text-slate-600">{facilitators.length === 0 ? "Not assigned" : facilitators.length === 1 ? facilitators[0] : "Multiple facilitators"}</span>;
+        } },
+        { key: "participants", header: "Participants", className: "w-28", render: (row: RegisterGroupRow) => <span className="font-extrabold tabular-nums text-slate-800">{row.participantCount}</span> },
+        { key: "progress", header: "Sessions", className: "w-36", render: (row: RegisterGroupRow) => <div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-[#F4B400]" style={{ width: `${row.sessions.length ? Math.round((row.completedSessions / row.sessions.length) * 100) : 0}%` }} /></div><p className="mt-1 text-[10px] font-semibold text-slate-400">{row.completedSessions}/{row.sessions.length} completed</p></div> },
+        { key: "status", header: "Status", className: "w-40", render: (row: RegisterGroupRow) => <StatusPill value={row.displayStatus} /> },
     ];
+}
+
+function ProgramScheduleDetails({ group, onOpenSession }: { group: RegisterGroupRow; onOpenSession: (sessionId: string) => void }) {
+    return <section>
+        <div className="grid gap-3 sm:grid-cols-3">
+            <Summary icon={CalendarDays} label="Sessions" value={`${group.sessions.length}`} />
+            <Summary icon={Users} label="Participants" value={`${group.participantCount}`} />
+            <Summary icon={CheckCircle2} label="Completed" value={`${group.completedSessions} / ${group.sessions.length}`} />
+        </div>
+        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="min-w-[920px] w-full text-left">
+                <thead>
+                    <tr className="border-b border-slate-200 bg-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        <th className="px-3 py-2">Schedule</th>
+                        <th className="px-3 py-2">Venue</th>
+                        <th className="px-3 py-2">Facilitator</th>
+                        <th className="px-3 py-2">Participants</th>
+                        <th className="px-3 py-2">Attendance</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {group.sessions.map((row) => {
+                        const recorded = row.participants.filter((enrollment) => {
+                            const link = enrollment.sessions.find((session) => session.sessionId === row.session.id);
+                            return Boolean(link?.attendance && link.attendance.trainingStatus !== "Pending");
+                        }).length;
+                        const attendance = row.session.attendanceFinalizedAt
+                            ? "Finalized"
+                            : row.participants.length > 0 && recorded === row.participants.length
+                              ? "Ready to finalize"
+                              : `${recorded}/${row.participants.length} recorded`;
+                        return <tr key={row.key} className="border-b border-slate-100 last:border-0">
+                            <td className="px-3 py-3"><p className="text-xs font-bold text-slate-900">{row.session.label}</p><p className="mt-1 text-[11px] text-slate-500">{formatDateTime(row.session.startsAt)}</p></td>
+                            <td className="px-3 py-3 text-xs font-semibold text-slate-600">{row.session.venue || "Venue TBA"}</td>
+                            <td className="px-3 py-3 text-xs font-semibold text-slate-600">{row.session.facilitator ?? "Not assigned"}</td>
+                            <td className="px-3 py-3 font-bold tabular-nums text-slate-700">{row.participants.length}</td>
+                            <td className="px-3 py-3"><StatusPill value={attendance} /></td>
+                            <td className="px-3 py-3"><StatusPill value={row.displayStatus} /></td>
+                            <td className="px-3 py-3 text-right"><button type="button" className={button} onClick={() => onOpenSession(row.key)}>Open Session</button></td>
+                        </tr>;
+                    })}
+                </tbody>
+            </table>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">Attendance remains separate for every session date. Open a session to record or finalize attendance for that specific schedule.</p>
+    </section>;
 }
 
 function RequirementDetails({ group, busy, onSchedule }: { group: RequirementGroup; busy: boolean; onSchedule: () => void }) {
@@ -967,6 +1058,50 @@ function CancelTrainingModal({ row, busy, error, onClose, onConfirm }: { row: Re
 
 function Summary({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
     return <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex items-start gap-2"><div className="rounded-lg bg-amber-50 p-2 text-amber-600"><Icon className="h-4 w-4" /></div><div className="min-w-0"><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-xs font-bold leading-relaxed text-slate-800">{value}</p></div></div></div>;
+}
+
+function groupRegisterRows(rows: RegisterRow[]): RegisterGroupRow[] {
+    const groups = new Map<string, RegisterRow[]>();
+    rows.forEach((row) => groups.set(row.program.id, [...(groups.get(row.program.id) ?? []), row]));
+
+    const now = Date.now();
+    return Array.from(groups.entries()).map(([programId, sessions]) => {
+        const ordered = [...sessions].sort((left, right) =>
+            new Date(left.session.startsAt).getTime() - new Date(right.session.startsAt).getTime(),
+        );
+        const participantIds = new Set<number>();
+        ordered.forEach((row) => row.participants.forEach((participant) => participantIds.add(participant.participantId)));
+        const pendingSessions = ordered.filter((row) => ["Pending Attendance", "Pending Finalization"].includes(row.displayStatus)).length;
+        const completedSessions = ordered.filter((row) => row.session.status === "Completed").length;
+        const nextSession = ordered.find((row) =>
+            !["Completed", "Cancelled"].includes(row.session.status)
+            && new Date(row.session.startsAt).getTime() >= now,
+        ) ?? null;
+        const displayStatus = pendingSessions > 0
+            ? "Pending Action"
+            : ordered.some((row) => row.displayStatus === "Ongoing")
+              ? "Ongoing"
+              : ordered.some((row) => row.session.status === "Scheduled")
+                ? "Scheduled"
+                : completedSessions === ordered.length
+                  ? "Completed"
+                  : "Mixed";
+
+        return {
+            key: programId,
+            program: ordered[0].program,
+            sessions: ordered,
+            participantCount: participantIds.size,
+            completedSessions,
+            pendingSessions,
+            nextSession,
+            displayStatus,
+        };
+    }).sort((left, right) => {
+        const leftTime = left.nextSession ? new Date(left.nextSession.session.startsAt).getTime() : Number.MAX_SAFE_INTEGER;
+        const rightTime = right.nextSession ? new Date(right.nextSession.session.startsAt).getTime() : Number.MAX_SAFE_INTEGER;
+        return leftTime - rightTime || left.program.title.localeCompare(right.program.title);
+    });
 }
 
 function formatDate(value: string) {

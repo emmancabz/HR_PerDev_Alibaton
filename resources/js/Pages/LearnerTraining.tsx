@@ -894,16 +894,32 @@ function TraineeSchedule({
     rows: Array<{ enrollment: TrainingEnrollment; session: TrainingEnrollment['sessions'][number] }>;
     traineeName: string;
 }) {
-    const grouped = useMemo(() => {
-        const groups = new Map<string, Array<{ enrollment: TrainingEnrollment; session: TrainingEnrollment['sessions'][number] }>>();
+    type ScheduleRow = { enrollment: TrainingEnrollment; session: TrainingEnrollment['sessions'][number] };
+    type ScheduleGroup = { programId: string; program: TrainingState['programs'][number] | undefined; rows: ScheduleRow[] };
+
+    const grouped = useMemo<ScheduleGroup[]>(() => {
+        const groups = new Map<string, ScheduleRow[]>();
         rows.forEach((row) => {
-            const key = row.enrollment.id;
-            const existing = groups.get(key) ?? [];
-            existing.push(row);
-            groups.set(key, existing);
+            const key = row.enrollment.programId;
+            const current = groups.get(key) ?? [];
+            if (!current.some((item) => item.session.id === row.session.id)) current.push(row);
+            groups.set(key, current);
         });
-        return Array.from(groups.values());
-    }, [rows]);
+        return Array.from(groups.entries()).map(([programId, groupRows]) => ({
+            programId,
+            program: state.programs.find((program) => program.id === programId),
+            rows: [...groupRows].sort((left, right) =>
+                new Date(left.session.startsAt).getTime() - new Date(right.session.startsAt).getTime(),
+            ),
+        })).sort((left, right) => {
+            const leftTime = left.rows[0] ? new Date(left.rows[0].session.startsAt).getTime() : Number.MAX_SAFE_INTEGER;
+            const rightTime = right.rows[0] ? new Date(right.rows[0].session.startsAt).getTime() : Number.MAX_SAFE_INTEGER;
+            return leftTime - rightTime;
+        });
+    }, [rows, state.programs]);
+
+    const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
+    const selectedGroup = grouped.find((group) => group.programId === selectedProgramId) ?? null;
 
     const exportRows = rows.map(({ enrollment, session }) => {
         const program = state.programs.find((row) => row.id === enrollment.programId);
@@ -998,8 +1014,8 @@ function TraineeSchedule({
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <header className="border-b border-slate-200 px-6 py-5">
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">Training Schedule</p>
-                <h3 className="mt-2 text-xl font-extrabold text-slate-950">Your assigned training sessions</h3>
-                <p className="mt-1 text-sm text-slate-500">Only sessions relevant to your trainee learning path are shown.</p>
+                <h3 className="mt-2 text-xl font-extrabold text-slate-950">Your assigned training</h3>
+                <p className="mt-1 text-sm text-slate-500">Each course appears once. Open a course to see its complete onsite schedule.</p>
             </header>
 
             {rows.length === 0 ? (
@@ -1009,83 +1025,99 @@ function TraineeSchedule({
                     <p className="mt-1 text-xs text-slate-500">Your schedule will appear here when training sessions are assigned to your account.</p>
                 </div>
             ) : (
-                <div className="overflow-x-auto">
-                    <table className="min-w-[1120px] w-full text-left text-xs">
-                        <thead className="border-b border-slate-200 bg-slate-50/60 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
-                            <tr>
-                                <th className="px-5 py-3">Training / Program</th>
-                                <th className="px-5 py-3">Day / Date</th>
-                                <th className="px-5 py-3">Time</th>
-                                <th className="px-5 py-3">Session</th>
-                                <th className="px-5 py-3">Mode / Venue</th>
-                                <th className="px-5 py-3">Trainer</th>
-                                <th className="px-5 py-3">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {grouped.flatMap((group) => {
-                                const first = group[0];
-                                const program = state.programs.find((row) => row.id === first.enrollment.programId);
-                                return group.map(({ enrollment, session }, index) => {
-                                    const endsAt = (session as any).endsAt ?? (session as any).ends_at ?? null;
-                                    const mode = firstTextTraining(
-                                        (session as any).modality,
-                                        (session as any).mode,
-                                        (session as any).deliveryMode,
-                                        (session as any).delivery_mode,
-                                        (program as any)?.modality,
-                                        (program as any)?.mode,
-                                        (program as any)?.deliveryMode,
-                                        (program as any)?.delivery_mode,
-                                    ) || '—';
-                                    const trainer = firstTextTraining(
-                                        (session as any).facilitator,
-                                        (session as any).facilitatorName,
-                                        (session as any).facilitator_name,
-                                        (session as any).trainerName,
-                                        (session as any).trainer_name,
-                                        (enrollment as any).facilitatorName,
-                                        (enrollment as any).facilitator_name,
-                                        (enrollment as any).trainerName,
-                                        (enrollment as any).trainer_name,
-                                        (program as any)?.facilitatorName,
-                                        (program as any)?.facilitator_name,
-                                        (program as any)?.trainerName,
-                                        (program as any)?.trainer_name,
-                                    ) || 'Not assigned yet';
-                                    const date = new Date(session.startsAt);
-                                    const day = Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-PH', { weekday: 'short' });
-                                    return (
-                                        <tr key={`${enrollment.id}-${session.id}`} className="align-top hover:bg-slate-50/70">
-                                            {index === 0 && (
-                                                <td rowSpan={group.length} className="px-5 py-4 align-top">
-                                                    <p className="font-extrabold text-slate-900">{program?.title ?? enrollment.programId}</p>
-                                                    <p className="mt-1 text-[11px] text-slate-500">{program?.category ?? 'Training'}</p>
-                                                </td>
-                                            )}
-                                            <td className="px-5 py-4 text-slate-700">
-                                                <p className="font-semibold text-slate-900">{day}</p>
-                                                <p className="mt-1 text-[11px] text-slate-500">{formatDateOnly(session.startsAt)}</p>
-                                            </td>
-                                            <td className="px-5 py-4 text-slate-700">{formatTimeOnly(session.startsAt)} - {formatTimeOnly(endsAt)}</td>
-                                            <td className="px-5 py-4 text-slate-700">{session.label || 'Session'}</td>
-                                            <td className="px-5 py-4">
-                                                <p className="font-semibold text-slate-800">{mode}</p>
-                                                <p className="mt-1 text-[11px] text-slate-500">{session.venue || 'Venue TBA'}</p>
-                                            </td>
-                                            <td className="px-5 py-4 text-slate-700">{trainer}</td>
-                                            <td className="px-5 py-4">
-                                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${trainingScheduleStatusTone(session.sessionStatus || enrollment.status)}`}>
-                                                    {session.sessionStatus || enrollment.status}
-                                                </span>
-                                            </td>
+                <>
+                    <div className="divide-y divide-slate-100">
+                        {grouped.map((group) => {
+                            const future = group.rows.find(({ session }) =>
+                                !['Completed', 'Cancelled'].includes(session.sessionStatus)
+                                && new Date(session.startsAt).getTime() >= Date.now(),
+                            );
+                            const completed = group.rows.filter(({ session }) => session.sessionStatus === 'Completed').length;
+                            const dateRange = group.rows.length > 0
+                                ? group.rows.length === 1
+                                    ? formatDateOnly(group.rows[0].session.startsAt)
+                                    : `${formatDateOnly(group.rows[0].session.startsAt)} - ${formatDateOnly(group.rows[group.rows.length - 1].session.startsAt)}`
+                                : '—';
+                            return (
+                                <button
+                                    key={group.programId}
+                                    type="button"
+                                    onClick={() => setSelectedProgramId(group.programId)}
+                                    className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left transition hover:bg-amber-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
+                                >
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">{group.program?.category ?? 'Training'}</p>
+                                        <h4 className="mt-1 truncate text-sm font-extrabold text-slate-950">{group.program?.title ?? group.programId}</h4>
+                                        <p className="mt-1 text-xs text-slate-500">{group.rows.length} session{group.rows.length === 1 ? '' : 's'} · {dateRange}</p>
+                                    </div>
+                                    <div className="shrink-0 text-right">
+                                        <p className="text-xs font-bold text-slate-800">{completed}/{group.rows.length} completed</p>
+                                        <p className="mt-1 text-[10px] font-semibold text-slate-400">{future ? `Next: ${formatDateOnly(future.session.startsAt)}` : 'No future session'}</p>
+                                        <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-700"><Eye className="h-3.5 w-3.5" /> View full schedule</span>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {selectedGroup && (
+                        <div className="border-t border-slate-200 bg-slate-50/50 px-4 py-5 sm:px-6">
+                            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">Full Schedule</p>
+                                    <h4 className="mt-1 text-base font-extrabold text-slate-950">{selectedGroup.program?.title ?? selectedGroup.programId}</h4>
+                                    <p className="mt-1 text-xs text-slate-500">Your attendance is tracked separately for each scheduled date.</p>
+                                </div>
+                                <button type="button" className="app-button" onClick={() => setSelectedProgramId(null)}>Close Schedule</button>
+                            </div>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                                <table className="min-w-[980px] w-full text-left text-xs">
+                                    <thead className="border-b border-slate-200 bg-slate-50/80 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                        <tr>
+                                            <th className="px-4 py-3">Day / Date</th>
+                                            <th className="px-4 py-3">Time</th>
+                                            <th className="px-4 py-3">Session</th>
+                                            <th className="px-4 py-3">Venue</th>
+                                            <th className="px-4 py-3">Trainer</th>
+                                            <th className="px-4 py-3">Attendance</th>
+                                            <th className="px-4 py-3">Status</th>
                                         </tr>
-                                    );
-                                });
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {selectedGroup.rows.map(({ enrollment, session }) => {
+                                            const program = selectedGroup.program;
+                                            const endsAt = (session as any).endsAt ?? (session as any).ends_at ?? null;
+                                            const trainer = firstTextTraining(
+                                                (session as any).facilitator,
+                                                (session as any).facilitatorName,
+                                                (session as any).facilitator_name,
+                                                (session as any).trainerName,
+                                                (session as any).trainer_name,
+                                                (enrollment as any).facilitatorName,
+                                                (enrollment as any).facilitator_name,
+                                                (program as any)?.facilitatorName,
+                                                (program as any)?.facilitator_name,
+                                            ) || 'Not assigned yet';
+                                            const date = new Date(session.startsAt);
+                                            const day = Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-PH', { weekday: 'long' });
+                                            return (
+                                                <tr key={session.id}>
+                                                    <td className="px-4 py-3"><p className="font-bold text-slate-900">{day}</p><p className="mt-1 text-[11px] text-slate-500">{formatDateOnly(session.startsAt)}</p></td>
+                                                    <td className="px-4 py-3 text-slate-700">{formatTimeOnly(session.startsAt)} - {formatTimeOnly(endsAt)}</td>
+                                                    <td className="px-4 py-3 font-semibold text-slate-700">{session.label || 'Session'}</td>
+                                                    <td className="px-4 py-3 text-slate-600">{session.venue || 'Venue TBA'}</td>
+                                                    <td className="px-4 py-3 text-slate-600">{trainer}</td>
+                                                    <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${trainingScheduleStatusTone(session.attendance?.trainingStatus ?? 'Pending')}`}>{session.attendance?.trainingStatus ?? 'Pending'}</span></td>
+                                                    <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${trainingScheduleStatusTone(session.sessionStatus || enrollment.status)}`}>{session.sessionStatus || enrollment.status}</span></td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
 
             <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-6 py-4">
