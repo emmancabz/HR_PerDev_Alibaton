@@ -59,6 +59,7 @@ export const trainingClient = {
         return persisted;
     },
     state: fetchTrainingState,
+    scheduleLearningCourse: async (courseId: string, sessions: Record<string, unknown>[]) => stateResponse(await axios.post(`/training/api/learning-courses/${courseId}/schedule`, { sessions })),
     createProgram: async (payload: TrainingProgramDraft) => unwrap<{ programId: string; code: string }>(await axios.post("/training/api/programs", payload)),
     updateProgram: async (id: string, payload: TrainingProgramDraft) => stateResponse(await axios.put(`/training/api/programs/${id}`, payload)),
     transitionProgram: async (id: string, action: "activate" | "archive" | "cancel", reason?: string) => stateResponse(await axios.post(`/training/api/programs/${id}/transition`, { action, reason })),

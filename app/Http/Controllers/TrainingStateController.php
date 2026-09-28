@@ -76,6 +76,32 @@ class TrainingStateController extends Controller
         return $this->show($request);
     }
 
+    public function scheduleLearningCourse(Request $request, string $course): JsonResponse
+    {
+        $data = $request->validate([
+            'sessions' => ['required', 'array', 'min:1', 'max:100'],
+            'sessions.*.label' => ['required', 'string', 'max:160'],
+            'sessions.*.startsAt' => ['required', 'date'],
+            'sessions.*.endsAt' => ['required', 'date'],
+            'sessions.*.venue' => ['required', 'string', 'max:255'],
+            'sessions.*.facilitatorId' => ['nullable', 'integer', 'exists:users,id'],
+            'sessions.*.externalFacilitatorName' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        foreach ($data['sessions'] as $index => $session) {
+            if (strtotime((string) $session['endsAt']) <= strtotime((string) $session['startsAt'])) {
+                return response()->json([
+                    'message' => 'The session end time must be after its start time.',
+                    'errors' => ["sessions.{$index}.endsAt" => ['The session end time must be after its start time.']],
+                ], 422);
+            }
+        }
+
+        $this->training->scheduleLearningCourse($request->user(), $course, $data['sessions']);
+
+        return $this->show($request);
+    }
+
     public function createSession(Request $request, TrainingProgram $program): JsonResponse
     {
         $session = $this->training->saveSession($request->user(), $program, $this->sessionData($request));

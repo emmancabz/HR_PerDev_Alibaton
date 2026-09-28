@@ -282,6 +282,7 @@ Route::get('/recognition', [RecognitionPageController::class, 'administration'])
     } else {
     Route::prefix('training/api')->name('training.api.')->middleware(['throttle:120,1,mfa-status', 'invalidate.read:training'])->group(function () {
         Route::get('/state', [TrainingStateController::class, 'show'])->name('state');
+        Route::post('/learning-courses/{course}/schedule', [TrainingStateController::class, 'scheduleLearningCourse'])->name('learning-courses.schedule');
         Route::post('/requirements/schedule', [TrainingStateController::class, 'scheduleRequirements'])->name('requirements.schedule');
         Route::post('/programs', [TrainingStateController::class, 'createProgram'])->name('programs.create');
         Route::put('/programs/{program}', [TrainingStateController::class, 'updateProgram'])->name('programs.update');

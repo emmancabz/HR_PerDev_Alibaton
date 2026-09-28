@@ -231,7 +231,7 @@ export type TrainingState = {
     catalog: {
         competencies: Array<Record<string, any>>;
         roleProfiles: Array<Record<string, any>>;
-        learningCourses: Array<{ id: string; versionId: string; code: string; title: string }>;
+        learningCourses: Array<{ id: string; versionId: string; code: string; title: string; enrolledCount: number }>;
     };
     programs: TrainingProgram[];
     enrollments: TrainingEnrollment[];

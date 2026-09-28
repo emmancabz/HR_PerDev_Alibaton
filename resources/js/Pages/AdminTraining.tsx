@@ -409,7 +409,7 @@ export default function AdminTraining({ initialTrainingState }: Props) {
                     <button
                         type="button"
                         className={primary}
-                        disabled={busy || !state.actor.canManage || activePrograms.length === 0}
+                        disabled={busy || !state.actor.canManage || state.catalog.learningCourses.length === 0}
                         onClick={() => setCreateSessionOpen(true)}
                     >
                         <Plus className="h-4 w-4" /> Schedule Training
@@ -423,7 +423,7 @@ export default function AdminTraining({ initialTrainingState }: Props) {
                     onRowClick={(row) => setExpandedSession(row.key)}
                     getRowLabel={(row) => `Open ${row.program.title} training details`}
                     emptyTitle="No training sessions match the current filters"
-                    emptyDescription="Schedule an approved active Training program, then assign eligible participants from the session details."
+                    emptyDescription="Schedule onsite Training from a published Learning course. Current course enrollments are assigned automatically."
                     columns={registerColumns()}
                 />
             </>}
@@ -493,26 +493,14 @@ export default function AdminTraining({ initialTrainingState }: Props) {
             <RecordDetails row={selectedRecord} />
         </AppModal>}
 
-        {createSessionOpen && <CreateSessionModal state={state} programs={activePrograms} busy={busy} error={error} onClose={() => { setCreateSessionOpen(false); setError(""); }} onCreate={async (programId, payloads, participantIds) => {
+        {createSessionOpen && <CreateSessionModal state={state} busy={busy} error={error} onClose={() => { setCreateSessionOpen(false); setError(""); }} onCreate={async (courseId, payloads) => {
             setBusy(true); setError(""); setNotice("");
             try {
-                const sessionIds: string[] = [];
-                for (const payload of payloads) {
-                    const created = await trainingClient.createSession(programId, payload);
-                    sessionIds.push(created.sessionId);
-                }
-                if (participantIds.length > 0) {
-                    await trainingClient.enroll(programId, {
-                        participantIds,
-                        sessionIds,
-                        source: "HR Assignment",
-                        reason: payloads.length > 1
-                            ? "Assigned by authorized Training Management to the quarterly recurring practical schedule."
-                            : "Assigned by authorized Training Management to the scheduled practical session.",
-                    });
-                }
-                setState(await trainingClient.state());
-                setNotice(`${payloads.length} training session${payloads.length === 1 ? "" : "s"} scheduled${participantIds.length ? ` for ${participantIds.length} participant${participantIds.length === 1 ? "" : "s"}` : ""}.`);
+                const selectedCourse = state.catalog.learningCourses.find((course) => course.id === courseId);
+                const latest = await trainingClient.scheduleLearningCourse(courseId, payloads);
+                setState(latest);
+                const participantCount = selectedCourse?.enrolledCount ?? 0;
+                setNotice(`${payloads.length} training session${payloads.length === 1 ? "" : "s"} scheduled for ${participantCount} enrolled learner${participantCount === 1 ? "" : "s"}.`);
                 setCreateSessionOpen(false);
             } catch (cause) { setError(trainingError(cause)); } finally { setBusy(false); }
         }} />}
@@ -604,7 +592,7 @@ function TrainingDetails({ row, canManage, canFinalize, busy, onAddParticipants,
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
                 {row.session.status === "Scheduled" && <>
-                    {canManage && <button type="button" className={button} disabled={busy || row.participants.length >= row.session.capacity} onClick={onAddParticipants}><Users className="h-3.5 w-3.5" />Add Participants</button>}
+                    {canManage && !row.program.relatedLearningCourseId && <button type="button" className={button} disabled={busy || row.participants.length >= row.session.capacity} onClick={onAddParticipants}><Users className="h-3.5 w-3.5" />Add Participants</button>}
                     <button type="button" className={button} disabled={busy} onClick={onReschedule}>Reschedule</button>
                     {canManage && <button type="button" className={primary} disabled={busy || row.participants.length === 0} onClick={onStart}><Play className="h-3.5 w-3.5" />Start Session</button>}
                     <button type="button" className={button} disabled={busy} onClick={onCancel}>Cancel Training</button>
@@ -655,14 +643,14 @@ function RecordDetails({ row }: { row: RecordRow }) {
     </section>;
 }
 
-function CreateSessionModal({ state, programs, busy, error, onClose, onCreate }: { state: TrainingState; programs: TrainingProgram[]; busy: boolean; error: string; onClose: () => void; onCreate: (programId: string, payloads: Record<string, unknown>[], participantIds: number[]) => Promise<void> }) {
-    const [programId, setProgramId] = useState(programs[0]?.id ?? "");
-    const selectedProgram = programs.find((program) => program.id === programId) ?? null;
-    const [label, setLabel] = useState("Training Session");
+function CreateSessionModal({ state, busy, error, onClose, onCreate }: { state: TrainingState; busy: boolean; error: string; onClose: () => void; onCreate: (courseId: string, payloads: Record<string, unknown>[]) => Promise<void> }) {
+    const courses = state.catalog.learningCourses;
+    const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
+    const selectedCourse = courses.find((course) => course.id === courseId) ?? null;
+    const [label, setLabel] = useState(courses[0] ? `${courses[0].title} Onsite Training` : "Onsite Training Session");
     const [startsAt, setStartsAt] = useState(defaultDateTime(1, 9));
     const [endsAt, setEndsAt] = useState(defaultDateTime(1, 16));
     const [venue, setVenue] = useState("");
-    const [capacity, setCapacity] = useState(20);
     const [facilitatorId, setFacilitatorId] = useState("");
     const [external, setExternal] = useState("");
     const [scheduleMode, setScheduleMode] = useState<"single" | "quarterly">("single");
@@ -670,28 +658,17 @@ function CreateSessionModal({ state, programs, busy, error, onClose, onCreate }:
     const [quarterYear, setQuarterYear] = useState(defaultQuarter.year);
     const [quarter, setQuarter] = useState(defaultQuarter.quarter);
     const [weekdays, setWeekdays] = useState<number[]>([]);
-    const [selectedParticipantIds, setSelectedParticipantIds] = useState<number[]>([]);
     const facilitators = state.personnel.filter((person) => person.personType !== "Trainee");
-    const rules = selectedProgram?.audienceRules;
-    const candidates = state.personnel.filter((person) => person.role !== "admin" && (!rules || (
-        (!rules.personTypes.length || rules.personTypes.includes(person.personType)) &&
-        (!rules.departments.length || rules.departments.includes(person.department)) &&
-        (!rules.positions.length || rules.positions.includes(person.position))
-    )));
     const startTime = startsAt.slice(11, 16);
     const endTime = endsAt.slice(11, 16);
     const quarterlyDates = scheduleMode === "quarterly" ? quarterWeekdayDates(quarterYear, quarter, weekdays) : [];
-    const participantCapacityValid = selectedParticipantIds.length <= capacity;
-    const valid = Boolean(programId && label.trim() && startsAt && endsAt && venue.trim() && capacity > 0 && participantCapacityValid && (facilitatorId || external.trim()) && (scheduleMode === "single" || (weekdays.length > 0 && quarterlyDates.length > 0 && startTime && endTime && endTime > startTime)));
-    const toggleParticipant = (id: number) => setSelectedParticipantIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+    const enrolledCount = selectedCourse?.enrolledCount ?? 0;
+    const valid = Boolean(courseId && enrolledCount > 0 && label.trim() && startsAt && endsAt && venue.trim() && (facilitatorId || external.trim()) && (scheduleMode === "single" || (weekdays.length > 0 && quarterlyDates.length > 0 && startTime && endTime && endTime > startTime)));
     const toggleWeekday = (day: number) => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort((a, b) => a - b));
     const commonPayload = {
         venue: venue.trim(),
-        capacity,
         facilitatorId: facilitatorId ? Number(facilitatorId) : null,
         externalFacilitatorName: facilitatorId ? null : external.trim() || null,
-        enrollmentClosesAt: null,
-        status: "Scheduled",
     };
     const submit = () => {
         const payloads = scheduleMode === "single"
@@ -702,23 +679,21 @@ function CreateSessionModal({ state, programs, busy, error, onClose, onCreate }:
                 startsAt: dateTimeLocalFor(date, startTime),
                 endsAt: dateTimeLocalFor(date, endTime),
             }));
-        return onCreate(programId, payloads, selectedParticipantIds);
+        return onCreate(courseId, payloads);
     };
 
-    return <AppModal show title="Schedule Training" description="Create a governed session from an approved active Training program." onClose={onClose} maxWidth="2xl" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={primary} disabled={busy || !valid} onClick={() => void submit()}>{busy ? "Scheduling…" : scheduleMode === "quarterly" ? `Schedule ${quarterlyDates.length} Sessions` : "Schedule Training"}</button></>}>
+    return <AppModal show title="Schedule Training" description="Schedule onsite Training for the learners currently enrolled in a published Learning course." onClose={onClose} maxWidth="2xl" footer={<><button type="button" className={button} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={primary} disabled={busy || !valid} onClick={() => void submit()}>{busy ? "Scheduling…" : scheduleMode === "quarterly" ? `Schedule ${quarterlyDates.length} Sessions` : "Schedule Training"}</button></>}>
         {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
         <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2"><Field label="Training program" required><SystemSelect className={input} value={programId} onChange={(event) => { setProgramId(event.target.value); setSelectedParticipantIds([]); }}><option value="">Select approved active training</option>{programs.map((program) => <option key={program.id} value={program.id}>{program.title}</option>)}</SystemSelect></Field></div>
+            <div className="md:col-span-2"><Field label="Learning course" required hint="All active learners currently enrolled in this course will be added automatically."><SystemSelect className={input} value={courseId} onChange={(event) => { const nextId = event.target.value; setCourseId(nextId); const nextCourse = courses.find((course) => course.id === nextId); if (nextCourse) setLabel(`${nextCourse.title} Onsite Training`); }}><option value="">Select published Learning course</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.title} · {course.enrolledCount} enrolled</option>)}</SystemSelect></Field></div>
+            <div className="md:col-span-2"><div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Automatic participants</p><p className="mt-1 text-xs font-bold text-slate-800">{selectedCourse?.title ?? "Choose a Learning course"}</p></div><StatusPill value={enrolledCount > 0 ? `${enrolledCount} Enrolled` : "No Enrollments"} /></div><p className="mt-2 text-[11px] leading-5 text-slate-500">{enrolledCount > 0 ? `All ${enrolledCount} currently enrolled learner${enrolledCount === 1 ? "" : "s"} will be assigned to every generated onsite session automatically. The roster is captured when you schedule.` : "This course must have at least one active enrolled learner before onsite Training can be scheduled."}</p></div></div>
             <div className="md:col-span-2"><Field label="Session name" required><input className={input} value={label} onChange={(event) => setLabel(event.target.value)} /></Field></div>
             <Field label="Schedule pattern" required><SystemSelect className={input} value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value as "single" | "quarterly")}><option value="single">Single session</option><option value="quarterly">Quarterly recurring schedule</option></SystemSelect></Field>
             {scheduleMode === "quarterly" ? <Field label="Quarter" required><div className="grid grid-cols-2 gap-2"><SystemSelect className={input} value={quarterYear} onChange={(event) => setQuarterYear(Number(event.target.value))}>{[quarterYear - 1, quarterYear, quarterYear + 1].map((year) => <option key={year} value={year}>{year}</option>)}</SystemSelect><SystemSelect className={input} value={quarter} onChange={(event) => setQuarter(Number(event.target.value))}>{[1, 2, 3, 4].map((value) => <option key={value} value={value}>Q{value}</option>)}</SystemSelect></div></Field> : <div />}
-            {scheduleMode === "single" ? <><Field label="Start" required><input className={input} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></Field><Field label="End" required><input className={input} type="datetime-local" value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} /></Field></> : <><Field label="Daily start time" required><input className={input} type="time" value={startTime} onChange={(event) => setStartsAt(`${startsAt.slice(0, 10)}T${event.target.value}`)} /></Field><Field label="Daily end time" required><input className={input} type="time" value={endTime} onChange={(event) => setEndsAt(`${endsAt.slice(0, 10)}T${event.target.value}`)} /></Field><div className="md:col-span-2"><Field label="Training days" required hint="Use the same weekly pattern within the selected quarter."><div className="flex flex-wrap gap-2">{[[0, "Sunday"], [1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thursday"], [5, "Friday"], [6, "Saturday"]].map(([day, name]) => <label key={day} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={weekdays.includes(Number(day))} onChange={() => toggleWeekday(Number(day))} />{name}</label>)}</div></Field></div><div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Quarterly schedule preview</p><p className="mt-1 text-xs font-bold text-slate-700">{quarterlyDates.length} session{quarterlyDates.length === 1 ? "" : "s"} · Q{quarter} {quarterYear}</p><p className="mt-1 text-[10px] text-slate-500">Only today or future dates are generated. Each selected participant is linked to every generated session.</p></div></>}
+            {scheduleMode === "single" ? <><Field label="Start" required><input className={input} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></Field><Field label="End" required><input className={input} type="datetime-local" value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} /></Field></> : <><Field label="Daily start time" required><input className={input} type="time" value={startTime} onChange={(event) => setStartsAt(`${startsAt.slice(0, 10)}T${event.target.value}`)} /></Field><Field label="Daily end time" required><input className={input} type="time" value={endTime} onChange={(event) => setEndsAt(`${endsAt.slice(0, 10)}T${event.target.value}`)} /></Field><div className="md:col-span-2"><Field label="Training days" required hint="Use the same weekly pattern within the selected quarter."><div className="flex flex-wrap gap-2">{[[0, "Sunday"], [1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thursday"], [5, "Friday"], [6, "Saturday"]].map(([day, name]) => <label key={day} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={weekdays.includes(Number(day))} onChange={() => toggleWeekday(Number(day))} />{name}</label>)}</div></Field></div><div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Quarterly schedule preview</p><p className="mt-1 text-xs font-bold text-slate-700">{quarterlyDates.length} session{quarterlyDates.length === 1 ? "" : "s"} · Q{quarter} {quarterYear}</p><p className="mt-1 text-[10px] text-slate-500">Only today or future dates are generated. The course enrollment snapshot is assigned to every generated session.</p></div></>}
             <div className="md:col-span-2"><Field label="Venue / location" required><input className={input} value={venue} onChange={(event) => setVenue(event.target.value)} placeholder="Training room, site, yard, workshop area…" /></Field></div>
             <Field label="Facilitator" required><SystemSelect className={input} value={facilitatorId} onChange={(event) => setFacilitatorId(event.target.value)}><option value="">External / not listed</option>{facilitators.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.position}</option>)}</SystemSelect></Field>
             <Field label="External facilitator" hint={facilitatorId ? "Disabled because an internal facilitator is selected." : "Required when no internal facilitator is selected."}><input className={input} value={external} disabled={Boolean(facilitatorId)} onChange={(event) => setExternal(event.target.value)} /></Field>
-            <Field label="Capacity" required hint={selectedParticipantIds.length ? `Selected participants: ${selectedParticipantIds.length}` : undefined}><input className={input} type="number" min={Math.max(1, selectedParticipantIds.length)} max={5000} value={capacity} onChange={(event) => setCapacity(Number(event.target.value))} /></Field>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Selected program</p><p className="mt-1 text-xs font-bold text-slate-700">{selectedProgram?.title ?? "Choose a program"}</p><p className="mt-1 text-[10px] text-slate-500">The same participant cohort can be assigned to every generated session.</p></div>
-            <div className="md:col-span-2"><div className="rounded-xl border border-slate-200 bg-white"><div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2.5"><div><p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Participants</p><p className="mt-1 text-[10px] text-slate-500">Eligible personnel from the saved Training audience.</p></div><button type="button" className={button} disabled={!selectedProgram || candidates.length === 0} onClick={() => setSelectedParticipantIds(selectedParticipantIds.length === candidates.length ? [] : candidates.map((person) => person.id))}>{selectedParticipantIds.length === candidates.length && candidates.length ? "Clear all" : "Select all eligible"}</button></div><div className="max-h-52 overflow-y-auto p-2">{!selectedProgram ? <p className="px-3 py-6 text-center text-xs text-slate-400">Choose a Training program first.</p> : candidates.length === 0 ? <p className="px-3 py-6 text-center text-xs text-slate-400">No personnel match this program's saved audience.</p> : candidates.map((person) => <label key={person.id} className="flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2 hover:bg-amber-50/40"><input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" checked={selectedParticipantIds.includes(person.id)} onChange={() => toggleParticipant(person.id)} /><div className="min-w-0 flex-1"><p className="text-xs font-bold text-slate-900">{person.name}</p><p className="mt-0.5 text-[10px] text-slate-400">{person.employeeId ?? person.personnelKey} · {person.position} · {person.department}</p></div><StatusPill value={person.personType} /></label>)}</div></div>{!participantCapacityValid && <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Increase capacity to at least {selectedParticipantIds.length}.</p>}</div>
         </div>
     </AppModal>;
 }

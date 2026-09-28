@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware(['internal.service:training', 'throttle:120,1'])->prefix('training/api')->name('training.api.')->group(function (): void {
     Route::get('/state', [TrainingStateController::class, 'show'])->name('state');
+    Route::post('/learning-courses/{course}/schedule', [TrainingStateController::class, 'scheduleLearningCourse'])->name('learning-courses.schedule');
     Route::post('/requirements/schedule', [TrainingStateController::class, 'scheduleRequirements'])->name('requirements.schedule');
     Route::post('/programs', [TrainingStateController::class, 'createProgram'])->name('programs.create');
     Route::put('/programs/{program}', [TrainingStateController::class, 'updateProgram'])->name('programs.update');

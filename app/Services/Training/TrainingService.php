@@ -14,6 +14,7 @@ use App\Models\Training\TrainingProgram;
 use App\Models\Training\TrainingRecommendation;
 use App\Models\Training\TrainingSession;
 use App\Models\Training\TrainingSessionParticipant;
+use App\Models\Learning\LearningAssignment;
 use App\Models\User;
 use App\Services\Learning\LearningCatalogService;
 use Carbon\CarbonImmutable;
@@ -203,6 +204,110 @@ class TrainingService
             'cancellation_reason' => $action === 'cancel' ? $reason : $program->cancellation_reason,
         ]);
         $this->audit->record($actor, 'Program'.Str::studly($action), 'TrainingProgram', $program->id, ['reason' => $reason]);
+    }
+
+    public function scheduleLearningCourse(User $actor, string $courseId, array $sessionDrafts): void
+    {
+        $this->requireOperator($actor);
+
+        $course = DB::table('learning_courses')
+            ->join('learning_course_versions', 'learning_courses.current_published_version_id', '=', 'learning_course_versions.id')
+            ->where('learning_courses.id', $courseId)
+            ->whereNull('learning_courses.archived_at')
+            ->first([
+                'learning_courses.id',
+                'learning_courses.code',
+                'learning_course_versions.title',
+            ]);
+
+        if (! $course) {
+            throw ValidationException::withMessages(['courseId' => 'Choose a currently published Learning course.']);
+        }
+
+        $learnerIds = LearningAssignment::query()
+            ->where('course_id', $courseId)
+            ->whereNotIn('status', ['Cancelled', 'Expired'])
+            ->whereNotNull('learner_id')
+            ->distinct()
+            ->pluck('learner_id');
+
+        $participants = User::query()
+            ->activePersonnel()
+            ->whereIn('id', $learnerIds)
+            ->where('role', '!=', UserRole::Admin->value)
+            ->orderBy('name')
+            ->get();
+
+        if ($participants->isEmpty()) {
+            throw ValidationException::withMessages(['courseId' => 'This Learning course has no active enrolled learners to schedule.']);
+        }
+
+        DB::transaction(function () use ($actor, $course, $courseId, $participants, $sessionDrafts): void {
+            $program = TrainingProgram::query()
+                ->where('related_learning_course_id', $courseId)
+                ->where('status', 'Active')
+                ->latest('updated_at')
+                ->get()
+                ->first(fn (TrainingProgram $candidate) => $participants->every(
+                    fn (User $participant) => $this->matchesAudience($participant, $candidate->audience_rules ?? []),
+                ));
+
+            if (! $program) {
+                $personTypes = $participants->pluck('person_type')->filter()->unique()->sort()->values()->all();
+
+                $program = $this->createProgram($actor, [
+                    'code' => null,
+                    'title' => $course->title.' - Onsite Training',
+                    'description' => 'Facilitated onsite training linked to the published Learning course '.$course->title.'.',
+                    'category' => 'Learning-linked Training',
+                    'deliveryType' => 'Onsite',
+                    'objectives' => ['Complete the facilitated or practical onsite component for '.$course->title.'.'],
+                    'audienceRules' => [
+                        'personTypes' => $personTypes,
+                        'departments' => [],
+                        'positions' => [],
+                        'roleProfileIds' => [],
+                    ],
+                    'completionRules' => [
+                        'attendanceThreshold' => 100,
+                        'assessmentRequired' => true,
+                        'passingScore' => 80,
+                        'issueCertificate' => false,
+                        'certificateValidityMonths' => null,
+                    ],
+                    'relatedLearningCourseId' => $courseId,
+                    'ownerId' => $actor->id,
+                    'competencies' => [],
+                ]);
+                $this->transitionProgram($actor, $program, 'activate');
+                $program->refresh();
+            }
+
+            $sessionIds = [];
+            foreach ($sessionDrafts as $draft) {
+                $session = $this->saveSession($actor, $program, array_merge($draft, [
+                    'capacity' => max(1, $participants->count()),
+                    'status' => 'Scheduled',
+                    'enrollmentClosesAt' => null,
+                ]));
+                $sessionIds[] = $session->id;
+            }
+
+            $this->enroll(
+                $actor,
+                $program,
+                $participants->pluck('id')->all(),
+                $sessionIds,
+                'HR Assignment',
+                'Automatically assigned from the current Learning course enrollment snapshot.',
+            );
+
+            $this->audit->record($actor, 'LearningCourseTrainingScheduled', 'TrainingProgram', $program->id, [
+                'learningCourseId' => $courseId,
+                'sessionCount' => count($sessionIds),
+                'participantCount' => $participants->count(),
+            ]);
+        });
     }
 
     public function saveSession(User $actor, TrainingProgram $program, array $data, ?TrainingSession $session = null): TrainingSession
@@ -1433,7 +1538,23 @@ class TrainingService
         return DB::table('learning_courses')->join('learning_course_versions', 'learning_courses.current_published_version_id', '=', 'learning_course_versions.id')
             ->whereNull('learning_courses.archived_at')->orderBy('learning_course_versions.title')
             ->get(['learning_courses.id', 'learning_courses.code', 'learning_course_versions.id as version_id', 'learning_course_versions.title'])
-            ->map(fn ($row) => ['id' => $row->id, 'versionId' => $row->version_id, 'code' => $row->code, 'title' => $row->title])->all();
+            ->map(function ($row) {
+                $enrolledCount = LearningAssignment::query()
+                    ->where('course_id', $row->id)
+                    ->whereNotIn('status', ['Cancelled', 'Expired'])
+                    ->whereNotNull('learner_id')
+                    ->whereHas('learner', fn ($query) => $query->activePersonnel()->where('role', '!=', UserRole::Admin->value))
+                    ->distinct('learner_id')
+                    ->count('learner_id');
+
+                return [
+                    'id' => $row->id,
+                    'versionId' => $row->version_id,
+                    'code' => $row->code,
+                    'title' => $row->title,
+                    'enrolledCount' => $enrolledCount,
+                ];
+            })->all();
     }
 
     private function personnelSnapshot(User $user): array
